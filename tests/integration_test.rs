@@ -1,11 +1,11 @@
 //! Integration tests
 //!
-//! This file contains integration tests for Quantum Proxy.
+//! This file contains integration tests for Quantum Safe Proxy.
 
-use quantum_proxy::config::ProxyConfig;
-use quantum_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
-use quantum_proxy::common::types::{ConnectionInfo, CertificateInfo};
-use quantum_proxy::common::{check_file_exists, read_file};
+use quantum_safe_proxy::config::ProxyConfig;
+use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
+use quantum_safe_proxy::common::types::{ConnectionInfo, CertificateInfo};
+use quantum_safe_proxy::common::{check_file_exists, read_file};
 use std::path::PathBuf;
 use std::time::SystemTime;
 

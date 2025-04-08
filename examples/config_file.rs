@@ -1,8 +1,8 @@
 //! Configuration file example
 //!
-//! This example demonstrates how to use a configuration file with Quantum Proxy.
+//! This example demonstrates how to use a configuration file with Quantum Safe Proxy.
 
-use quantum_proxy::{Proxy, create_tls_acceptor, Result};
+use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result};
 use std::path::Path;
 use std::fs;
 
@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
     // Initialize logger
     env_logger::init();
     
-    println!("Starting Quantum Proxy with configuration file...");
+    println!("Starting Quantum Safe Proxy with configuration file...");
     
     // Create a configuration file
     let config_content = r#"{
@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
     println!("Created configuration file: {}", config_path);
     
     // Load the configuration
-    let config = quantum_proxy::config::ProxyConfig::from_file(config_path)?;
+    let config = quantum_safe_proxy::config::ProxyConfig::from_file(config_path)?;
     println!("Loaded configuration:");
     println!("  Listen: {}", config.listen);
     println!("  Target: {}", config.target);

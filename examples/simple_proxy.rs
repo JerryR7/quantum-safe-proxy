@@ -1,8 +1,8 @@
 //! 簡單代理示例
 //!
-//! 這個示例展示了如何創建一個簡單的 Quantum Proxy 實例。
+//! 這個示例展示了如何創建一個簡單的 Quantum Safe Proxy 實例。
 
-use quantum_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
+use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
 use std::path::Path;
 
 #[tokio::main]

@@ -29,7 +29,7 @@ use super::cert::is_hybrid_cert;
 ///
 /// ```no_run
 /// # use std::path::Path;
-/// # use quantum_proxy::tls::create_tls_acceptor;
+/// # use quantum_safe_proxy::tls::create_tls_acceptor;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let acceptor = create_tls_acceptor(
 ///     Path::new("certs/server.crt"),

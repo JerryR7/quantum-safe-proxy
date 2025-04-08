@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: quantum-proxy
+  name: quantum-safe-proxy
   labels:
-    app: quantum-proxy
+    app: quantum-safe-proxy
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: quantum-proxy
+      app: quantum-safe-proxy
   template:
     metadata:
       labels:
-        app: quantum-proxy
+        app: quantum-safe-proxy
     spec:
       containers:
-      - name: quantum-proxy
-        image: yourusername/quantum-proxy:latest
+      - name: quantum-safe-proxy
+        image: JerryR7/quantum-safe-proxy:latest
         imagePullPolicy: Always
         args:
           - "--listen"
@@ -58,14 +58,14 @@ spec:
       volumes:
       - name: certs
         secret:
-          secretName: quantum-proxy-certs
+          secretName: quantum-safe-proxy-certs
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: quantum-proxy
+  name: quantum-safe-proxy
   labels:
-    app: quantum-proxy
+    app: quantum-safe-proxy
 spec:
   type: ClusterIP
   ports:
@@ -74,4 +74,4 @@ spec:
     protocol: TCP
     name: https
   selector:
-    app: quantum-proxy
+    app: quantum-safe-proxy

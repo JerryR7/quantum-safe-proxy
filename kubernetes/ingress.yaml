@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: quantum-proxy-ingress
+  name: quantum-safe-proxy-ingress
   annotations:
     kubernetes.io/ingress.class: "nginx"
     nginx.ingress.kubernetes.io/ssl-passthrough: "true"
@@ -15,7 +15,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: quantum-proxy
+            name: quantum-safe-proxy
             port:
               number: 8443
   tls:

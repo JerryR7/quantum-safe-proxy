@@ -1,15 +1,15 @@
-# Quantum Proxy
+# Quantum Safe Proxy
 
-[![Rust](https://github.com/yourusername/quantum-proxy/actions/workflows/rust.yml/badge.svg)](https://github.com/yourusername/quantum-proxy/actions/workflows/rust.yml)
+[![Rust](https://github.com/JerryR7/quantum-safe-proxy/actions/workflows/rust.yml/badge.svg)](https://github.com/JerryR7/quantum-safe-proxy/actions/workflows/rust.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Crates.io](https://img.shields.io/crates/v/quantum-proxy.svg)](https://crates.io/crates/quantum-proxy)
-[![Documentation](https://docs.rs/quantum-proxy/badge.svg)](https://docs.rs/quantum-proxy)
+[![Crates.io](https://img.shields.io/crates/v/quantum-safe-proxy.svg)](https://crates.io/crates/quantum-safe-proxy)
+[![Documentation](https://docs.rs/quantum-safe-proxy/badge.svg)](https://docs.rs/quantum-safe-proxy)
 
 PQC-Enabled Sidecar with Hybrid Certificate Support
 
 ## Overview
 
-**Quantum Proxy** is a lightweight TCP proxy designed to secure long-term proxy connections using **Post-Quantum Cryptography (PQC)** and **hybrid X.509 certificates**. It enables secure mTLS communication through **OpenSSL + oqs-provider**, supporting both traditional and PQC algorithms via hybrid negotiation.
+**Quantum Safe Proxy** is a lightweight TCP proxy designed to secure long-term proxy connections using **Post-Quantum Cryptography (PQC)** and **hybrid X.509 certificates**. It enables secure mTLS communication through **OpenSSL + oqs-provider**, supporting both traditional and PQC algorithms via hybrid negotiation.
 
 ### Key Objectives
 
@@ -26,12 +26,12 @@ graph LR
     end
 
     subgraph Service Side
-        PROXY[Quantum Proxy<br/>Hybrid mTLS Listener → TCP Forwarder]
-        SERVICE[Backend Service<br/>TCP Listener (6000)]
+        PROXY[Quantum Safe Proxy<br/>Hybrid mTLS Listener → TCP Forwarder]
+        SERVICE[Backend Service<br/>TCP Listener （6000）]
     end
 
     AGENT -->|Hybrid mTLS TCP| PROXY
-    PROXY -->|Plain TCP (loopback)| SERVICE
+    PROXY -->|Plain TCP （loopback）| SERVICE
 ```
 
 ## Features
@@ -56,15 +56,15 @@ graph LR
 ### From Crates.io
 
 ```bash
-cargo install quantum-proxy
+cargo install quantum-safe-proxy
 ```
 
 ### From Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/quantum-proxy.git
-cd quantum-proxy
+git clone https://github.com/JerryR7/quantum-safe-proxy.git
+cd quantum-safe-proxy
 
 # Build
 cargo build --release
@@ -74,10 +74,10 @@ cargo build --release
 
 ```bash
 # Pull the image
-docker pull yourusername/quantum-proxy:latest
+docker pull jerryr7/quantum-safe-proxy:latest
 
 # Or build locally
-docker build -t quantum-proxy .
+docker build -t quantum-safe-proxy .
 ```
 
 ## Usage
@@ -85,23 +85,23 @@ docker build -t quantum-proxy .
 ### Basic Usage
 
 ```bash
-quantum-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --cert certs/server.crt --key certs/server.key --ca-cert certs/ca.crt
+quantum-safe-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --cert certs/server.crt --key certs/server.key --ca-cert certs/ca.crt
 ```
 
 ### Using Environment Variables
 
 ```bash
 # Set environment variables
-export QUANTUM_PROXY_LISTEN="0.0.0.0:9443"
-export QUANTUM_PROXY_TARGET="127.0.0.1:7000"
-export QUANTUM_PROXY_CERT="certs/server.crt"
-export QUANTUM_PROXY_KEY="certs/server.key"
-export QUANTUM_PROXY_CA_CERT="certs/ca.crt"
-export QUANTUM_PROXY_LOG_LEVEL="debug"
-export QUANTUM_PROXY_HYBRID_MODE="true"
+export QUANTUM_SAFE_PROXY_LISTEN="0.0.0.0:9443"
+export QUANTUM_SAFE_PROXY_TARGET="127.0.0.1:7000"
+export QUANTUM_SAFE_PROXY_CERT="certs/server.crt"
+export QUANTUM_SAFE_PROXY_KEY="certs/server.key"
+export QUANTUM_SAFE_PROXY_CA_CERT="certs/ca.crt"
+export QUANTUM_SAFE_PROXY_LOG_LEVEL="debug"
+export QUANTUM_SAFE_PROXY_HYBRID_MODE="true"
 
 # Load configuration from environment variables
-quantum-proxy --from-env
+quantum-safe-proxy --from-env
 ```
 
 ### Using Configuration File
@@ -123,7 +123,7 @@ Create a `config.json` file:
 Then run:
 
 ```bash
-quantum-proxy --config-file config.json
+quantum-safe-proxy --config-file config.json
 ```
 
 ### Using Docker
@@ -131,7 +131,7 @@ quantum-proxy --config-file config.json
 ```bash
 docker run -p 8443:8443 \
   -v $(pwd)/certs:/app/certs \
-  yourusername/quantum-proxy:latest \
+  jerryr7/quantum-safe-proxy:latest \
   --listen 0.0.0.0:8443 \
   --target host.docker.internal:6000 \
   --cert /app/certs/server.crt \
@@ -191,7 +191,7 @@ openssl req -x509 -new -newkey oqsdefault -keyout certs/server.key -out certs/se
 ### Project Structure
 
 ```
-quantum-proxy/
+quantum-safe-proxy/
 ├── src/
 │   ├── common/
 │   │   ├── error.rs       # Error handling
@@ -266,8 +266,6 @@ cargo fmt
 cargo clippy
 ```
 
-
-
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
@@ -275,3 +273,4 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for det
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
+`

@@ -1,6 +1,6 @@
-# Contributing to Quantum Proxy
+# Contributing to Quantum Safe Proxy
 
-Thank you for your interest in contributing to Quantum Proxy! This document provides guidelines and instructions for contributing to this project.
+Thank you for your interest in contributing to Quantum Safe Proxy! This document provides guidelines and instructions for contributing to this project.
 
 ## Code of Conduct
 
@@ -52,8 +52,8 @@ When reporting an issue, please include:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/quantum-proxy.git
-   cd quantum-proxy
+   git clone https://github.com/JerryR7/quantum-safe-proxy.git
+   cd quantum-safe-proxy
    ```
 
 2. Install dependencies:

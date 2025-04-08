@@ -1,10 +1,10 @@
 //! Hybrid certificates example
 //!
-//! This example demonstrates how to work with hybrid certificates in Quantum Proxy.
+//! This example demonstrates how to work with hybrid certificates in Quantum Safe Proxy.
 //! It shows how to detect hybrid certificates and display their properties.
 
-use quantum_proxy::{Result, parse_socket_addr};
-use quantum_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
+use quantum_safe_proxy::{Result, parse_socket_addr};
+use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
 use std::path::Path;
 
 #[tokio::main]
@@ -62,7 +62,7 @@ async fn main() -> Result<()> {
     
     println!("\nHybrid Certificate Detection Logic");
     println!("=================================");
-    println!("Quantum Proxy detects hybrid certificates by examining the signature algorithm.");
+    println!("Quantum Safe Proxy detects hybrid certificates by examining the signature algorithm.");
     println!("It looks for algorithms containing any of these strings:");
     println!("  - \"Kyber\" (CRYSTALS-Kyber key encapsulation mechanism)");
     println!("  - \"Dilithium\" (CRYSTALS-Dilithium signature scheme)");

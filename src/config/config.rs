@@ -71,7 +71,7 @@ impl ProxyConfig {
     /// # Example
     ///
     /// ```
-    /// # use quantum_proxy::config::ProxyConfig;
+    /// # use quantum_safe_proxy::config::ProxyConfig;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let config = ProxyConfig::from_args(
     ///     "127.0.0.1:8443",
@@ -131,37 +131,37 @@ impl ProxyConfig {
     /// Load configuration from environment variables
     ///
     /// Uses the following environment variables:
-    /// - `QUANTUM_PROXY_LISTEN` - Listen address
-    /// - `QUANTUM_PROXY_TARGET` - Target service address
-    /// - `QUANTUM_PROXY_CERT` - Server certificate path
-    /// - `QUANTUM_PROXY_KEY` - Server private key path
-    /// - `QUANTUM_PROXY_CA_CERT` - CA certificate path
-    /// - `QUANTUM_PROXY_LOG_LEVEL` - Log level
-    /// - `QUANTUM_PROXY_HYBRID_MODE` - Whether to enable hybrid certificate mode
+    /// - `QUANTUM_SAFE_PROXY_LISTEN` - Listen address
+    /// - `QUANTUM_SAFE_PROXY_TARGET` - Target service address
+    /// - `QUANTUM_SAFE_PROXY_CERT` - Server certificate path
+    /// - `QUANTUM_SAFE_PROXY_KEY` - Server private key path
+    /// - `QUANTUM_SAFE_PROXY_CA_CERT` - CA certificate path
+    /// - `QUANTUM_SAFE_PROXY_LOG_LEVEL` - Log level
+    /// - `QUANTUM_SAFE_PROXY_HYBRID_MODE` - Whether to enable hybrid certificate mode
     ///
     /// # Returns
     ///
     /// Returns the configuration result
     pub fn from_env() -> Result<Self> {
-        let listen = env::var("QUANTUM_PROXY_LISTEN")
+        let listen = env::var("QUANTUM_SAFE_PROXY_LISTEN")
             .unwrap_or_else(|_| "0.0.0.0:8443".to_string());
 
-        let target = env::var("QUANTUM_PROXY_TARGET")
+        let target = env::var("QUANTUM_SAFE_PROXY_TARGET")
             .unwrap_or_else(|_| "127.0.0.1:6000".to_string());
 
-        let cert = env::var("QUANTUM_PROXY_CERT")
+        let cert = env::var("QUANTUM_SAFE_PROXY_CERT")
             .unwrap_or_else(|_| "certs/server.crt".to_string());
 
-        let key = env::var("QUANTUM_PROXY_KEY")
+        let key = env::var("QUANTUM_SAFE_PROXY_KEY")
             .unwrap_or_else(|_| "certs/server.key".to_string());
 
-        let ca_cert = env::var("QUANTUM_PROXY_CA_CERT")
+        let ca_cert = env::var("QUANTUM_SAFE_PROXY_CA_CERT")
             .unwrap_or_else(|_| "certs/ca.crt".to_string());
 
-        let log_level = env::var("QUANTUM_PROXY_LOG_LEVEL")
+        let log_level = env::var("QUANTUM_SAFE_PROXY_LOG_LEVEL")
             .unwrap_or_else(|_| "info".to_string());
 
-        let hybrid_mode = env::var("QUANTUM_PROXY_HYBRID_MODE")
+        let hybrid_mode = env::var("QUANTUM_SAFE_PROXY_HYBRID_MODE")
             .map(|v| v.to_lowercase() == "true")
             .unwrap_or(true);
 
@@ -241,8 +241,8 @@ mod tests {
     #[test]
     fn test_from_env() {
         // Set environment variables
-        env::set_var("QUANTUM_PROXY_LISTEN", "127.0.0.1:9443");
-        env::set_var("QUANTUM_PROXY_TARGET", "127.0.0.1:7000");
+        env::set_var("QUANTUM_SAFE_PROXY_LISTEN", "127.0.0.1:9443");
+        env::set_var("QUANTUM_SAFE_PROXY_TARGET", "127.0.0.1:7000");
 
         // Test loading configuration from environment variables
         let config = ProxyConfig::from_env();
@@ -254,7 +254,7 @@ mod tests {
         }
 
         // Clean up environment variables
-        env::remove_var("QUANTUM_PROXY_LISTEN");
-        env::remove_var("QUANTUM_PROXY_TARGET");
+        env::remove_var("QUANTUM_SAFE_PROXY_LISTEN");
+        env::remove_var("QUANTUM_SAFE_PROXY_TARGET");
     }
 }

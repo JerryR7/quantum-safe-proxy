@@ -5,7 +5,7 @@
 use thiserror::Error;
 use std::io;
 
-/// Quantum Proxy error type
+/// Quantum Safe Proxy error type
 #[derive(Error, Debug)]
 pub enum ProxyError {
     /// IO error

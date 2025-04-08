@@ -1,10 +1,10 @@
 services:
-  quantum-proxy:
+  quantum-safe-proxy:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: quantum-proxy:latest
-    container_name: quantum-proxy
+    image: quantum-safe-proxy:latest
+    container_name: quantum-safe-proxy
     ports:
       - "8443:8443"
     volumes:

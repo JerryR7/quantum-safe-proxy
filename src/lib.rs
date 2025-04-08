@@ -1,4 +1,4 @@
-//! Quantum Proxy: PQC-Enabled Sidecar with Hybrid Certificate Support
+//! Quantum Safe Proxy: PQC-Enabled Sidecar with Hybrid Certificate Support
 //!
 //! This library implements a TCP proxy with support for Post-Quantum Cryptography (PQC)
 //! and hybrid X.509 certificates. It can be deployed as a sidecar to provide PQC protection
@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use quantum_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
+//! use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
 //! use std::path::Path;
 //!
 //! #[tokio::main]

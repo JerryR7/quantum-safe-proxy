@@ -1,10 +1,10 @@
 //! Service integration example
 //!
-//! This example demonstrates how to integrate Quantum Proxy with other services.
+//! This example demonstrates how to integrate Quantum Safe Proxy with other services.
 //! It starts a simple HTTP server as the backend service and then starts
 //! the proxy to forward traffic to it.
 
-use quantum_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
+use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
 use std::path::Path;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
@@ -91,7 +91,7 @@ async fn run_backend_service(addr: SocketAddr) -> Result<()> {
                         "Connection: close\r\n",
                         "\r\n",
                         "Hello from the backend service!\r\n",
-                        "This connection was secured by Quantum Proxy with hybrid certificate support.\r\n"
+                        "This connection was secured by Quantum Safe Proxy with hybrid certificate support.\r\n"
                     );
                     
                     if let Err(e) = socket.write_all(response.as_bytes()).await {

@@ -8,7 +8,7 @@ use log::{info, error, debug};
 use openssl::ssl::SslAcceptor;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 
 use crate::common::{ProxyError, Result};
 use crate::common::types::ConnectionInfo;
@@ -48,7 +48,7 @@ impl Proxy {
     /// ```no_run
     /// # use std::net::SocketAddr;
     /// # use openssl::ssl::SslAcceptor;
-    /// # use quantum_proxy::proxy::Proxy;
+    /// # use quantum_safe_proxy::proxy::Proxy;
     /// # fn main() {
     /// # let tls_acceptor = SslAcceptor::mozilla_modern(openssl::ssl::SslMethod::tls()).unwrap().build();
     /// let proxy = Proxy::new(

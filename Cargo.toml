@@ -1,18 +1,18 @@
 [package]
-name = "quantum-proxy"
+name = "quantum-safe-proxy"
 version = "0.1.0"
 edition = "2021"
 description = "PQC-Enabled Sidecar with Hybrid Certificate Support"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Jerry <vp780412@gmail.com>"]
 license = "MIT"
-repository = "https://github.com/yourusername/quantum-proxy"
+repository = "https://github.com/JerryR7/quantum-safe-proxy"
 keywords = ["proxy", "tls", "pqc", "quantum", "security"]
 categories = ["network-programming", "cryptography"]
 readme = "README.md"
 
 # 主程序入口點
 [[bin]]
-name = "quantum-proxy"
+name = "quantum-safe-proxy"
 path = "src/main.rs"
 
 [dependencies]

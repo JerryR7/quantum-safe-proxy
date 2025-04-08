@@ -1,17 +1,17 @@
-//! Quantum Proxy Command Line Tool
+//! Quantum Safe Proxy Command Line Tool
 //!
-//! This binary is the command-line interface for Quantum Proxy.
+//! This binary is the command-line interface for Quantum Safe Proxy.
 
 use clap::Parser;
 use log::{info, warn};
 
 // Import our library
-use quantum_proxy::{Proxy, create_tls_acceptor, VERSION, APP_NAME};
-use quantum_proxy::common::{Result, init_logger};
-use quantum_proxy::config::ProxyConfig;
-use quantum_proxy::tls::{get_cert_subject, get_cert_fingerprint};
+use quantum_safe_proxy::{Proxy, create_tls_acceptor, VERSION, APP_NAME};
+use quantum_safe_proxy::common::{Result, init_logger};
+use quantum_safe_proxy::config::ProxyConfig;
+use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
 
-/// Quantum Proxy: PQC-Enabled Sidecar with Hybrid Certificate Support
+/// Quantum Safe Proxy: PQC-Enabled Sidecar with Hybrid Certificate Support
 #[derive(Parser, Debug)]
 #[clap(author, version = VERSION, about, long_about = None)]
 struct Args {
