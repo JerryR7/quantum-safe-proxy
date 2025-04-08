@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quantum-proxy
+  labels:
+    app: quantum-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quantum-proxy
+  template:
+    metadata:
+      labels:
+        app: quantum-proxy
+    spec:
+      containers:
+      - name: quantum-proxy
+        image: yourusername/quantum-proxy:latest
+        imagePullPolicy: Always
+        args:
+          - "--listen"
+          - "0.0.0.0:8443"
+          - "--target"
+          - "backend-service:6000"
+          - "--cert"
+          - "/app/certs/server.crt"
+          - "--key"
+          - "/app/certs/server.key"
+          - "--ca-cert"
+          - "/app/certs/ca.crt"
+          - "--log-level"
+          - "info"
+        ports:
+        - containerPort: 8443
+          name: https
+        volumeMounts:
+        - name: certs
+          mountPath: /app/certs
+          readOnly: true
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        livenessProbe:
+          tcpSocket:
+            port: 8443
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 8443
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: certs
+        secret:
+          secretName: quantum-proxy-certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quantum-proxy
+  labels:
+    app: quantum-proxy
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8443
+    targetPort: 8443
+    protocol: TCP
+    name: https
+  selector:
+    app: quantum-proxy

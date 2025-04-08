@@ -1,0 +1,6 @@
+# Clippy 配置
+cognitive-complexity-threshold = 25
+too-many-arguments-threshold = 8
+type-complexity-threshold = 250
+enum-variant-size-threshold = 200
+doc-valid-idents = ["OAuth", "TLS", "SSL", "TCP", "UDP", "PQC", "mTLS", "Kyber", "ECDSA", "Dilithium"]

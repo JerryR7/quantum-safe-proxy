@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+Cargo.lock
+.env
+/certs/*.crt
+/certs/*.key
+/certs/*.pem
+/certs/*.csr
+.idea

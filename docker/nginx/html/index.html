@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Quantum Proxy Backend Service</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .success {
+            color: #2c7;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Quantum Proxy Backend Service</h1>
+    
+    <div class="container">
+        <h2>Connection Successful!</h2>
+        <p>If you're seeing this page, it means:</p>
+        <ul>
+            <li>The backend service is running correctly</li>
+            <li>Quantum Proxy successfully forwarded your request</li>
+            <li>The TLS connection was properly terminated</li>
+        </ul>
+        <p class="success">Your connection is secured with hybrid certificate technology!</p>
+    </div>
+    
+    <div class="container">
+        <h2>About Quantum Proxy</h2>
+        <p>Quantum Proxy is a lightweight TCP proxy designed to secure long-term proxy connections using Post-Quantum Cryptography (PQC) and hybrid X.509 certificates.</p>
+        <p>It enables secure mTLS communication through OpenSSL + oqs-provider, supporting both traditional and PQC algorithms via hybrid negotiation.</p>
+    </div>
+</body>
+</html>

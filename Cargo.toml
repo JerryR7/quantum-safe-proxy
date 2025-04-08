@@ -1,0 +1,59 @@
+[package]
+name = "quantum-proxy"
+version = "0.1.0"
+edition = "2021"
+description = "PQC-Enabled Sidecar with Hybrid Certificate Support"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+repository = "https://github.com/yourusername/quantum-proxy"
+keywords = ["proxy", "tls", "pqc", "quantum", "security"]
+categories = ["network-programming", "cryptography"]
+readme = "README.md"
+
+# 主程序入口點
+[[bin]]
+name = "quantum-proxy"
+path = "src/main.rs"
+
+[dependencies]
+# 異步運行時
+tokio = { version = "1.44.2", features = ["full"] }
+
+# TLS 和 OpenSSL 支援
+openssl = "0.10.72"
+tokio-openssl = "0.6.5"
+
+# 日誌記錄
+log = "0.4.27"
+env_logger = "0.11.3"
+
+# 命令行參數解析
+clap = { version = "4.5.35", features = ["derive"] }
+
+# 配置文件處理
+config = "0.15.11"
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = "1.0.114"
+
+# 錯誤處理
+thiserror = "1.0.58"
+anyhow = "1.0.81"
+
+[dev-dependencies]
+# 測試工具
+mockall = "0.12.1"
+serial_test = "3.0.0"
+tempfile = "3.10.1"
+
+[profile.release]
+# 發布模式優化
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+# 開發模式優化
+opt-level = 0
+debug = true
