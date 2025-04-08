@@ -1,23 +1,24 @@
-# Quantum Safe Proxy
+# Quantum Safe Proxy: PQC-Enabled Sidecar with Hybrid Certificate Support
 
 [![Rust](https://github.com/JerryR7/quantum-safe-proxy/actions/workflows/rust.yml/badge.svg)](https://github.com/JerryR7/quantum-safe-proxy/actions/workflows/rust.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Crates.io](https://img.shields.io/crates/v/quantum-safe-proxy.svg)](https://crates.io/crates/quantum-safe-proxy)
 [![Documentation](https://docs.rs/quantum-safe-proxy/badge.svg)](https://docs.rs/quantum-safe-proxy)
 
-PQC-Enabled Sidecar with Hybrid Certificate Support
+## 1. Overview
 
-## Overview
+**Quantum Safe Proxy** is a lightweight TCP proxy designed to secure long-lived connections using **Post-Quantum Cryptography (PQC)** with **hybrid X.509 certificates**. It enables secure mTLS communication via **OpenSSL + oqs-provider**, supporting both traditional and quantum-resistant algorithms through hybrid negotiation.
 
-**Quantum Safe Proxy** is a lightweight TCP proxy designed to secure long-term proxy connections using **Post-Quantum Cryptography (PQC)** and **hybrid X.509 certificates**. It enables secure mTLS communication through **OpenSSL + oqs-provider**, supporting both traditional and PQC algorithms via hybrid negotiation.
+### Key Goals
 
-### Key Objectives
+- Enable secure communication using **hybrid PQC + classical certificates** (e.g., Kyber + ECDSA)
+- Support both PQC-capable and legacy clients transparently
+- Deployable as a **sidecar proxy** with no modifications required to existing services
+- Provide future-proof security against quantum computing threats
 
-- Secure communications using **hybrid PQC + traditional certificates** (e.g., Kyber + ECDSA)
-- Transparent support for both PQC-capable and traditional clients
-- Deployable as a **sidecar proxy** without modifying existing services
+## 2. Architecture
 
-## Architecture
+### Architecture Diagram
 
 ```mermaid
 graph LR
@@ -34,24 +35,35 @@ graph LR
     PROXY -->|Plain TCP （loopback）| SERVICE
 ```
 
-## Features
+### How It Works
+
+1. **Client Connection**: Clients connect to the proxy using TLS with hybrid certificates
+2. **TLS Termination**: Proxy performs TLS handshake with hybrid certificate support
+3. **Certificate Validation**: Mutual TLS authentication with client certificate verification
+4. **Traffic Forwarding**: Decrypted traffic is forwarded to the backend service
+5. **Response Handling**: Responses from the service are encrypted and sent back to the client
+
+## 3. Key Features
 
 - **Hybrid Certificate Support**: Seamlessly works with hybrid X.509 certificates (Kyber + ECDSA)
+- **Quantum-Safe Algorithms**: Support for post-quantum algorithms like Kyber and Dilithium
 - **Transparent PQC Integration**: Handles both PQC and traditional clients
-- **Efficient TCP Proxying**: High-performance data forwarding
+- **Efficient TCP Proxying**: High-performance data forwarding with Tokio async runtime
 - **Complete mTLS Support**: Client and server certificate validation
 - **Flexible Configuration**: Command-line arguments, environment variables, and config files
 - **Containerized Deployment**: Docker, docker-compose, and Kubernetes support
 
-## Technology Stack
+## 4. Technology Stack
 
-- **Language**: Rust
-- **TLS Library**: OpenSSL with oqs-provider (hybrid certificate support)
-- **Proxy Runtime**: tokio + tokio-openssl
-- **Deployment**: Docker / Kubernetes / Systemd sidecar mode
-- **Certificate Tools**: OQS OpenSSL CLI (hybrid CSR and certificates)
+| Component | Technology |
+|-----------|------------|
+| **Language** | Rust |
+| **TLS Library** | OpenSSL with oqs-provider (hybrid certificate support) |
+| **Proxy Runtime** | tokio + tokio-openssl |
+| **Deployment** | Docker / Kubernetes / Systemd sidecar mode |
+| **Certificate Tools** | OQS OpenSSL CLI (hybrid CSR and certificates) |
 
-## Installation
+## 5. Installation
 
 ### From Crates.io
 
@@ -80,7 +92,7 @@ docker pull jerryr7/quantum-safe-proxy:latest
 docker build -t quantum-safe-proxy .
 ```
 
-## Usage
+## 6. Usage
 
 ### Basic Usage
 
@@ -147,19 +159,35 @@ docker-compose up -d
 
 ### Command-line Options
 
-- `--listen`: Listen address (default: 0.0.0.0:8443)
-- `--target`: Target service address (default: 127.0.0.1:6000)
-- `--cert`: Server certificate path (default: certs/server.crt)
-- `--key`: Server private key path (default: certs/server.key)
-- `--ca-cert`: CA certificate path (default: certs/ca.crt)
-- `--log-level`: Log level (default: info)
-- `--hybrid-mode`: Enable hybrid certificate mode
-- `--from-env`: Load configuration from environment variables
-- `--config-file`: Load configuration from specified file
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--listen` | Listen address | 0.0.0.0:8443 |
+| `--target` | Target service address | 127.0.0.1:6000 |
+| `--cert` | Server certificate path | certs/server.crt |
+| `--key` | Server private key path | certs/server.key |
+| `--ca-cert` | CA certificate path | certs/ca.crt |
+| `--log-level` | Log level (debug, info, warn, error) | info |
+| `--hybrid-mode` | Enable hybrid certificate mode | true |
+| `--from-env` | Load configuration from environment variables | - |
+| `--config-file` | Load configuration from specified file | - |
 
-## Hybrid Certificate Generation
+## 7. Hybrid Certificate Support
 
-Hybrid certificates require the OQS OpenSSL fork and oqs-provider.
+Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL with the [OQS-provider](https://github.com/open-quantum-safe/oqs-provider). This allows the server to accept connections from both PQC-enabled and traditional clients.
+
+### Supported Algorithms
+
+| Type | Algorithms |
+|------|------------|
+| **Key Exchange** | Kyber (NIST PQC standard) |
+| **Signatures** | Dilithium (NIST PQC standard) |
+| **Classical Fallback** | ECDSA, RSA |
+
+### TLS Handshake Behavior
+
+- During TLS handshake, the server advertises hybrid capabilities
+- Clients with PQC support negotiate using quantum-resistant algorithms
+- Legacy clients fall back to classical algorithms
 
 ### Installing OQS OpenSSL
 
@@ -186,49 +214,84 @@ openssl req -x509 -new -newkey oqsdefault -keyout certs/server.key -out certs/se
     -config openssl-hybrid.conf -nodes -days 365
 ```
 
-## Development
+### Example OpenSSL Configuration
+
+```ini
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+CN = quantum-safe-proxy.local
+O = Quantum Safe Proxy
+OU = Security
+C = TW
+
+[v3_req]
+subjectAltName = @alt_names
+keyUsage = keyEncipherment, digitalSignature
+extendedKeyUsage = serverAuth, clientAuth
+
+[alt_names]
+DNS.1 = quantum-safe-proxy.local
+DNS.2 = localhost
+IP.1 = 127.0.0.1
+```
+
+## 8. Implementation Details
+
+### Certificate Validation Logic
+
+Quantum Safe Proxy, built on **tokio-openssl**, performs mutual TLS with hybrid certificates:
+- Accepts client connections with PQC or classical certificates
+- Verifies signatures using appropriate algorithms
+- Performs key exchange using hybrid parameters
+- Logs certificate information and connection details
 
 ### Project Structure
 
 ```
 quantum-safe-proxy/
 ├── src/
-│   ├── common/
+│   ├── common/            # Shared utilities
 │   │   ├── error.rs       # Error handling
 │   │   ├── fs.rs          # File system utilities
 │   │   ├── log.rs         # Logging utilities
 │   │   ├── net.rs         # Network utilities
 │   │   ├── types.rs       # Shared types
 │   │   └── mod.rs         # Re-exports
-│   ├── config/
+│   ├── config/            # Configuration handling
 │   │   ├── config.rs      # Configuration structures
 │   │   └── mod.rs         # Re-exports
-│   ├── proxy/
-│   │   ├── server.rs      # Proxy server
+│   ├── proxy/             # Core proxy functionality
+│   │   ├── server.rs      # Proxy server implementation
 │   │   ├── handler.rs     # Connection handler
-│   │   ├── forwarder.rs   # Data forwarding
+│   │   ├── forwarder.rs   # Data forwarding logic
 │   │   └── mod.rs         # Re-exports
-│   ├── tls/
-│   │   ├── acceptor.rs    # TLS acceptor
-│   │   ├── cert.rs        # Certificate handling
+│   ├── tls/               # TLS and certificate handling
+│   │   ├── acceptor.rs    # TLS acceptor creation
+│   │   ├── cert.rs        # Certificate operations
 │   │   └── mod.rs         # Re-exports
 │   ├── main.rs            # Main entry point
 │   └── lib.rs             # Library entry point
-├── tests/
+├── tests/                 # Test suite
 │   └── integration_test.rs # Integration tests
-├── examples/
+├── examples/              # Example applications
 │   ├── simple_proxy.rs     # Basic proxy example
 │   ├── config_file.rs      # Config file example
 │   ├── env_vars.rs         # Environment variables example
 │   └── hybrid_certs.rs     # Hybrid certificate example
-├── docker/
+├── docker/                # Container configurations
 │   ├── Dockerfile          # Docker image definition
 │   └── docker-compose.yml  # Docker Compose configuration
-├── kubernetes/
+├── kubernetes/            # Kubernetes deployment
 │   ├── deployment.yaml     # Kubernetes deployment
 │   └── service.yaml        # Kubernetes service
-└── certs/                  # Certificate directory
+└── certs/                 # Certificate directory
 ```
+
+## 9. Development and Testing
 
 ### Running Tests
 
@@ -246,12 +309,6 @@ cargo test --test integration_test
 # Run the simple proxy example
 cargo run --example simple_proxy
 
-# Run the config file example
-cargo run --example config_file
-
-# Run the environment variables example
-cargo run --example env_vars
-
 # Run the hybrid certificates example
 cargo run --example hybrid_certs
 ```
@@ -266,6 +323,23 @@ cargo fmt
 cargo clippy
 ```
 
+## 10. Use Cases
+
+| Scenario | Description |
+|----------|-------------|
+| **Legacy System Integration** | Secure legacy systems without modifying their code |
+| **Quantum-Safe Transition** | Gradually transition to PQC without disrupting services |
+| **Zero-Trust Security** | Enhance mTLS with quantum-resistant algorithms |
+| **Long-Term Data Protection** | Protect sensitive data against future quantum threats |
+
+## 11. Future Roadmap
+
+- Auto-certificate rotation via REST API
+- Hybrid client metrics and handshake logs
+- WASM-based certificate authorization plugin
+- PQC-only mode with Kyber + Dilithium enforcement
+- Performance optimizations for high-throughput scenarios
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
@@ -273,4 +347,3 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for det
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
-`
