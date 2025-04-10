@@ -48,6 +48,9 @@ graph LR
 - **Hybrid Certificate Support**: Seamlessly works with hybrid X.509 certificates (Kyber + ECDSA)
 - **Quantum-Safe Algorithms**: Support for post-quantum algorithms like Kyber and Dilithium
 - **Transparent PQC Integration**: Handles both PQC and traditional clients
+- **Automatic Provider Detection**: Automatically detects and uses OQS-OpenSSL when available
+- **Environment Diagnostics**: Provides tools to check and diagnose the cryptographic environment
+- **Docker Integration**: Pre-built Docker images with OQS-OpenSSL included
 - **Efficient TCP Proxying**: High-performance data forwarding with Tokio async runtime
 - **Complete mTLS Support**: Client and server certificate validation
 - **Flexible Configuration**: Command-line arguments, environment variables, and config files
@@ -140,15 +143,32 @@ quantum-safe-proxy --config-file config.json
 
 ### Using Docker
 
+#### Standard Docker Image
+
 ```bash
 docker run -p 8443:8443 \
   -v $(pwd)/certs:/app/certs \
   jerryr7/quantum-safe-proxy:latest \
   --listen 0.0.0.0:8443 \
-  --target host.docker.internal:6000 \
-  --cert /app/certs/server.crt \
-  --key /app/certs/server.key \
-  --ca-cert /app/certs/ca.crt
+```
+
+#### Docker Image with OQS-OpenSSL (Post-Quantum Support)
+
+```bash
+docker run -p 8443:8443 \
+  -v $(pwd)/certs:/app/certs \
+  jerryr7/quantum-safe-proxy:oqs \
+  --listen 0.0.0.0:8443 \
+```
+
+#### Using Docker Compose
+
+```bash
+# Start the proxy with docker-compose
+docker-compose up -d
+
+# Check the logs
+docker-compose logs -f
 ```
 
 ### Using docker-compose
@@ -190,6 +210,18 @@ Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL with the
 - Legacy clients fall back to classical algorithms
 
 ### Installing OQS OpenSSL
+
+#### Using the Installation Script
+
+```bash
+# Run the installation script
+./scripts/install-oqs.sh
+
+# Source the environment variables
+source /opt/oqs-openssl/env.sh
+```
+
+#### Manual Installation
 
 ```bash
 # Clone the OQS OpenSSL repository
@@ -269,6 +301,14 @@ quantum-safe-proxy/
 │   │   ├── handler.rs     # Connection handler
 │   │   ├── forwarder.rs   # Data forwarding logic
 │   │   └── mod.rs         # Re-exports
+│   ├── crypto/            # Cryptographic operations
+│   │   ├── provider/       # Cryptographic providers
+│   │   │   ├── standard.rs # Standard OpenSSL provider
+│   │   │   ├── oqs.rs      # OQS-OpenSSL provider
+│   │   │   ├── factory.rs  # Provider factory
+│   │   │   ├── environment.rs # Environment detection
+│   │   │   └── mod.rs      # Provider trait and types
+│   │   └── mod.rs          # Re-exports
 │   ├── tls/               # TLS and certificate handling
 │   │   ├── acceptor.rs    # TLS acceptor creation
 │   │   ├── cert.rs        # Certificate operations
@@ -283,8 +323,11 @@ quantum-safe-proxy/
 │   ├── env_vars.rs         # Environment variables example
 │   └── hybrid_certs.rs     # Hybrid certificate example
 ├── docker/                # Container configurations
-│   ├── Dockerfile          # Docker image definition
+│   ├── Dockerfile          # Standard Docker image definition
+│   ├── Dockerfile.oqs      # Docker image with OQS-OpenSSL
 │   └── docker-compose.yml  # Docker Compose configuration
+├── scripts/               # Utility scripts
+│   └── install-oqs.sh      # OQS-OpenSSL installation script
 ├── kubernetes/            # Kubernetes deployment
 │   ├── deployment.yaml     # Kubernetes deployment
 │   └── service.yaml        # Kubernetes service
@@ -339,6 +382,9 @@ cargo clippy
 - WASM-based certificate authorization plugin
 - PQC-only mode with Kyber + Dilithium enforcement
 - Performance optimizations for high-throughput scenarios
+- Enhanced OQS integration with more PQC algorithms
+- Certificate chain validation with hybrid certificates
+- Automatic OQS-OpenSSL detection and configuration
 
 ## Contributing
 

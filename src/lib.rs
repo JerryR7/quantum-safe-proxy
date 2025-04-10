@@ -47,6 +47,7 @@
 // Public modules
 pub mod common;
 pub mod config;
+pub mod crypto;
 pub mod proxy;
 pub mod tls;
 

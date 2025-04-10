@@ -1,0 +1,73 @@
+# Quantum Safe Proxy with OQS-OpenSSL
+# This Dockerfile builds a Docker image with OQS-OpenSSL pre-installed
+
+# Build stage
+FROM rust:1.70-slim-bullseye as builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    build-essential \
+    cmake \
+    libssl-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install OQS-OpenSSL
+WORKDIR /opt
+RUN git clone --branch OQS-OpenSSL_1_1_1-stable https://github.com/open-quantum-safe/openssl.git oqs-openssl-src \
+    && cd oqs-openssl-src \
+    && ./config --prefix=/opt/oqs-openssl shared \
+    && make -j$(nproc) \
+    && make install
+
+# Set environment variables for OQS-OpenSSL
+ENV PATH="/opt/oqs-openssl/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/opt/oqs-openssl/lib:${LD_LIBRARY_PATH}"
+ENV OQS_OPENSSL_PATH="/opt/oqs-openssl"
+ENV OPENSSL_DIR="/opt/oqs-openssl"
+ENV OPENSSL_LIB_DIR="/opt/oqs-openssl/lib"
+ENV OPENSSL_INCLUDE_DIR="/opt/oqs-openssl/include"
+
+# Copy source code
+WORKDIR /app
+COPY . .
+
+# Build the application
+RUN cargo build --release
+
+# Runtime stage
+FROM debian:bullseye-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl1.1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy OQS-OpenSSL from builder
+COPY --from=builder /opt/oqs-openssl /opt/oqs-openssl
+
+# Set environment variables for OQS-OpenSSL
+ENV PATH="/opt/oqs-openssl/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/opt/oqs-openssl/lib:${LD_LIBRARY_PATH}"
+ENV OQS_OPENSSL_PATH="/opt/oqs-openssl"
+
+# Copy the built application
+COPY --from=builder /app/target/release/quantum-safe-proxy /usr/local/bin/
+COPY --from=builder /app/target/release/check-environment /usr/local/bin/
+
+# Create directory for certificates
+RUN mkdir -p /app/certs
+
+# Set working directory
+WORKDIR /app
+
+# Expose ports
+EXPOSE 8443
+
+# Set entrypoint
+ENTRYPOINT ["quantum-safe-proxy"]
+
+# Default command
+CMD ["--help"]

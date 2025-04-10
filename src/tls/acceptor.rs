@@ -7,6 +7,7 @@ use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype, SslVerifyMode};
 use std::path::Path;
 
 use crate::common::{ProxyError, Result};
+use crate::crypto::provider::{CryptoProvider, ProviderType, create_provider};
 use super::cert::is_hybrid_cert;
 
 /// Create a TLS acceptor with support for hybrid certificates
@@ -44,9 +45,12 @@ pub fn create_tls_acceptor(
     key_path: &Path,
     ca_cert_path: &Path,
 ) -> Result<SslAcceptor> {
+    // Create a crypto provider (auto-select the best available)
+    let provider = create_provider(ProviderType::Auto)?;
+
     // Create TLS acceptor
     let mut acceptor = SslAcceptor::mozilla_modern(SslMethod::tls())
-        .map_err(ProxyError::Ssl)?;
+        .map_err(|e| ProxyError::Certificate(format!("Failed to create SSL acceptor: {}", e)))?;
 
     // Set server certificate and private key
     acceptor.set_certificate_file(cert_path, SslFiletype::PEM)
@@ -61,13 +65,30 @@ pub fn create_tls_acceptor(
     acceptor.set_ca_file(ca_cert_path)
         .map_err(|e| ProxyError::Certificate(format!("Failed to set CA certificate: {}", e)))?;
 
-    // Check if certificate is a hybrid certificate
-    if let Ok(is_hybrid) = is_hybrid_cert(cert_path) {
+    // Check if certificate is a hybrid certificate using the provider
+    if let Ok(is_hybrid) = provider.is_hybrid_cert(cert_path) {
         if is_hybrid {
-            info!("Hybrid certificate mode enabled");
+            info!("Hybrid certificate mode enabled (using {})", provider.name());
         } else {
-            warn!("Using traditional certificate, not hybrid");
+            warn!("Using traditional certificate, not hybrid (using {})", provider.name());
         }
+    }
+
+    // Log provider capabilities
+    let capabilities = provider.capabilities();
+    if capabilities.supports_pqc {
+        info!("Post-quantum cryptography support is available");
+        if !capabilities.supported_key_exchange.is_empty() {
+            let pqc_algos = capabilities.supported_key_exchange.iter()
+                .filter(|alg| alg.contains("Kyber") || alg.contains("NTRU"))
+                .cloned().collect::<Vec<_>>();
+
+            if !pqc_algos.is_empty() {
+                info!("Supported PQC key exchange algorithms: {}", pqc_algos.join(", "));
+            }
+        }
+    } else {
+        warn!("Post-quantum cryptography support is NOT available");
     }
 
     // Build the acceptor

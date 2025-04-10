@@ -9,12 +9,15 @@ use openssl::hash::MessageDigest;
 use std::path::Path;
 
 use crate::common::{ProxyError, Result, read_file};
+use crate::crypto::provider::{CryptoProvider, ProviderType, create_provider};
 
 /// Check if a certificate is a hybrid certificate
 ///
 /// Hybrid certificates combine traditional algorithms (like ECDSA or RSA) with
 /// post-quantum algorithms (like Kyber, Dilithium, etc.) to provide security
 /// against both classical and quantum computer attacks.
+///
+/// This function uses the best available crypto provider to detect hybrid certificates.
 ///
 /// # Parameters
 ///
@@ -28,33 +31,21 @@ use crate::common::{ProxyError, Result, read_file};
 ///
 /// Returns an error if the certificate cannot be read or parsed.
 pub fn is_hybrid_cert(cert_path: &Path) -> Result<bool> {
-    // Read certificate file
-    let cert_data = read_file(cert_path)
-        .map_err(|e| ProxyError::Certificate(format!("Failed to read certificate file: {}", e)))?;
+    // Create a crypto provider (auto-select the best available)
+    let provider = create_provider(ProviderType::Auto)?;
 
-    // Parse certificate
-    let cert = X509::from_pem(&cert_data)
-        .map_err(|e| ProxyError::Certificate(format!("Failed to parse certificate: {}", e)))?;
+    // Use the provider to check if the certificate is hybrid
+    let is_hybrid = provider.is_hybrid_cert(cert_path)?;
 
-    // Get signature algorithm
-    let signature_algorithm = cert.signature_algorithm().object();
-
-    // Get signature algorithm name
-    let algorithm_name = signature_algorithm.to_string();
-    debug!("Certificate signature algorithm: {}", algorithm_name);
-
-    // Check if it's a hybrid certificate
-    // Note: This detection logic should be adjusted based on the actual PQC algorithms in use
-    // Currently we're simply checking if the algorithm name contains specific strings
-    let is_hybrid = algorithm_name.contains("Kyber") ||
-                   algorithm_name.contains("Dilithium") ||
-                   algorithm_name.contains("oqs") ||
-                   algorithm_name.contains("hybrid");
+    // Log the provider used
+    debug!("Checked certificate using {} provider", provider.name());
 
     Ok(is_hybrid)
 }
 
 /// Get certificate subject information
+///
+/// This function uses the best available crypto provider to get certificate subject information.
 ///
 /// # Parameters
 ///
@@ -68,23 +59,18 @@ pub fn is_hybrid_cert(cert_path: &Path) -> Result<bool> {
 ///
 /// Returns an error if the certificate cannot be read or parsed.
 pub fn get_cert_subject(cert_path: &Path) -> Result<String> {
-    // Read certificate file
-    let cert_data = read_file(cert_path)
-        .map_err(|e| ProxyError::Certificate(format!("Failed to read certificate file: {}", e)))?;
+    // Create a crypto provider (auto-select the best available)
+    let provider = create_provider(ProviderType::Auto)?;
 
-    // Parse certificate
-    let cert = X509::from_pem(&cert_data)
-        .map_err(|e| ProxyError::Certificate(format!("Failed to parse certificate: {}", e)))?;
+    // Use the provider to get certificate subject
+    let subject = provider.get_cert_subject(cert_path)?;
 
-    // Get subject
-    let subject = cert.subject_name();
-    // Convert X509NameRef to string
-    let subject_str = format!("{:?}", subject);
-
-    Ok(subject_str)
+    Ok(subject)
 }
 
 /// Get certificate fingerprint
+///
+/// This function uses the best available crypto provider to get certificate fingerprint.
 ///
 /// # Parameters
 ///
@@ -98,28 +84,18 @@ pub fn get_cert_subject(cert_path: &Path) -> Result<String> {
 ///
 /// Returns an error if the certificate cannot be read or parsed.
 pub fn get_cert_fingerprint(cert_path: &Path) -> Result<String> {
-    // Read certificate file
-    let cert_data = read_file(cert_path)
-        .map_err(|e| ProxyError::Certificate(format!("Failed to read certificate file: {}", e)))?;
+    // Create a crypto provider (auto-select the best available)
+    let provider = create_provider(ProviderType::Auto)?;
 
-    // Parse certificate
-    let cert = X509::from_pem(&cert_data)
-        .map_err(|e| ProxyError::Certificate(format!("Failed to parse certificate: {}", e)))?;
+    // Use the provider to get certificate fingerprint
+    let fingerprint = provider.get_cert_fingerprint(cert_path)?;
 
-    // Calculate SHA-256 fingerprint
-    let fingerprint = cert.digest(MessageDigest::sha256())
-        .map_err(|e| ProxyError::Certificate(format!("Failed to calculate certificate fingerprint: {}", e)))?;
-
-    // Convert to hexadecimal string
-    let fingerprint_hex = fingerprint.iter()
-        .map(|b| format!("{:02x}", b))
-        .collect::<Vec<String>>()
-        .join(":");
-
-    Ok(fingerprint_hex)
+    Ok(fingerprint)
 }
 
 /// Load certificate from PEM file
+///
+/// This function uses the best available crypto provider to load a certificate.
 ///
 /// # Parameters
 ///
@@ -133,13 +109,11 @@ pub fn get_cert_fingerprint(cert_path: &Path) -> Result<String> {
 ///
 /// Returns an error if the certificate cannot be read or parsed.
 pub fn load_cert(cert_path: &Path) -> Result<X509> {
-    // Read certificate file
-    let cert_data = read_file(cert_path)
-        .map_err(|e| ProxyError::Certificate(format!("Failed to read certificate file: {}", e)))?;
+    // Create a crypto provider (auto-select the best available)
+    let provider = create_provider(ProviderType::Auto)?;
 
-    // Parse certificate
-    let cert = X509::from_pem(&cert_data)
-        .map_err(|e| ProxyError::Certificate(format!("Failed to parse certificate: {}", e)))?;
+    // Use the provider to load certificate
+    let cert = provider.load_cert(cert_path)?;
 
     Ok(cert)
 }
