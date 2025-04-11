@@ -56,31 +56,32 @@ pub struct EnvironmentIssue {
 pub fn check_environment() -> EnvironmentInfo {
     // Check if OQS is available
     let oqs_available = is_oqs_available();
-    
+
     // Get OpenSSL version
     let openssl_version = get_openssl_version();
-    
+
     // Determine supported providers
     let mut supported_providers = vec![ProviderType::Standard];
     if oqs_available {
         supported_providers.push(ProviderType::Oqs);
     }
     supported_providers.push(ProviderType::Auto);
-    
+
     // Get available PQC algorithms
     let available_pqc_algorithms = if oqs_available {
         get_available_pqc_algorithms()
     } else {
         Vec::new()
     };
-    
+
     // Get OQS path
     let oqs_path = if oqs_available {
-        unsafe { super::factory::OQS_PATH.clone() }
+        // Access OQS_PATH through a public function
+        super::factory::get_oqs_path()
     } else {
         None
     };
-    
+
     EnvironmentInfo {
         openssl_version,
         oqs_available,
@@ -100,7 +101,7 @@ pub fn check_environment() -> EnvironmentInfo {
 /// A list of environment issues
 pub fn diagnose_environment() -> Vec<EnvironmentIssue> {
     let mut issues = Vec::new();
-    
+
     // Check OpenSSL
     let openssl_version = get_openssl_version();
     if openssl_version.is_empty() {
@@ -116,7 +117,7 @@ pub fn diagnose_environment() -> Vec<EnvironmentIssue> {
             resolution: None,
         });
     }
-    
+
     // Check OQS-OpenSSL
     if is_oqs_available() {
         issues.push(EnvironmentIssue {
@@ -124,7 +125,7 @@ pub fn diagnose_environment() -> Vec<EnvironmentIssue> {
             message: "OQS-OpenSSL is available".to_string(),
             resolution: None,
         });
-        
+
         // Check available PQC algorithms
         let algorithms = get_available_pqc_algorithms();
         if algorithms.is_empty() {
@@ -147,7 +148,7 @@ pub fn diagnose_environment() -> Vec<EnvironmentIssue> {
             resolution: Some("Install OQS-OpenSSL for post-quantum support".to_string()),
         });
     }
-    
+
     // Check environment variables
     if std::env::var("OQS_OPENSSL_PATH").is_err() {
         issues.push(EnvironmentIssue {
@@ -156,7 +157,7 @@ pub fn diagnose_environment() -> Vec<EnvironmentIssue> {
             resolution: Some("Set OQS_OPENSSL_PATH to the OQS-OpenSSL installation directory".to_string()),
         });
     }
-    
+
     issues
 }
 
@@ -170,7 +171,7 @@ fn get_openssl_version() -> String {
     let output = Command::new("openssl")
         .arg("version")
         .output();
-        
+
     match output {
         Ok(output) if output.status.success() => {
             String::from_utf8_lossy(&output.stdout).trim().to_string()
@@ -189,10 +190,10 @@ fn get_openssl_version() -> String {
 /// A list of available post-quantum algorithms
 fn get_available_pqc_algorithms() -> Vec<String> {
     let mut algorithms = Vec::new();
-    
+
     // This is a simplified implementation
     // A real implementation would query OQS-OpenSSL for available algorithms
-    
+
     // Check for common PQC algorithms
     let common_algorithms = [
         "Kyber512", "Kyber768", "Kyber1024",
@@ -200,11 +201,11 @@ fn get_available_pqc_algorithms() -> Vec<String> {
         "Falcon512", "Falcon1024",
         "SPHINCS+-SHA256-128s", "SPHINCS+-SHA256-192s", "SPHINCS+-SHA256-256s",
     ];
-    
+
     // For now, just return common algorithms if OQS is available
     if is_oqs_available() {
         algorithms.extend(common_algorithms.iter().map(|s| s.to_string()));
     }
-    
+
     algorithms
 }

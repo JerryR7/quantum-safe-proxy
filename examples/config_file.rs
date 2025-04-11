@@ -3,7 +3,6 @@
 //! This example demonstrates how to use a configuration file with Quantum Safe Proxy.
 
 use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result};
-use std::path::Path;
 use std::fs;
 
 #[tokio::main]

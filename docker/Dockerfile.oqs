@@ -6,7 +6,7 @@ ARG LIBOQS_TAG=0.12.0
 ARG OQSPROVIDER_TAG=0.8.0
 ARG INSTALLDIR=/opt/oqs
 
-FROM rust:1.86.0-slim-bullseye as builder
+FROM rust:1.86.0-slim-bullseye AS builder
 ARG BUILD_CONFIGURATION=Release
 
 ARG OPENSSL_TAG
@@ -21,7 +21,8 @@ LABEL description="OpenSSL with OQS Provider for post-quantum cryptography"
 
 # Install essential build dependencies and set up directories in one layer
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libtool automake autoconf make cmake ninja-build git \
+    build-essential libtool automake autoconf make cmake ninja-build git pkg-config \
+    libssl-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && mkdir -p src/liboqs src/openssl src/oqs-provider \
        build/liboqs build/openssl build/oqs-provider \
@@ -41,7 +42,19 @@ RUN cmake -G Ninja /opt/src/liboqs -D CMAKE_INSTALL_PREFIX=${INSTALLDIR}/liboqs 
 # Build OpenSSL integrated with liboqs
 WORKDIR /opt/build/openssl
 RUN LDFLAGS="-Wl,-rpath,${INSTALLDIR}/liboqs/lib" /opt/src/openssl/config --prefix=${INSTALLDIR}/openssl --openssldir=${INSTALLDIR}/ssl shared && \
-    make -j$(nproc) && make install_sw install_ssldirs
+    make -j$(nproc) && make install_sw install_ssldirs && \
+    # Create pkg-config file for OpenSSL (needed for Rust's openssl-sys crate)
+    mkdir -p ${INSTALLDIR}/openssl/lib/pkgconfig && \
+    echo "prefix=${INSTALLDIR}/openssl" > ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
+    echo "exec_prefix=\${prefix}" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
+    echo "libdir=\${exec_prefix}/lib64" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
+    echo "includedir=\${prefix}/include" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
+    echo "" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
+    echo "Name: OpenSSL" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
+    echo "Description: Secure Sockets Layer and cryptography libraries and tools" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
+    echo "Version: ${OPENSSL_TAG}" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
+    echo "Libs: -L\${libdir} -lssl -lcrypto" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
+    echo "Cflags: -I\${includedir}" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc
 
 # Handle lib64 directory if needed
 RUN if [ -d ${INSTALLDIR}/openssl/lib64 ]; then ln -s ${INSTALLDIR}/openssl/lib64 ${INSTALLDIR}/openssl/lib; fi && \
@@ -56,17 +69,17 @@ RUN cmake -G Ninja -D OPENSSL_ROOT_DIR=${INSTALLDIR}/openssl -D CMAKE_PREFIX_PAT
 
 # Set up OpenSSL to load the OQS provider
 RUN CONFIG_FILE="${INSTALLDIR}/ssl/openssl.cnf" && \
-    sed -i "s/default = default_sect/default = default_sect\noqsprovider = oqsprovider_sect/g" "$CONFIG_FILE" && \
-    sed -i "s/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[oqsprovider_sect\]\nactivate = 1\n/g" "$CONFIG_FILE"
+    sed -i 's/default = default_sect/default = default_sect\noqsprovider = oqsprovider_sect/g' "$CONFIG_FILE" && \
+    sed -i 's/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[oqsprovider_sect\]\nactivate = 1\n/g' "$CONFIG_FILE"
 
 # Create a verification script to test the installation
-RUN echo '#!/bin/sh\n\
-echo "Testing OpenSSL with OQS Provider"\n\
-${INSTALLDIR}/openssl/bin/openssl list -providers\n\
-${INSTALLDIR}/openssl/bin/openssl list -signature-algorithms | grep -i dilithium\n\
-${INSTALLDIR}/openssl/bin/openssl list -key-exchange-algorithms | grep -i kyber\n\
-echo "OQS Provider test completed"\n\
-' > ${INSTALLDIR}/test-oqs.sh && chmod +x ${INSTALLDIR}/test-oqs.sh
+RUN echo '#!/bin/sh' > ${INSTALLDIR}/test-oqs.sh && \
+    echo 'echo "Testing OpenSSL with OQS Provider"' >> ${INSTALLDIR}/test-oqs.sh && \
+    echo "${INSTALLDIR}/openssl/bin/openssl list -providers" >> ${INSTALLDIR}/test-oqs.sh && \
+    echo "${INSTALLDIR}/openssl/bin/openssl list -signature-algorithms | grep -i dilithium" >> ${INSTALLDIR}/test-oqs.sh && \
+    echo "${INSTALLDIR}/openssl/bin/openssl list -key-exchange-algorithms | grep -i kyber" >> ${INSTALLDIR}/test-oqs.sh && \
+    echo 'echo "OQS Provider test completed"' >> ${INSTALLDIR}/test-oqs.sh && \
+    chmod +x ${INSTALLDIR}/test-oqs.sh
 
 # Test the installation to verify it works
 RUN ${INSTALLDIR}/test-oqs.sh
@@ -75,8 +88,25 @@ RUN ${INSTALLDIR}/test-oqs.sh
 WORKDIR /app
 COPY . .
 
-# Build the application
-RUN cargo build --release
+# Set environment variables for building with our custom OpenSSL installation
+ENV PKG_CONFIG_PATH="${INSTALLDIR}/openssl/lib/pkgconfig"
+ENV OPENSSL_DIR="${INSTALLDIR}/openssl"
+ENV OPENSSL_LIB_DIR="${INSTALLDIR}/openssl/lib64"
+ENV OPENSSL_INCLUDE_DIR="${INSTALLDIR}/openssl/include"
+ENV LD_LIBRARY_PATH="${INSTALLDIR}/openssl/lib64:${INSTALLDIR}/liboqs/lib"
+
+# Build all applications
+RUN echo "Building all applications..." && \
+    RUST_BACKTRACE=full cargo build --release || \
+    (echo "Build failed. Checking for specific issues..." && \
+     grep -r "super::factory::OQS_PATH" --include="*.rs" . || true && \
+     echo "Checking Rust version:" && \
+     rustc --version && \
+     echo "Checking environment variables:" && \
+     env | grep -E 'OPENSSL|PKG_CONFIG|LD_LIBRARY' && \
+     echo "Checking if binaries exist:" && \
+     find /app/target -name "quantum-safe-proxy" -o -name "check-environment" && \
+     exit 1)
 
 FROM rust:1.86.0-slim-bullseye AS final
 
@@ -96,14 +126,18 @@ COPY --from=builder ${INSTALLDIR} ${INSTALLDIR}
 
 # Copy the built application
 COPY --from=builder /app/target/release/quantum-safe-proxy /usr/local/bin/
-COPY --from=builder /app/target/release/check-environment /usr/local/bin/
+
+# Create a simple check-environment script
+RUN echo '#!/bin/sh\necho "Checking environment for quantum-safe-proxy..."\necho "OpenSSL version: $(openssl version)"\necho "OQS support: $(/usr/local/bin/quantum-safe-proxy --version | grep -i quantum)"\necho "Environment check complete."' > /usr/local/bin/check-environment && \
+    chmod +x /usr/local/bin/check-environment
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies and set up log directory
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
+    # Create log directory with appropriate permissions
     mkdir -p /app/log/agentdata && \
     chown -R 999:999 /app/log/agentdata && \
     chmod -R 770 /app/log/agentdata

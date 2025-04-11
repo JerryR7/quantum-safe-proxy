@@ -10,13 +10,13 @@ use openssl::hash::MessageDigest;
 use log::debug;
 
 use crate::common::{ProxyError, Result, read_file};
-use super::{CryptoProvider, CryptoCapabilities, CertificateType};
+use super::{CryptoProvider, CryptoCapabilities};
 
 /// Standard OpenSSL provider
 ///
 /// This provider uses the standard OpenSSL library without post-quantum support.
 /// It serves as a fallback when OQS-OpenSSL is not available.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct StandardProvider;
 
 impl StandardProvider {
@@ -31,18 +31,18 @@ impl CryptoProvider for StandardProvider {
         // Read certificate file
         let cert_data = read_file(cert_path)
             .map_err(|e| ProxyError::Certificate(format!("Failed to read certificate file: {}", e)))?;
-        
+
         // Parse certificate
         let cert = X509::from_pem(&cert_data)
             .map_err(|e| ProxyError::Certificate(format!("Failed to parse certificate: {}", e)))?;
-        
+
         // Get signature algorithm
         let signature_algorithm = cert.signature_algorithm().object();
-        
+
         // Get signature algorithm name
         let algorithm_name = signature_algorithm.to_string();
         debug!("Certificate signature algorithm: {}", algorithm_name);
-        
+
         // Check if it's a hybrid certificate
         // Note: This detection logic should be adjusted based on the actual PQC algorithms in use
         // Currently we're simply checking if the algorithm name contains specific strings
@@ -50,61 +50,61 @@ impl CryptoProvider for StandardProvider {
                        algorithm_name.contains("Dilithium") ||
                        algorithm_name.contains("oqs") ||
                        algorithm_name.contains("hybrid");
-        
+
         Ok(is_hybrid)
     }
-    
+
     fn get_cert_subject(&self, cert_path: &Path) -> Result<String> {
         // Read certificate file
         let cert_data = read_file(cert_path)
             .map_err(|e| ProxyError::Certificate(format!("Failed to read certificate file: {}", e)))?;
-        
+
         // Parse certificate
         let cert = X509::from_pem(&cert_data)
             .map_err(|e| ProxyError::Certificate(format!("Failed to parse certificate: {}", e)))?;
-        
+
         // Get subject
         let subject = cert.subject_name();
         // Convert X509NameRef to string
         let subject_str = format!("{:?}", subject);
-        
+
         Ok(subject_str)
     }
-    
+
     fn get_cert_fingerprint(&self, cert_path: &Path) -> Result<String> {
         // Read certificate file
         let cert_data = read_file(cert_path)
             .map_err(|e| ProxyError::Certificate(format!("Failed to read certificate file: {}", e)))?;
-        
+
         // Parse certificate
         let cert = X509::from_pem(&cert_data)
             .map_err(|e| ProxyError::Certificate(format!("Failed to parse certificate: {}", e)))?;
-        
+
         // Calculate SHA-256 fingerprint
         let fingerprint = cert.digest(MessageDigest::sha256())
             .map_err(|e| ProxyError::Certificate(format!("Failed to calculate certificate fingerprint: {}", e)))?;
-        
+
         // Convert to hexadecimal string
         let fingerprint_hex = fingerprint.iter()
             .map(|b| format!("{:02x}", b))
             .collect::<Vec<String>>()
             .join(":");
-        
+
         Ok(fingerprint_hex)
     }
-    
+
     fn load_cert(&self, cert_path: &Path) -> Result<X509> {
         // Read certificate file
         let cert_data = read_file(cert_path)
             .map_err(|e| ProxyError::Certificate(format!("Failed to read certificate file: {}", e)))?;
-        
+
         // Parse certificate
         let cert = X509::from_pem(&cert_data)
             .map_err(|e| ProxyError::Certificate(format!("Failed to parse certificate: {}", e)))?;
-        
+
         Ok(cert)
     }
-    
+
     fn capabilities(&self) -> CryptoCapabilities {
         CryptoCapabilities {
             supports_pqc: false,
@@ -120,7 +120,7 @@ impl CryptoProvider for StandardProvider {
             ],
         }
     }
-    
+
     fn name(&self) -> &'static str {
         "Standard OpenSSL"
     }

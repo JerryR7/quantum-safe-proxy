@@ -4,7 +4,7 @@
 //! It abstracts different cryptographic implementations (standard OpenSSL and OQS-OpenSSL).
 
 use std::path::Path;
-use crate::common::{Result, ProxyError};
+use crate::common::Result;
 use openssl::x509::X509;
 
 // Forward declarations for submodules
@@ -17,7 +17,7 @@ mod environment;
 pub use standard::StandardProvider;
 pub use oqs::OqsProvider;
 pub use factory::{create_provider, is_oqs_available};
-pub use environment::{check_environment, diagnose_environment, EnvironmentInfo, EnvironmentIssue};
+pub use environment::{check_environment, diagnose_environment, EnvironmentInfo, EnvironmentIssue, IssueSeverity};
 
 /// Cryptographic provider type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,19 +68,19 @@ pub struct CryptoCapabilities {
 pub trait CryptoProvider: Send + Sync {
     /// Check if a certificate is a hybrid certificate
     fn is_hybrid_cert(&self, cert_path: &Path) -> Result<bool>;
-    
+
     /// Get certificate subject
     fn get_cert_subject(&self, cert_path: &Path) -> Result<String>;
-    
+
     /// Get certificate fingerprint
     fn get_cert_fingerprint(&self, cert_path: &Path) -> Result<String>;
-    
+
     /// Load certificate
     fn load_cert(&self, cert_path: &Path) -> Result<X509>;
-    
+
     /// Get the capabilities of this provider
     fn capabilities(&self) -> CryptoCapabilities;
-    
+
     /// Get the name of this provider
     fn name(&self) -> &'static str;
 }

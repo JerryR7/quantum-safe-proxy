@@ -3,7 +3,7 @@
 //! This example demonstrates how to work with hybrid certificates in Quantum Safe Proxy.
 //! It shows how to detect hybrid certificates and display their properties.
 
-use quantum_safe_proxy::{Result, parse_socket_addr};
+use quantum_safe_proxy::{Result};
 use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
 use std::path::Path;
 

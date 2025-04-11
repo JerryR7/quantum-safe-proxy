@@ -6,14 +6,53 @@
 use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Once;
+use once_cell::sync::OnceCell;
 
 use crate::common::{Result, ProxyError};
 use super::{CryptoProvider, ProviderType, StandardProvider, OqsProvider};
 
 // Static initialization
 static OQS_CHECK: Once = Once::new();
-static mut OQS_AVAILABLE: bool = false;
-static mut OQS_PATH: Option<PathBuf> = None;
+static OQS_AVAILABLE: OnceCell<bool> = OnceCell::new();
+static OQS_PATH: OnceCell<Option<PathBuf>> = OnceCell::new();
+
+// Provider singletons for better performance
+static STANDARD_PROVIDER: OnceCell<StandardProvider> = OnceCell::new();
+static OQS_PROVIDER: OnceCell<OqsProvider> = OnceCell::new();
+
+// Logging flags to avoid duplicate logs
+static LOGGED_OQS_WARNING: OnceCell<bool> = OnceCell::new();
+static LOGGED_OQS_INFO: OnceCell<bool> = OnceCell::new();
+
+/// Get the standard provider singleton
+///
+/// This function returns a reference to the standard provider singleton.
+/// The provider is initialized on first access.
+fn get_standard_provider() -> &'static StandardProvider {
+    STANDARD_PROVIDER.get_or_init(|| {
+        log::trace!("Initializing standard OpenSSL provider");
+        StandardProvider::new()
+    })
+}
+
+/// Get the OQS provider singleton
+///
+/// This function returns a reference to the OQS provider singleton if available.
+/// The provider is initialized on first access.
+fn get_oqs_provider() -> Option<&'static OqsProvider> {
+    // Check if OQS is available
+    if !is_oqs_available() {
+        return None;
+    }
+
+    // Initialize the provider if needed
+    if OQS_PROVIDER.get().is_none() {
+        let provider = OqsProvider::new();
+        OQS_PROVIDER.set(provider).ok();
+    }
+
+    OQS_PROVIDER.get()
+}
 
 /// Create a cryptographic provider based on the specified type
 ///
@@ -25,26 +64,47 @@ static mut OQS_PATH: Option<PathBuf> = None;
 ///
 /// A boxed provider implementing the CryptoProvider trait
 pub fn create_provider(provider_type: ProviderType) -> Result<Box<dyn CryptoProvider>> {
+    // Initialize OQS check if not already done
+    initialize_oqs_check();
+
     match provider_type {
         ProviderType::Standard => {
-            log::info!("Using standard OpenSSL provider (no post-quantum support)");
-            Ok(Box::new(StandardProvider::new()))
+            // Return the standard provider
+            let provider = get_standard_provider();
+            // Clone the provider to avoid lifetime issues
+            Ok(Box::new(provider.clone()))
         },
         ProviderType::Oqs => {
-            if is_oqs_available() {
-                log::info!("Using OQS-OpenSSL provider with post-quantum support");
-                Ok(Box::new(OqsProvider::new()))
+            // Return the OQS provider if available
+            if let Some(provider) = get_oqs_provider() {
+                log::debug!("Using OQS-OpenSSL provider");
+                // Clone the provider to avoid lifetime issues
+                Ok(Box::new(provider.clone()))
             } else {
                 Err(ProxyError::Certificate("OQS-OpenSSL provider not available. Install OQS-OpenSSL or use the standard provider.".to_string()))
             }
         },
         ProviderType::Auto => {
-            if is_oqs_available() {
-                log::info!("Automatically selected OQS-OpenSSL provider with post-quantum support");
-                Ok(Box::new(OqsProvider::new()))
+            // Try OQS provider first, fall back to standard if not available
+            if let Some(provider) = get_oqs_provider() {
+                // Log OQS availability (only once)
+                if LOGGED_OQS_INFO.get().is_none() {
+                    log::info!("Using OQS-OpenSSL provider with post-quantum support");
+                    LOGGED_OQS_INFO.set(true).ok();
+                }
+
+                // Clone the provider to avoid lifetime issues
+                Ok(Box::new(provider.clone()))
             } else {
-                log::warn!("OQS-OpenSSL not available, falling back to standard OpenSSL (no post-quantum support)");
-                Ok(Box::new(StandardProvider::new()))
+                // Log fallback warning (only once)
+                if LOGGED_OQS_WARNING.get().is_none() {
+                    log::warn!("OQS-OpenSSL not available, falling back to standard OpenSSL (no post-quantum support)");
+                    LOGGED_OQS_WARNING.set(true).ok();
+                }
+
+                let provider = get_standard_provider();
+                // Clone the provider to avoid lifetime issues
+                Ok(Box::new(provider.clone()))
             }
         }
     }
@@ -59,23 +119,47 @@ pub fn create_provider(provider_type: ProviderType) -> Result<Box<dyn CryptoProv
 ///
 /// `true` if OQS-OpenSSL is available, `false` otherwise
 pub fn is_oqs_available() -> bool {
+    // Initialize if not already initialized
+    initialize_oqs_check();
+
+    // Return cached result
+    *OQS_AVAILABLE.get_or_init(|| false)
+}
+
+/// Get the path to OQS-OpenSSL installation
+///
+/// # Returns
+///
+/// Some(PathBuf) if OQS-OpenSSL is found, None otherwise
+pub fn get_oqs_path() -> Option<PathBuf> {
+    // Initialize if not already initialized
+    initialize_oqs_check();
+
+    // Return cached result
+    OQS_PATH.get().cloned().unwrap_or(None)
+}
+
+/// Initialize OQS check
+///
+/// This function initializes the OQS check if not already initialized.
+fn initialize_oqs_check() {
     // Initialize once
     OQS_CHECK.call_once(|| {
-        unsafe {
-            // Try to find OQS-OpenSSL
-            OQS_AVAILABLE = find_oqs_openssl().is_some();
-            
-            // Log the result
-            if OQS_AVAILABLE {
-                log::info!("OQS-OpenSSL detected at {:?}", OQS_PATH.as_ref().unwrap());
-            } else {
-                log::warn!("OQS-OpenSSL not detected");
-            }
+        // Try to find OQS-OpenSSL
+        let oqs_path = find_oqs_openssl();
+        let available = oqs_path.is_some();
+
+        // Store the results
+        OQS_AVAILABLE.set(available).ok();
+        OQS_PATH.set(oqs_path.clone()).ok();
+
+        // Log the result (only once during initialization)
+        if available {
+            log::info!("OQS-OpenSSL detected at {:?}", oqs_path.unwrap());
+        } else {
+            log::debug!("OQS-OpenSSL not detected");
         }
     });
-    
-    // Return cached result
-    unsafe { OQS_AVAILABLE }
 }
 
 /// Find OQS-OpenSSL installation
@@ -93,11 +177,10 @@ fn find_oqs_openssl() -> Option<PathBuf> {
     if let Ok(path) = env::var("OQS_OPENSSL_PATH") {
         let path = PathBuf::from(path);
         if path.exists() && is_valid_oqs_path(&path) {
-            unsafe { OQS_PATH = Some(path.clone()); }
             return Some(path);
         }
     }
-    
+
     // Check common installation paths
     let common_paths = [
         "/opt/oqs-openssl",
@@ -105,18 +188,17 @@ fn find_oqs_openssl() -> Option<PathBuf> {
         "/usr/local/oqs-openssl",
         "/usr/opt/oqs-openssl",
     ];
-    
+
     for &path_str in &common_paths {
         let path = PathBuf::from(path_str);
         if path.exists() && is_valid_oqs_path(&path) {
-            unsafe { OQS_PATH = Some(path.clone()); }
             return Some(path);
         }
     }
-    
+
     // Try to dynamically load OQS library
     // This is a simplified check; a real implementation would try to load the library
-    
+
     None
 }
 
@@ -135,25 +217,25 @@ fn is_valid_oqs_path(path: &Path) -> bool {
     if !lib_path.exists() || !lib_path.is_dir() {
         return false;
     }
-    
+
     // Check for bin directory
     let bin_path = path.join("bin");
     if !bin_path.exists() || !bin_path.is_dir() {
         return false;
     }
-    
+
     // Check for openssl executable
     let openssl_path = bin_path.join("openssl");
     if !openssl_path.exists() {
         return false;
     }
-    
+
     // Check for liboqs library
     let liboqs_path = lib_path.join("liboqs.so");
     let liboqs_path_alt = lib_path.join("liboqs.dylib");
     if !liboqs_path.exists() && !liboqs_path_alt.exists() {
         return false;
     }
-    
+
     true
 }

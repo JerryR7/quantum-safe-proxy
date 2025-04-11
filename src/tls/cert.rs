@@ -5,11 +5,10 @@
 
 use log::debug;
 use openssl::x509::X509;
-use openssl::hash::MessageDigest;
 use std::path::Path;
 
-use crate::common::{ProxyError, Result, read_file};
-use crate::crypto::provider::{CryptoProvider, ProviderType, create_provider};
+use crate::common::Result;
+use crate::crypto::provider::{ProviderType, create_provider};
 
 /// Check if a certificate is a hybrid certificate
 ///
