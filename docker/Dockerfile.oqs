@@ -1,33 +1,75 @@
-# Quantum Safe Proxy with OQS-OpenSSL
-# This Dockerfile builds a Docker image with OQS-OpenSSL pre-installed
+# Quantum Safe Proxy with OpenSSL 3.x and OQS Provider
+# This Dockerfile builds a Docker image with OpenSSL 3.x and OQS Provider for post-quantum cryptography
 
-# Build stage
-FROM rust:1.70-slim-bullseye as builder
+ARG OPENSSL_TAG=3.4.0
+ARG LIBOQS_TAG=0.12.0
+ARG OQSPROVIDER_TAG=0.8.0
+ARG INSTALLDIR=/opt/oqs
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    build-essential \
-    cmake \
-    libssl-dev \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+FROM rust:1.86.0-slim-bullseye as builder
+ARG BUILD_CONFIGURATION=Release
 
-# Install OQS-OpenSSL
-WORKDIR /opt
-RUN git clone --branch OQS-OpenSSL_1_1_1-stable https://github.com/open-quantum-safe/openssl.git oqs-openssl-src \
-    && cd oqs-openssl-src \
-    && ./config --prefix=/opt/oqs-openssl shared \
-    && make -j$(nproc) \
-    && make install
+ARG OPENSSL_TAG
+ARG LIBOQS_TAG
+ARG OQSPROVIDER_TAG
+ARG INSTALLDIR
 
-# Set environment variables for OQS-OpenSSL
-ENV PATH="/opt/oqs-openssl/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/opt/oqs-openssl/lib:${LD_LIBRARY_PATH}"
-ENV OQS_OPENSSL_PATH="/opt/oqs-openssl"
-ENV OPENSSL_DIR="/opt/oqs-openssl"
-ENV OPENSSL_LIB_DIR="/opt/oqs-openssl/lib"
-ENV OPENSSL_INCLUDE_DIR="/opt/oqs-openssl/include"
+# Add metadata labels
+LABEL maintainer="Quantum Safe Proxy Team"
+LABEL version="${OPENSSL_TAG}-${LIBOQS_TAG}-${OQSPROVIDER_TAG}"
+LABEL description="OpenSSL with OQS Provider for post-quantum cryptography"
+
+# Install essential build dependencies and set up directories in one layer
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libtool automake autoconf make cmake ninja-build git \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p src/liboqs src/openssl src/oqs-provider \
+       build/liboqs build/openssl build/oqs-provider \
+       ${INSTALLDIR}/lib ${INSTALLDIR}/bin ${INSTALLDIR}/ssl
+
+# Download sources
+WORKDIR /opt/src
+RUN git clone --depth 1 --branch openssl-${OPENSSL_TAG} https://github.com/openssl/openssl.git openssl && \
+    git clone --depth 1 --branch ${LIBOQS_TAG} https://github.com/open-quantum-safe/liboqs.git liboqs && \
+    git clone --depth 1 --branch ${OQSPROVIDER_TAG} https://github.com/open-quantum-safe/oqs-provider.git oqs-provider
+
+# Build and install liboqs
+WORKDIR /opt/build/liboqs
+RUN cmake -G Ninja /opt/src/liboqs -D CMAKE_INSTALL_PREFIX=${INSTALLDIR}/liboqs -D BUILD_SHARED_LIBS=ON -D OQS_USE_OPENSSL=OFF -D CMAKE_INSTALL_RPATH="${INSTALLDIR}/liboqs/lib" && \
+    ninja -j$(nproc) && ninja install
+
+# Build OpenSSL integrated with liboqs
+WORKDIR /opt/build/openssl
+RUN LDFLAGS="-Wl,-rpath,${INSTALLDIR}/liboqs/lib" /opt/src/openssl/config --prefix=${INSTALLDIR}/openssl --openssldir=${INSTALLDIR}/ssl shared && \
+    make -j$(nproc) && make install_sw install_ssldirs
+
+# Handle lib64 directory if needed
+RUN if [ -d ${INSTALLDIR}/openssl/lib64 ]; then ln -s ${INSTALLDIR}/openssl/lib64 ${INSTALLDIR}/openssl/lib; fi && \
+    if [ -d ${INSTALLDIR}/openssl/lib ]; then ln -s ${INSTALLDIR}/openssl/lib ${INSTALLDIR}/openssl/lib64; fi
+
+# Build OQS provider for OpenSSL integration
+WORKDIR /opt/build/oqs-provider
+RUN cmake -G Ninja -D OPENSSL_ROOT_DIR=${INSTALLDIR}/openssl -D CMAKE_PREFIX_PATH="${INSTALLDIR}/openssl;${INSTALLDIR}/liboqs" -D CMAKE_INSTALL_PREFIX=${INSTALLDIR}/oqs-provider \
+    -D CMAKE_INSTALL_RPATH="${INSTALLDIR}/openssl/lib:${INSTALLDIR}/liboqs/lib" /opt/src/oqs-provider && \
+    ninja -j$(nproc) && \
+    cp /opt/build/oqs-provider/lib/oqsprovider.so ${INSTALLDIR}/openssl/lib64/ossl-modules
+
+# Set up OpenSSL to load the OQS provider
+RUN CONFIG_FILE="${INSTALLDIR}/ssl/openssl.cnf" && \
+    sed -i "s/default = default_sect/default = default_sect\noqsprovider = oqsprovider_sect/g" "$CONFIG_FILE" && \
+    sed -i "s/\[default_sect\]/\[default_sect\]\nactivate = 1\n\[oqsprovider_sect\]\nactivate = 1\n/g" "$CONFIG_FILE"
+
+# Create a verification script to test the installation
+RUN echo '#!/bin/sh\n\
+echo "Testing OpenSSL with OQS Provider"\n\
+${INSTALLDIR}/openssl/bin/openssl list -providers\n\
+${INSTALLDIR}/openssl/bin/openssl list -signature-algorithms | grep -i dilithium\n\
+${INSTALLDIR}/openssl/bin/openssl list -key-exchange-algorithms | grep -i kyber\n\
+echo "OQS Provider test completed"\n\
+' > ${INSTALLDIR}/test-oqs.sh && chmod +x ${INSTALLDIR}/test-oqs.sh
+
+# Test the installation to verify it works
+RUN ${INSTALLDIR}/test-oqs.sh
 
 # Copy source code
 WORKDIR /app
@@ -36,32 +78,42 @@ COPY . .
 # Build the application
 RUN cargo build --release
 
-# Runtime stage
-FROM debian:bullseye-slim
+FROM rust:1.86.0-slim-bullseye AS final
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    libssl1.1 \
-    && rm -rf /var/lib/apt/lists/*
+# Redefine ARG to use in this stage
+ARG INSTALLDIR=/opt/oqs
 
-# Copy OQS-OpenSSL from builder
-COPY --from=builder /opt/oqs-openssl /opt/oqs-openssl
+# Set environment variables
+ENV PATH=${INSTALLDIR}/openssl/bin:$PATH
+ENV LD_LIBRARY_PATH=${INSTALLDIR}/openssl/lib64:${INSTALLDIR}/liboqs/lib
+ENV OPENSSL_DIR=${INSTALLDIR}/openssl
+ENV OPENSSL_LIB_DIR=${INSTALLDIR}/openssl/lib64
+ENV OPENSSL_INCLUDE_DIR=${INSTALLDIR}/openssl/include
+ENV OQS_OPENSSL_PATH=${INSTALLDIR}/openssl
 
-# Set environment variables for OQS-OpenSSL
-ENV PATH="/opt/oqs-openssl/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/opt/oqs-openssl/lib:${LD_LIBRARY_PATH}"
-ENV OQS_OPENSSL_PATH="/opt/oqs-openssl"
+# Copy installed files from builder stage
+COPY --from=builder ${INSTALLDIR} ${INSTALLDIR}
 
 # Copy the built application
 COPY --from=builder /app/target/release/quantum-safe-proxy /usr/local/bin/
 COPY --from=builder /app/target/release/check-environment /usr/local/bin/
 
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /app/log/agentdata && \
+    chown -R 999:999 /app/log/agentdata && \
+    chmod -R 770 /app/log/agentdata
+
+# Add healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ${INSTALLDIR}/openssl/bin/openssl version || exit 1
+
 # Create directory for certificates
 RUN mkdir -p /app/certs
-
-# Set working directory
-WORKDIR /app
 
 # Expose ports
 EXPOSE 8443
