@@ -34,15 +34,26 @@ RUN git clone --depth 1 --branch openssl-${OPENSSL_TAG} https://github.com/opens
     git clone --depth 1 --branch ${LIBOQS_TAG} https://github.com/open-quantum-safe/liboqs.git liboqs && \
     git clone --depth 1 --branch ${OQSPROVIDER_TAG} https://github.com/open-quantum-safe/oqs-provider.git oqs-provider
 
-# Build and install liboqs
+# Build and install liboqs with optimized settings
 WORKDIR /opt/build/liboqs
-RUN cmake -G Ninja /opt/src/liboqs -D CMAKE_INSTALL_PREFIX=${INSTALLDIR}/liboqs -D BUILD_SHARED_LIBS=ON -D OQS_USE_OPENSSL=OFF -D CMAKE_INSTALL_RPATH="${INSTALLDIR}/liboqs/lib" && \
+RUN cmake -G Ninja /opt/src/liboqs \
+    -D CMAKE_INSTALL_PREFIX=${INSTALLDIR}/liboqs \
+    -D BUILD_SHARED_LIBS=ON \
+    -D OQS_USE_OPENSSL=OFF \
+    -D CMAKE_INSTALL_RPATH="${INSTALLDIR}/liboqs/lib" \
+    -D OQS_BUILD_ONLY_LIB=ON && \
     ninja -j$(nproc) && ninja install && \
     rm -rf /opt/build/liboqs/* && rm -rf /opt/src/liboqs
 
-# Build OpenSSL integrated with liboqs
+# Build OpenSSL integrated with liboqs (optimized)
 WORKDIR /opt/build/openssl
-RUN LDFLAGS="-Wl,-rpath,${INSTALLDIR}/liboqs/lib" /opt/src/openssl/config --prefix=${INSTALLDIR}/openssl --openssldir=${INSTALLDIR}/ssl shared && \
+RUN LDFLAGS="-Wl,-rpath,${INSTALLDIR}/liboqs/lib" /opt/src/openssl/config \
+    --prefix=${INSTALLDIR}/openssl \
+    --openssldir=${INSTALLDIR}/ssl \
+    --libdir=lib64 \
+    shared \
+    no-tests \
+    no-docs && \
     make -j$(nproc) && make install_sw install_ssldirs && \
     # Create pkg-config file for OpenSSL (needed for Rust's openssl-sys crate)
     mkdir -p ${INSTALLDIR}/openssl/lib/pkgconfig && \
@@ -62,12 +73,22 @@ RUN LDFLAGS="-Wl,-rpath,${INSTALLDIR}/liboqs/lib" /opt/src/openssl/config --pref
 RUN if [ -d ${INSTALLDIR}/openssl/lib64 ]; then ln -s ${INSTALLDIR}/openssl/lib64 ${INSTALLDIR}/openssl/lib; fi && \
     if [ -d ${INSTALLDIR}/openssl/lib ]; then ln -s ${INSTALLDIR}/openssl/lib ${INSTALLDIR}/openssl/lib64; fi
 
-# Build OQS provider for OpenSSL integration
+# Build OQS provider for OpenSSL integration (optimized)
 WORKDIR /opt/build/oqs-provider
-RUN cmake -G Ninja -D OPENSSL_ROOT_DIR=${INSTALLDIR}/openssl -D CMAKE_PREFIX_PATH="${INSTALLDIR}/openssl;${INSTALLDIR}/liboqs" -D CMAKE_INSTALL_PREFIX=${INSTALLDIR}/oqs-provider \
-    -D CMAKE_INSTALL_RPATH="${INSTALLDIR}/openssl/lib:${INSTALLDIR}/liboqs/lib" /opt/src/oqs-provider && \
+RUN cmake -G Ninja /opt/src/oqs-provider \
+    -D OPENSSL_ROOT_DIR=${INSTALLDIR}/openssl \
+    -D CMAKE_PREFIX_PATH="${INSTALLDIR}/openssl;${INSTALLDIR}/liboqs" \
+    -D CMAKE_INSTALL_PREFIX=${INSTALLDIR}/oqs-provider \
+    -D CMAKE_INSTALL_RPATH="${INSTALLDIR}/openssl/lib:${INSTALLDIR}/liboqs/lib" \
+    -D CMAKE_BUILD_TYPE=Release \
+    -D OQS_PROVIDER_BUILD_TESTING=OFF && \
     ninja -j$(nproc) && \
+    # Copy the provider to the OpenSSL modules directory
+    mkdir -p ${INSTALLDIR}/openssl/lib64/ossl-modules && \
     cp /opt/build/oqs-provider/lib/oqsprovider.so ${INSTALLDIR}/openssl/lib64/ossl-modules && \
+    # Also copy to lib directory for compatibility
+    mkdir -p ${INSTALLDIR}/openssl/lib/ossl-modules && \
+    cp /opt/build/oqs-provider/lib/oqsprovider.so ${INSTALLDIR}/openssl/lib/ossl-modules && \
     rm -rf /opt/build/oqs-provider/* && rm -rf /opt/src/oqs-provider
 
 # Set up OpenSSL to load the OQS provider
@@ -120,20 +141,43 @@ ARG INSTALLDIR=/opt/oqs
 
 # Set environment variables
 ENV PATH=${INSTALLDIR}/openssl/bin:$PATH
-ENV LD_LIBRARY_PATH=${INSTALLDIR}/openssl/lib64:${INSTALLDIR}/liboqs/lib
+ENV LD_LIBRARY_PATH=${INSTALLDIR}/openssl/lib64:${INSTALLDIR}/liboqs/lib:${INSTALLDIR}/openssl/lib
 ENV OPENSSL_DIR=${INSTALLDIR}/openssl
 ENV OPENSSL_LIB_DIR=${INSTALLDIR}/openssl/lib64
 ENV OPENSSL_INCLUDE_DIR=${INSTALLDIR}/openssl/include
-ENV OQS_OPENSSL_PATH=${INSTALLDIR}/openssl
+# Set OQS_OPENSSL_PATH to the actual OpenSSL installation directory
+ENV OQS_OPENSSL_PATH=/opt/oqs/openssl
 
 # Copy installed files from builder stage
 COPY --from=builder ${INSTALLDIR} ${INSTALLDIR}
 
+# Create proper directory structure for OQS detection
+RUN mkdir -p ${INSTALLDIR}/openssl/lib && \
+    # Create symlink for liboqs.so in OpenSSL lib directory
+    ln -sf ${INSTALLDIR}/liboqs/lib/liboqs.so ${INSTALLDIR}/openssl/lib/liboqs.so && \
+    # Check if oqsprovider.so exists
+    ls -la ${INSTALLDIR}/openssl/lib64/ossl-modules/oqsprovider.so || echo "oqsprovider.so not found" && \
+    # Verify OpenSSL version and providers
+    ${INSTALLDIR}/openssl/bin/openssl version && \
+    ${INSTALLDIR}/openssl/bin/openssl list -providers
+
 # Copy the built application
 COPY --from=builder /app/target/release/quantum-safe-proxy /usr/local/bin/
 
-# Create a simple check-environment script
-RUN echo '#!/bin/sh\necho "Checking environment for quantum-safe-proxy..."\necho "OpenSSL version: $(openssl version)"\necho "OQS support: $(/usr/local/bin/quantum-safe-proxy --version | grep -i quantum)"\necho "Environment check complete."' > /usr/local/bin/check-environment && \
+# Create a comprehensive check-environment script
+RUN echo '#!/bin/sh
+echo "Checking environment for quantum-safe-proxy..."
+echo "OpenSSL version: $(/opt/oqs/openssl/bin/openssl version 2>/dev/null || echo "Not found")"
+echo "OpenSSL providers: $(/opt/oqs/openssl/bin/openssl list -providers 2>/dev/null || echo "Not found")"
+echo "OQS algorithms: $(/opt/oqs/openssl/bin/openssl list -signature-algorithms 2>/dev/null | grep -i dilithium || echo "None found")"
+echo "OQS_OPENSSL_PATH: $OQS_OPENSSL_PATH"
+echo "Checking expected OQS paths:"
+echo "- OQS_OPENSSL_PATH/bin/openssl: $(ls -la $OQS_OPENSSL_PATH/bin/openssl 2>/dev/null || echo "Not found")"
+echo "- OQS_OPENSSL_PATH/lib/liboqs.so: $(ls -la $OQS_OPENSSL_PATH/lib/liboqs.so 2>/dev/null || echo "Not found")"
+echo "- /opt/oqs/openssl/lib/liboqs.so: $(ls -la /opt/oqs/openssl/lib/liboqs.so 2>/dev/null || echo "Not found")"
+echo "- /opt/oqs/openssl/lib64/ossl-modules/oqsprovider.so: $(ls -la /opt/oqs/openssl/lib64/ossl-modules/oqsprovider.so 2>/dev/null || echo "Not found")"
+echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+echo "Environment check complete."' > /usr/local/bin/check-environment && \
     chmod +x /usr/local/bin/check-environment
 
 WORKDIR /app
@@ -154,7 +198,7 @@ RUN mkdir -p /app/certs /app/config
 EXPOSE 8443
 
 # Set entrypoint
-ENTRYPOINT ["quantum-safe-proxy"]
+ENTRYPOINT ["/usr/local/bin/quantum-safe-proxy"]
 
 # Default command
 CMD ["--help"]

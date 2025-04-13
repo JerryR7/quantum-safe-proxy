@@ -176,9 +176,20 @@ fn find_oqs_openssl() -> Option<PathBuf> {
     // Check environment variables
     if let Ok(path) = env::var("OQS_OPENSSL_PATH") {
         let path = PathBuf::from(path);
-        if path.exists() && is_valid_oqs_path(&path) {
-            return Some(path);
+        log::debug!("Checking OQS_OPENSSL_PATH: {}", path.display());
+        if path.exists() {
+            log::debug!("Path exists: {}", path.display());
+            if is_valid_oqs_path(&path) {
+                log::debug!("Valid OQS path found: {}", path.display());
+                return Some(path);
+            } else {
+                log::debug!("Path exists but is not a valid OQS path: {}", path.display());
+            }
+        } else {
+            log::debug!("Path does not exist: {}", path.display());
         }
+    } else {
+        log::debug!("OQS_OPENSSL_PATH environment variable not set");
     }
 
     // Check common installation paths
@@ -187,12 +198,23 @@ fn find_oqs_openssl() -> Option<PathBuf> {
         "/usr/local/opt/oqs-openssl",
         "/usr/local/oqs-openssl",
         "/usr/opt/oqs-openssl",
+        // Add paths for OpenSSL 3.x with OQS provider
+        "/opt/oqs/openssl",
+        "/usr/local/opt/oqs/openssl",
+        "/usr/local/oqs/openssl",
     ];
 
     for &path_str in &common_paths {
         let path = PathBuf::from(path_str);
-        if path.exists() && is_valid_oqs_path(&path) {
-            return Some(path);
+        log::debug!("Checking common path: {}", path.display());
+        if path.exists() {
+            log::debug!("Path exists: {}", path.display());
+            if is_valid_oqs_path(&path) {
+                log::debug!("Valid OQS path found: {}", path.display());
+                return Some(path);
+            } else {
+                log::debug!("Path exists but is not a valid OQS path: {}", path.display());
+            }
         }
     }
 
@@ -212,30 +234,59 @@ fn find_oqs_openssl() -> Option<PathBuf> {
 ///
 /// `true` if the path contains a valid OQS-OpenSSL installation, `false` otherwise
 fn is_valid_oqs_path(path: &Path) -> bool {
-    // Check for lib directory
-    let lib_path = path.join("lib");
-    if !lib_path.exists() || !lib_path.is_dir() {
-        return false;
+    // First, check if this is a standard OQS-OpenSSL installation
+    // with bin/openssl and lib/liboqs.so
+    let standard_check = || {
+        // Check for lib directory
+        let lib_path = path.join("lib");
+        if !lib_path.exists() || !lib_path.is_dir() {
+            return false;
+        }
+
+        // Check for bin directory
+        let bin_path = path.join("bin");
+        if !bin_path.exists() || !bin_path.is_dir() {
+            return false;
+        }
+
+        // Check for openssl executable
+        let openssl_path = bin_path.join("openssl");
+        if !openssl_path.exists() {
+            return false;
+        }
+
+        // Check for liboqs library
+        let liboqs_path = lib_path.join("liboqs.so");
+        let liboqs_path_alt = lib_path.join("liboqs.dylib");
+        if !liboqs_path.exists() && !liboqs_path_alt.exists() {
+            return false;
+        }
+
+        true
+    };
+
+    // If standard check passes, return true
+    if standard_check() {
+        return true;
     }
 
-    // Check for bin directory
+    // If standard check fails, check for OpenSSL 3.x with OQS provider
+    // This is for installations where OpenSSL and liboqs are in separate directories
+
+    // Check for bin directory with openssl executable
     let bin_path = path.join("bin");
-    if !bin_path.exists() || !bin_path.is_dir() {
-        return false;
-    }
-
-    // Check for openssl executable
     let openssl_path = bin_path.join("openssl");
-    if !openssl_path.exists() {
+    if !bin_path.exists() || !bin_path.is_dir() || !openssl_path.exists() {
         return false;
     }
 
-    // Check for liboqs library
-    let liboqs_path = lib_path.join("liboqs.so");
-    let liboqs_path_alt = lib_path.join("liboqs.dylib");
-    if !liboqs_path.exists() && !liboqs_path_alt.exists() {
+    // Check for lib64/ossl-modules directory with oqsprovider.so
+    let modules_path = path.join("lib64").join("ossl-modules");
+    let oqsprovider_path = modules_path.join("oqsprovider.so");
+    if !modules_path.exists() || !modules_path.is_dir() || !oqsprovider_path.exists() {
         return false;
     }
 
+    // If we get here, we have a valid OpenSSL 3.x with OQS provider
     true
 }

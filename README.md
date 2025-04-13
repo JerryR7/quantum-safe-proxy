@@ -121,7 +121,14 @@ quantum-safe-proxy --from-env
 
 ### Using Configuration File
 
-Create a `config.json` file:
+You can use the provided example configuration file as a starting point:
+
+```bash
+cp config.json.example config.json
+# Edit config.json to match your requirements
+```
+
+Or create a `config.json` file manually:
 
 ```json
 {
@@ -331,7 +338,8 @@ quantum-safe-proxy/
 ├── kubernetes/            # Kubernetes deployment
 │   ├── deployment.yaml     # Kubernetes deployment
 │   └── service.yaml        # Kubernetes service
-└── certs/                 # Certificate directory
+├── certs/                 # Certificate directory
+└── config.json.example    # Example configuration file
 ```
 
 ## 9. Development and Testing

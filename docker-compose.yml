@@ -9,15 +9,23 @@ services:
       - ./certs:/app/certs
       - ./config:/app/config
     environment:
-      - RUST_LOG=info
-    command: >
-      --listen 0.0.0.0:8443
-      --target backend:6000
-      --cert /app/certs/server.crt
-      --key /app/certs/server.key
-      --ca-cert /app/certs/ca.crt
-      --log-level info
-      --client-cert-mode optional
+      - RUST_LOG=debug
+      - OQS_OPENSSL_PATH=/opt/oqs/openssl
+      - LD_LIBRARY_PATH=/opt/oqs/openssl/lib64:/opt/oqs/liboqs/lib:/opt/oqs/openssl/lib
+      - OPENSSL_DIR=/opt/oqs/openssl
+      - OPENSSL_LIB_DIR=/opt/oqs/openssl/lib64
+      - OPENSSL_INCLUDE_DIR=/opt/oqs/openssl/include
+      - RUST_BACKTRACE=1
+    # Use a simpler command to start the proxy
+    command: [
+      "--listen", "0.0.0.0:8443",
+      "--target", "backend:6000",
+      "--cert", "/app/certs/server.crt",
+      "--key", "/app/certs/server.key",
+      "--ca-cert", "/app/certs/ca.crt",
+      "--log-level", "debug",
+      "--client-cert-mode", "optional"
+    ]
     networks:
       - proxy-network
     restart: unless-stopped
