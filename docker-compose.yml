@@ -1,6 +1,5 @@
 services:
   quantum-safe-proxy:
-    container_name: quantum-safe-proxy
     build:
       context: .
       dockerfile: docker/Dockerfile.oqs
@@ -13,21 +12,30 @@ services:
       - RUST_LOG=info
     command: >
       --listen 0.0.0.0:8443
-      --target backend:8080
+      --target backend:6000
       --cert /app/certs/server.crt
       --key /app/certs/server.key
       --ca-cert /app/certs/ca.crt
+      --log-level info
+      --client-cert-mode optional
+    networks:
+      - proxy-network
     restart: unless-stopped
     depends_on:
       - backend
 
   backend:
-    container_name: backend-service
     image: nginx:alpine
+    container_name: backend-service
     volumes:
-      - ./docker/nginx/combined.conf:/etc/nginx/conf.d/default.conf
+      - ./docker/nginx/html:/usr/share/nginx/html
+      - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "6000:6000"
+    networks:
+      - proxy-network
     restart: unless-stopped
 
 networks:
-  default:
+  proxy-network:
     driver: bridge

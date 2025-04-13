@@ -6,7 +6,7 @@ ARG LIBOQS_TAG=0.12.0
 ARG OQSPROVIDER_TAG=0.8.0
 ARG INSTALLDIR=/opt/oqs
 
-FROM rust:1.86.0-slim-bullseye AS builder
+FROM rust:1.86.0-slim-bookworm AS builder
 ARG BUILD_CONFIGURATION=Release
 
 ARG OPENSSL_TAG
@@ -37,7 +37,8 @@ RUN git clone --depth 1 --branch openssl-${OPENSSL_TAG} https://github.com/opens
 # Build and install liboqs
 WORKDIR /opt/build/liboqs
 RUN cmake -G Ninja /opt/src/liboqs -D CMAKE_INSTALL_PREFIX=${INSTALLDIR}/liboqs -D BUILD_SHARED_LIBS=ON -D OQS_USE_OPENSSL=OFF -D CMAKE_INSTALL_RPATH="${INSTALLDIR}/liboqs/lib" && \
-    ninja -j$(nproc) && ninja install
+    ninja -j$(nproc) && ninja install && \
+    rm -rf /opt/build/liboqs/* && rm -rf /opt/src/liboqs
 
 # Build OpenSSL integrated with liboqs
 WORKDIR /opt/build/openssl
@@ -54,7 +55,8 @@ RUN LDFLAGS="-Wl,-rpath,${INSTALLDIR}/liboqs/lib" /opt/src/openssl/config --pref
     echo "Description: Secure Sockets Layer and cryptography libraries and tools" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
     echo "Version: ${OPENSSL_TAG}" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
     echo "Libs: -L\${libdir} -lssl -lcrypto" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
-    echo "Cflags: -I\${includedir}" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc
+    echo "Cflags: -I\${includedir}" >> ${INSTALLDIR}/openssl/lib/pkgconfig/openssl.pc && \
+    rm -rf /opt/build/openssl/* && rm -rf /opt/src/openssl
 
 # Handle lib64 directory if needed
 RUN if [ -d ${INSTALLDIR}/openssl/lib64 ]; then ln -s ${INSTALLDIR}/openssl/lib64 ${INSTALLDIR}/openssl/lib; fi && \
@@ -65,7 +67,8 @@ WORKDIR /opt/build/oqs-provider
 RUN cmake -G Ninja -D OPENSSL_ROOT_DIR=${INSTALLDIR}/openssl -D CMAKE_PREFIX_PATH="${INSTALLDIR}/openssl;${INSTALLDIR}/liboqs" -D CMAKE_INSTALL_PREFIX=${INSTALLDIR}/oqs-provider \
     -D CMAKE_INSTALL_RPATH="${INSTALLDIR}/openssl/lib:${INSTALLDIR}/liboqs/lib" /opt/src/oqs-provider && \
     ninja -j$(nproc) && \
-    cp /opt/build/oqs-provider/lib/oqsprovider.so ${INSTALLDIR}/openssl/lib64/ossl-modules
+    cp /opt/build/oqs-provider/lib/oqsprovider.so ${INSTALLDIR}/openssl/lib64/ossl-modules && \
+    rm -rf /opt/build/oqs-provider/* && rm -rf /opt/src/oqs-provider
 
 # Set up OpenSSL to load the OQS provider
 RUN CONFIG_FILE="${INSTALLDIR}/ssl/openssl.cnf" && \
@@ -106,9 +109,11 @@ RUN echo "Building all applications..." && \
      env | grep -E 'OPENSSL|PKG_CONFIG|LD_LIBRARY' && \
      echo "Checking if binaries exist:" && \
      find /app/target -name "quantum-safe-proxy" -o -name "check-environment" && \
-     exit 1)
+     exit 1) && \
+    # Clean up build artifacts to save space
+    rm -rf /app/target/release/deps /app/target/release/build /app/target/release/.fingerprint
 
-FROM rust:1.86.0-slim-bullseye AS final
+FROM rust:1.86.0-slim-bookworm AS final
 
 # Redefine ARG to use in this stage
 ARG INSTALLDIR=/opt/oqs
@@ -133,21 +138,17 @@ RUN echo '#!/bin/sh\necho "Checking environment for quantum-safe-proxy..."\necho
 
 WORKDIR /app
 
-# Install runtime dependencies and set up log directory
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates && \
-    rm -rf /var/lib/apt/lists/* && \
-    # Create log directory with appropriate permissions
-    mkdir -p /app/log/agentdata && \
-    chown -R 999:999 /app/log/agentdata && \
-    chmod -R 770 /app/log/agentdata
+# Install runtime dependencies
+RUN apt-get update --allow-insecure-repositories && \
+    apt-get install -y --no-install-recommends --allow-unauthenticated curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD ${INSTALLDIR}/openssl/bin/openssl version || exit 1
 
-# Create directory for certificates
-RUN mkdir -p /app/certs
+# Create necessary directories
+RUN mkdir -p /app/certs /app/config
 
 # Expose ports
 EXPOSE 8443
