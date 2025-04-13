@@ -4,5 +4,5 @@
 
 mod config;
 
-pub use config::ProxyConfig;
+pub use config::{ProxyConfig, ClientCertMode};
 // 注意：現在從 common::net 模組導出 parse_socket_addr

@@ -7,6 +7,7 @@ use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype, SslVerifyMode};
 use std::path::Path;
 
 use crate::common::{ProxyError, Result};
+use crate::config::ClientCertMode;
 use crate::crypto::provider::{ProviderType, create_provider};
 
 /// Create a TLS acceptor with support for hybrid certificates
@@ -16,6 +17,7 @@ use crate::crypto::provider::{ProviderType, create_provider};
 /// * `cert_path` - Server certificate path
 /// * `key_path` - Server private key path
 /// * `ca_cert_path` - CA certificate path, used for client certificate validation
+/// * `client_cert_mode` - Client certificate verification mode
 ///
 /// # Returns
 ///
@@ -30,11 +32,13 @@ use crate::crypto::provider::{ProviderType, create_provider};
 /// ```no_run
 /// # use std::path::Path;
 /// # use quantum_safe_proxy::tls::create_tls_acceptor;
+/// # use quantum_safe_proxy::config::ClientCertMode;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let acceptor = create_tls_acceptor(
 ///     Path::new("certs/server.crt"),
 ///     Path::new("certs/server.key"),
-///     Path::new("certs/ca.crt")
+///     Path::new("certs/ca.crt"),
+///     &ClientCertMode::Required
 /// )?;
 /// # Ok(())
 /// # }
@@ -43,6 +47,7 @@ pub fn create_tls_acceptor(
     cert_path: &Path,
     key_path: &Path,
     ca_cert_path: &Path,
+    client_cert_mode: &ClientCertMode,
 ) -> Result<SslAcceptor> {
     // Create a crypto provider (auto-select the best available)
     let provider = create_provider(ProviderType::Auto)?;
@@ -57,12 +62,29 @@ pub fn create_tls_acceptor(
     acceptor.set_private_key_file(key_path, SslFiletype::PEM)
         .map_err(|e| ProxyError::Certificate(format!("Failed to set server private key: {}", e)))?;
 
-    // Enable client certificate validation
-    acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
+    // Configure client certificate validation based on mode
+    match client_cert_mode {
+        ClientCertMode::Required => {
+            info!("Client certificates required for connections");
+            acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
 
-    // Set CA certificate for client certificate validation
-    acceptor.set_ca_file(ca_cert_path)
-        .map_err(|e| ProxyError::Certificate(format!("Failed to set CA certificate: {}", e)))?;
+            // Set CA certificate for client certificate validation
+            acceptor.set_ca_file(ca_cert_path)
+                .map_err(|e| ProxyError::Certificate(format!("Failed to set CA certificate: {}", e)))?;
+        },
+        ClientCertMode::Optional => {
+            info!("Client certificates optional (will be verified if provided)");
+            acceptor.set_verify(SslVerifyMode::PEER);
+
+            // Set CA certificate for client certificate validation
+            acceptor.set_ca_file(ca_cert_path)
+                .map_err(|e| ProxyError::Certificate(format!("Failed to set CA certificate: {}", e)))?;
+        },
+        ClientCertMode::None => {
+            info!("Client certificate verification disabled");
+            acceptor.set_verify(SslVerifyMode::NONE);
+        },
+    };
 
     // Use thread-local storage for logging state to avoid static variables
     thread_local! {

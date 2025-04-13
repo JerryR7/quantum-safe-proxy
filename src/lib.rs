@@ -15,6 +15,7 @@
 //!
 //! ```no_run
 //! use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
+//! use quantum_safe_proxy::config::ClientCertMode;
 //! use std::path::Path;
 //!
 //! #[tokio::main]
@@ -24,6 +25,7 @@
 //!         Path::new("certs/server.crt"),
 //!         Path::new("certs/server.key"),
 //!         Path::new("certs/ca.crt"),
+//!         &ClientCertMode::Required,
 //!     )?;
 //!
 //!     // Parse addresses

@@ -9,8 +9,51 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::fs;
 use std::env;
+use std::fmt;
 
 use crate::common::{ProxyError, Result, check_file_exists, parse_socket_addr};
+
+/// Client certificate verification mode
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ClientCertMode {
+    /// Require client certificate, connection fails if not provided
+    Required,
+    /// Verify client certificate if provided, but don't require it
+    Optional,
+    /// Don't verify client certificates
+    None,
+}
+
+impl Default for ClientCertMode {
+    fn default() -> Self {
+        ClientCertMode::Required // Keep secure defaults
+    }
+}
+
+impl fmt::Display for ClientCertMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ClientCertMode::Required => write!(f, "required"),
+            ClientCertMode::Optional => write!(f, "optional"),
+            ClientCertMode::None => write!(f, "none"),
+        }
+    }
+}
+
+impl ClientCertMode {
+    /// Parse client certificate mode from string
+    pub fn from_str(s: &str) -> Result<Self> {
+        match s.to_lowercase().as_str() {
+            "required" => Ok(ClientCertMode::Required),
+            "optional" => Ok(ClientCertMode::Optional),
+            "none" => Ok(ClientCertMode::None),
+            _ => Err(ProxyError::Config(format!(
+                "Invalid client certificate mode: {}. Valid values are: required, optional, none",
+                s
+            ))),
+        }
+    }
+}
 
 /// Proxy configuration
 ///
@@ -42,6 +85,13 @@ pub struct ProxyConfig {
     /// Log level (debug, info, warn, error)
     #[serde(default = "default_log_level")]
     pub log_level: String,
+
+    /// Client certificate verification mode
+    /// When set to Required, clients must provide a valid certificate
+    /// When set to Optional, clients may provide a certificate, which will be verified if present
+    /// When set to None, client certificates are not verified
+    #[serde(default)]
+    pub client_cert_mode: ClientCertMode,
 }
 
 fn default_hybrid_mode() -> bool {
@@ -63,6 +113,7 @@ impl ProxyConfig {
     /// * `key` - Server private key path
     /// * `ca_cert` - CA certificate path
     /// * `log_level` - Log level
+    /// * `client_cert_mode` - Client certificate verification mode
     ///
     /// # Returns
     ///
@@ -79,7 +130,8 @@ impl ProxyConfig {
     ///     "certs/server.crt",
     ///     "certs/server.key",
     ///     "certs/ca.crt",
-    ///     "info"
+    ///     "info",
+    ///     "required"
     /// )?;
     /// # Ok(())
     /// # }
@@ -91,12 +143,16 @@ impl ProxyConfig {
         key: &str,
         ca_cert: &str,
         log_level: &str,
+        client_cert_mode: &str,
     ) -> Result<Self> {
         // Parse listen address
         let listen = parse_socket_addr(listen)?;
 
         // Parse target address
         let target = parse_socket_addr(target)?;
+
+        // Parse client certificate mode
+        let client_cert_mode = ClientCertMode::from_str(client_cert_mode)?;
 
         Ok(Self {
             listen,
@@ -106,6 +162,7 @@ impl ProxyConfig {
             ca_cert_path: PathBuf::from(ca_cert),
             hybrid_mode: true,
             log_level: log_level.to_string(),
+            client_cert_mode,
         })
     }
 
@@ -165,6 +222,9 @@ impl ProxyConfig {
             .map(|v| v.to_lowercase() == "true")
             .unwrap_or(true);
 
+        let client_cert_mode = env::var("QUANTUM_SAFE_PROXY_CLIENT_CERT_MODE")
+            .unwrap_or_else(|_| "required".to_string());
+
         Self::from_args(
             &listen,
             &target,
@@ -172,6 +232,7 @@ impl ProxyConfig {
             &key,
             &ca_cert,
             &log_level,
+            &client_cert_mode,
         ).map(|mut config| {
             config.hybrid_mode = hybrid_mode;
             config

@@ -8,7 +8,7 @@ use log::{info, warn};
 // Import our library
 use quantum_safe_proxy::{Proxy, create_tls_acceptor, VERSION, APP_NAME};
 use quantum_safe_proxy::common::{Result, init_logger};
-use quantum_safe_proxy::config::ProxyConfig;
+use quantum_safe_proxy::config::{ProxyConfig, ClientCertMode};
 use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
 
 /// Quantum Safe Proxy: PQC-Enabled Sidecar with Hybrid Certificate Support
@@ -50,6 +50,13 @@ struct Args {
     /// Load configuration from a file
     #[clap(long)]
     config_file: Option<String>,
+
+    /// Client certificate verification mode (required, optional, none)
+    /// - required: Client must provide a valid certificate
+    /// - optional: Client certificate is verified if provided
+    /// - none: No client certificate verification
+    #[clap(long, default_value = "optional")]
+    client_cert_mode: String,
 }
 
 #[tokio::main]
@@ -78,6 +85,7 @@ async fn main() -> Result<()> {
             &args.key,
             &args.ca_cert,
             &args.log_level,
+            &args.client_cert_mode,
         )?
     };
 
@@ -105,7 +113,11 @@ async fn main() -> Result<()> {
         &config.cert_path,
         &config.key_path,
         &config.ca_cert_path,
+        &config.client_cert_mode,
     )?;
+
+    // Log client certificate mode
+    info!("Client certificate mode: {}", config.client_cert_mode);
 
     // Create and start proxy
     let proxy = Proxy::new(
