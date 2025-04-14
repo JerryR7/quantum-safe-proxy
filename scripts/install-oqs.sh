@@ -1,10 +1,30 @@
 #!/bin/bash
-# OQS-OpenSSL 1.1.1 Installation Script
-# This script installs OQS-OpenSSL 1.1.1 with post-quantum cryptography support
+# ============================================================================
+# OpenSSL 1.1.1 with OQS Patches Installation Script (LEGACY)
+# ============================================================================
 #
-# NOTE: This script installs the legacy OpenSSL 1.1.1 version with OQS patches.
-# For new projects, it is recommended to use OpenSSL 3.x with OQS Provider instead.
-# Please use the install-oqs-provider.sh script for OpenSSL 3.x with OQS Provider.
+# DESCRIPTION:
+#   This script installs the LEGACY OpenSSL 1.1.1 version with OQS patches for
+#   post-quantum cryptography support. This is provided for backward compatibility
+#   with older systems and projects.
+#
+# ⚠️ WARNING: For new projects, use OpenSSL 3.x with OQS Provider instead.
+#   Please use the install-oqs-provider.sh script for the recommended installation.
+#
+# USAGE:
+#   ./scripts/install-oqs.sh [OPTIONS]
+#
+# OPTIONS:
+#   -d, --dir DIR       Installation directory (default: /opt/oqs-openssl)
+#   -b, --branch BRANCH OQS-OpenSSL branch to use (default: OQS-OpenSSL_1_1_1-stable)
+#   -h, --help          Display help message
+#
+# REQUIREMENTS:
+#   - git, make, gcc
+#
+# OUTPUT:
+#   - Installs OQS-OpenSSL 1.1.1 to the specified directory
+#   - Creates environment setup script at <INSTALL_DIR>/env.sh
 
 set -e
 

@@ -394,6 +394,14 @@ cargo clippy
 - Certificate chain validation with hybrid certificates
 - Automatic OQS-OpenSSL detection and configuration
 
+## Documentation
+
+Detailed documentation is available in the `docs/` directory:
+
+- [Comprehensive Guide](docs/guide.md): Complete guide covering installation, certificates, cryptography, utility scripts, and troubleshooting
+
+See [docs/README.md](docs/README.md) for additional resources and information.
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.

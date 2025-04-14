@@ -1,6 +1,27 @@
 #!/bin/bash
-# Generate test certificates for Quantum Safe Proxy
-# This script generates test certificates using OpenSSL with OQS Provider
+# ============================================================================
+# Generate Simple Test Certificates for Quantum Safe Proxy
+# ============================================================================
+#
+# DESCRIPTION:
+#   This is a simplified certificate generation script that creates basic test
+#   certificates for development and testing purposes. It generates a smaller
+#   set of certificates compared to generate_certificates.sh.
+#
+# USAGE:
+#   ./scripts/generate-test-certs.sh
+#
+# REQUIREMENTS:
+#   - Requires OpenSSL with OQS Provider installed on the host system
+#   - Run this script from the project root directory
+#
+# CERTIFICATE TYPES GENERATED:
+#   - CA certificate (Dilithium3 + ECDSA hybrid)
+#   - Server certificate (Kyber768 + ECDSA hybrid)
+#   - Client certificate (Kyber768 + ECDSA hybrid)
+#
+# OUTPUT:
+#   Creates certificates in the ./certs/ directory
 
 set -e
 
@@ -17,6 +38,9 @@ mkdir -p certs
 cd certs
 
 # Create CA configuration file
+# Note: This script creates inline configuration files for testing purposes.
+# For production use, consider using scripts/generate_certificates.sh instead.
+# For manual certificate generation, use scripts/openssl-hybrid.conf as a template.
 cat > ca.cnf << EOF
 [req]
 distinguished_name = req_distinguished_name

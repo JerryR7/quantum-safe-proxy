@@ -1,6 +1,29 @@
 #!/bin/bash
-# OQS Provider Installation Script
-# This script installs OpenSSL 3.x with OQS Provider for post-quantum cryptography
+# ============================================================================
+# OpenSSL 3.x with OQS Provider Installation Script (RECOMMENDED)
+# ============================================================================
+#
+# DESCRIPTION:
+#   This script installs OpenSSL 3.x with OQS Provider for post-quantum cryptography.
+#   This is the RECOMMENDED installation method for new projects as it uses the
+#   modern OpenSSL 3.x architecture with pluggable providers.
+#
+# USAGE:
+#   ./scripts/install-oqs-provider.sh [OPTIONS]
+#
+# OPTIONS:
+#   -d, --dir DIR       Installation directory (default: /opt/oqs)
+#   --openssl VERSION   OpenSSL version (default: 3.4.0)
+#   --liboqs VERSION    liboqs version (default: 0.12.0)
+#   --oqsprovider VERSION  OQS Provider version (default: 0.8.0)
+#   -h, --help          Display help message
+#
+# REQUIREMENTS:
+#   - git, make, gcc, cmake, ninja-build, pkg-config
+#
+# OUTPUT:
+#   - Installs OpenSSL 3.x with OQS Provider to the specified directory
+#   - Creates environment setup script at <INSTALL_DIR>/env.sh
 
 set -e
 

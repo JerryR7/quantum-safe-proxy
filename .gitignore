@@ -1,8 +1,44 @@
+# Rust build artifacts
 /target
 **/*.rs.bk
+Cargo.lock
+
+# Environment and configuration
 .env
-/certs/*.crt
-/certs/*.key
-/certs/*.pem
-/certs/*.csr
-.idea
+config.json
+
+# Certificates and keys
+/certs/**/*.crt
+/certs/**/*.key
+/certs/**/*.pem
+/certs/**/*.csr
+/certs/**/*.srl
+/certs/**/*.cnf
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs and temporary files
+*.log
+log/
+tmp/
+temp/
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Docker related
+.docker/
+
+# Generated documentation
+/docs/generated/
+
+# Test artifacts
+/tests/data/
+
+# Local development files
+/local/

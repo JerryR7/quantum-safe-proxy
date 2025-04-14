@@ -189,7 +189,7 @@ RUN apt-get update --allow-insecure-repositories && \
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD ${INSTALLDIR}/openssl/bin/openssl version || exit 1
+    CMD /opt/oqs/openssl/bin/openssl version || exit 1
 
 # Create necessary directories
 RUN mkdir -p /app/certs /app/config
