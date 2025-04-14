@@ -9,7 +9,7 @@
 #   and pure post-quantum certificates for thorough testing and production use.
 #
 # USAGE:
-#   docker compose exec quantum-safe-proxy /scripts/generate_certificates.sh
+#   docker compose exec quantum-safe-proxy /scripts/generate-certificates.sh
 #
 # REQUIREMENTS:
 #   - Must be run inside the Docker container with OQS-OpenSSL installed
@@ -103,10 +103,10 @@ echo "=== Generating Traditional Certificate (ECDSA) ==="
 
 echo "=== Generating Hybrid Certificate (Dilithium3 + ECDSA) ==="
 # Generate CA private key and certificate
-/opt/oqs/openssl/bin/openssl req -x509 -new -newkey dilithium3 -keyout /app/certs/hybrid/dilithium3/ca.key -out /app/certs/hybrid/dilithium3/ca.crt -nodes -days 365 -subj "/CN=Hybrid Dilithium3 CA/O=Quantum Safe Proxy/OU=Testing/C=TW" -config $CONFIG_FILE -extensions v3_ca
+/opt/oqs/openssl/bin/openssl req -x509 -new -newkey p384_dilithium3 -keyout /app/certs/hybrid/dilithium3/ca.key -out /app/certs/hybrid/dilithium3/ca.crt -nodes -days 365 -subj "/CN=Hybrid Dilithium3 CA/O=Quantum Safe Proxy/OU=Testing/C=TW" -config $CONFIG_FILE -extensions v3_ca
 
 # Generate server private key
-/opt/oqs/openssl/bin/openssl genpkey -algorithm dilithium3 -out /app/certs/hybrid/dilithium3/server.key
+/opt/oqs/openssl/bin/openssl genpkey -algorithm p384_dilithium3 -out /app/certs/hybrid/dilithium3/server.key
 
 # Generate certificate signing request (CSR)
 /opt/oqs/openssl/bin/openssl req -new -key /app/certs/hybrid/dilithium3/server.key -out /app/certs/hybrid/dilithium3/server.csr -config $CONFIG_FILE
@@ -116,10 +116,10 @@ echo "=== Generating Hybrid Certificate (Dilithium3 + ECDSA) ==="
 
 echo "=== Generating Hybrid Certificate (Dilithium5/ML-DSA-87 + ECDSA) ==="
 # Generate CA private key and certificate
-/opt/oqs/openssl/bin/openssl req -x509 -new -newkey dilithium5 -keyout /app/certs/hybrid/dilithium5/ca.key -out /app/certs/hybrid/dilithium5/ca.crt -nodes -days 365 -subj "/CN=Hybrid Dilithium5 CA/O=Quantum Safe Proxy/OU=Testing/C=TW" -config $CONFIG_FILE -extensions v3_ca
+/opt/oqs/openssl/bin/openssl req -x509 -new -newkey p521_dilithium5 -keyout /app/certs/hybrid/dilithium5/ca.key -out /app/certs/hybrid/dilithium5/ca.crt -nodes -days 365 -subj "/CN=Hybrid Dilithium5 CA/O=Quantum Safe Proxy/OU=Testing/C=TW" -config $CONFIG_FILE -extensions v3_ca
 
 # Generate server private key
-/opt/oqs/openssl/bin/openssl genpkey -algorithm dilithium5 -out /app/certs/hybrid/dilithium5/server.key
+/opt/oqs/openssl/bin/openssl genpkey -algorithm p521_dilithium5 -out /app/certs/hybrid/dilithium5/server.key
 
 # Generate certificate signing request (CSR)
 /opt/oqs/openssl/bin/openssl req -new -key /app/certs/hybrid/dilithium5/server.key -out /app/certs/hybrid/dilithium5/server.csr -config $CONFIG_FILE
@@ -129,10 +129,10 @@ echo "=== Generating Hybrid Certificate (Dilithium5/ML-DSA-87 + ECDSA) ==="
 
 echo "=== Generating Hybrid Certificate (Falcon-1024 + ECDSA) ==="
 # Generate CA private key and certificate
-/opt/oqs/openssl/bin/openssl req -x509 -new -newkey falcon1024 -keyout /app/certs/hybrid/falcon1024/ca.key -out /app/certs/hybrid/falcon1024/ca.crt -nodes -days 365 -subj "/CN=Hybrid Falcon1024 CA/O=Quantum Safe Proxy/OU=Testing/C=TW" -config $CONFIG_FILE -extensions v3_ca
+/opt/oqs/openssl/bin/openssl req -x509 -new -newkey p521_falcon1024 -keyout /app/certs/hybrid/falcon1024/ca.key -out /app/certs/hybrid/falcon1024/ca.crt -nodes -days 365 -subj "/CN=Hybrid Falcon1024 CA/O=Quantum Safe Proxy/OU=Testing/C=TW" -config $CONFIG_FILE -extensions v3_ca
 
 # Generate server private key
-/opt/oqs/openssl/bin/openssl genpkey -algorithm falcon1024 -out /app/certs/hybrid/falcon1024/server.key
+/opt/oqs/openssl/bin/openssl genpkey -algorithm p521_falcon1024 -out /app/certs/hybrid/falcon1024/server.key
 
 # Generate certificate signing request (CSR)
 /opt/oqs/openssl/bin/openssl req -new -key /app/certs/hybrid/falcon1024/server.key -out /app/certs/hybrid/falcon1024/server.csr -config $CONFIG_FILE

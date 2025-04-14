@@ -105,16 +105,16 @@ extendedKeyUsage = clientAuth
 EOF
 
 echo "Generating CA certificate (Dilithium + ECDSA hybrid)..."
-openssl req -x509 -new -newkey dilithium3 -keyout ca.key -out ca.crt -nodes -days 365 -config ca.cnf
+openssl req -x509 -new -newkey p384_dilithium3 -keyout ca.key -out ca.crt -nodes -days 365 -config ca.cnf
 echo "CA certificate generated."
 
 echo "Generating server certificate (Kyber + ECDSA hybrid)..."
-openssl req -new -newkey kyber768 -keyout server.key -out server.csr -nodes -config server.cnf
+openssl req -new -newkey p384_kyber768 -keyout server.key -out server.csr -nodes -config server.cnf
 openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out server.crt -days 365 -extensions v3_req -extfile server.cnf
 echo "Server certificate generated."
 
 echo "Generating client certificate (Kyber + ECDSA hybrid)..."
-openssl req -new -newkey kyber768 -keyout client.key -out client.csr -nodes -config client.cnf
+openssl req -new -newkey p384_kyber768 -keyout client.key -out client.csr -nodes -config client.cnf
 openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out client.crt -days 365 -extensions v3_req -extfile client.cnf
 echo "Client certificate generated."
 

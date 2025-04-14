@@ -56,6 +56,18 @@ pub fn create_tls_acceptor(
     let mut acceptor = SslAcceptor::mozilla_modern(SslMethod::tls())
         .map_err(|e| ProxyError::Certificate(format!("Failed to create SSL acceptor: {}", e)))?;
 
+    // Enable all available cipher suites for maximum compatibility
+    // This is important for post-quantum TLS testing
+    acceptor.set_cipher_list("ALL:COMPLEMENTOFALL")
+        .map_err(|e| ProxyError::Certificate(format!("Failed to set cipher list: {}", e)))?;
+
+    // Enable TLSv1.2 and TLSv1.3 for better compatibility
+    // Disable older, insecure protocols
+    acceptor.set_options(openssl::ssl::SslOptions::NO_TLSV1_1);
+    acceptor.set_options(openssl::ssl::SslOptions::NO_TLSV1);
+    acceptor.set_options(openssl::ssl::SslOptions::NO_SSLV3);
+    acceptor.set_options(openssl::ssl::SslOptions::NO_SSLV2);
+
     // Set server certificate and private key
     acceptor.set_certificate_file(cert_path, SslFiletype::PEM)
         .map_err(|e| ProxyError::Certificate(format!("Failed to set server certificate: {}", e)))?;
@@ -127,6 +139,18 @@ pub fn create_tls_acceptor(
             logged.set(true);
         }
     });
+
+    // Set TLS 1.3 ciphersuites including post-quantum ones if available
+    // This is a critical step for enabling post-quantum key exchange
+    let tls13_ciphersuites = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256";
+    acceptor.set_ciphersuites(tls13_ciphersuites)
+        .map_err(|e| ProxyError::Certificate(format!("Failed to set TLS 1.3 ciphersuites: {}", e)))?;
+
+    // Enable post-quantum groups if available
+    // The actual groups will be determined by the OQS provider
+    let groups = "kyber768:p384_kyber768:kyber512:p256_kyber512:kyber1024:p521_kyber1024:X25519:P-256:P-384:P-521";
+    acceptor.set_groups_list(groups)
+        .map_err(|e| ProxyError::Certificate(format!("Failed to set groups: {}", e)))?;
 
     // Build the acceptor
     Ok(acceptor.build())

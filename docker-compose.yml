@@ -8,6 +8,7 @@ services:
     volumes:
       - ./certs:/app/certs
       - ./config:/app/config
+      - ./scripts:/app/scripts
     environment:
       - RUST_LOG=debug
       - OQS_OPENSSL_PATH=/opt/oqs/openssl

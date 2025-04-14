@@ -58,25 +58,57 @@ impl OqsProvider {
     fn determine_certificate_type(&self, cert: &X509) -> CertificateType {
         // Get signature algorithm
         let signature_algorithm = cert.signature_algorithm().object().to_string();
+        debug!("Raw signature algorithm string: {}", signature_algorithm);
+
+        // For p384_dilithium3 style hybrid certificates
+        if signature_algorithm.contains("p256_") ||
+           signature_algorithm.contains("p384_") ||
+           signature_algorithm.contains("p521_") ||
+           signature_algorithm.contains("_p256") ||
+           signature_algorithm.contains("_p384") ||
+           signature_algorithm.contains("_p521") {
+            // This is definitely a hybrid certificate
+            debug!("Detected hybrid certificate with signature algorithm: {}", signature_algorithm);
+            return CertificateType::Hybrid;
+        }
 
         // Check for known PQC algorithm indicators
         if signature_algorithm.contains("Kyber") ||
+           signature_algorithm.contains("kyber") ||
            signature_algorithm.contains("Dilithium") ||
+           signature_algorithm.contains("dilithium") ||
            signature_algorithm.contains("Falcon") ||
-           signature_algorithm.contains("SPHINCS") {
+           signature_algorithm.contains("falcon") ||
+           signature_algorithm.contains("SPHINCS") ||
+           signature_algorithm.contains("sphincs") {
             // If it contains both classical and PQC algorithms, it's hybrid
             if signature_algorithm.contains("RSA") ||
+               signature_algorithm.contains("rsa") ||
                signature_algorithm.contains("ECDSA") ||
-               signature_algorithm.contains("DSA") {
+               signature_algorithm.contains("ecdsa") ||
+               signature_algorithm.contains("DSA") ||
+               signature_algorithm.contains("dsa") ||
+               signature_algorithm.contains("P-256") ||
+               signature_algorithm.contains("P-384") ||
+               signature_algorithm.contains("P-521") ||
+               signature_algorithm.contains("prime256v1") ||
+               signature_algorithm.contains("secp384r1") ||
+               signature_algorithm.contains("secp521r1") {
+                debug!("Detected hybrid certificate with classical and PQC algorithms: {}", signature_algorithm);
                 CertificateType::Hybrid
             } else {
+                debug!("Detected pure post-quantum certificate: {}", signature_algorithm);
                 CertificateType::PurePostQuantum
             }
-        } else if signature_algorithm.contains("oqs") || signature_algorithm.contains("hybrid") {
+        } else if signature_algorithm.contains("oqs") ||
+                  signature_algorithm.contains("OQS") ||
+                  signature_algorithm.contains("hybrid") {
             // Generic indicators for hybrid certificates
+            debug!("Detected hybrid certificate with generic indicators: {}", signature_algorithm);
             CertificateType::Hybrid
         } else {
             // No PQC indicators found
+            debug!("Detected classical certificate: {}", signature_algorithm);
             CertificateType::Classical
         }
     }
