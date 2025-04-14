@@ -8,6 +8,11 @@
     - [From Crates.io](#from-cratesio)
     - [From Source](#from-source)
   - [Verifying the Installation](#verifying-the-installation)
+- [Configuration](#configuration)
+  - [Configuration Methods](#configuration-methods)
+  - [Configuration Priority](#configuration-priority)
+  - [Environment-Specific Configuration](#environment-specific-configuration)
+  - [Configuration Options](#configuration-options)
 - [Certificate Types](#certificate-types)
   - [1. Traditional Certificates](#1-traditional-certificates)
   - [2. Hybrid Certificates](#2-hybrid-certificates)
@@ -153,6 +158,110 @@ If you're using Docker, you can verify the installation with:
 ```bash
 docker compose exec quantum-safe-proxy quantum-safe-proxy --version
 ```
+
+## Configuration
+
+Quantum Safe Proxy offers flexible configuration options with a clear priority system and environment-specific configurations.
+
+### Configuration Methods
+
+You can configure the proxy using any of the following methods:
+
+1. **Command-line Arguments**:
+   ```bash
+   quantum-safe-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 \
+     --cert certs/hybrid/dilithium3/server.crt \
+     --key certs/hybrid/dilithium3/server.key \
+     --ca-cert certs/hybrid/dilithium3/ca.crt \
+     --log-level debug
+   ```
+
+2. **Environment Variables**:
+   ```bash
+   export QUANTUM_SAFE_PROXY_LISTEN="0.0.0.0:8443"
+   export QUANTUM_SAFE_PROXY_TARGET="127.0.0.1:6000"
+   export QUANTUM_SAFE_PROXY_CERT="certs/hybrid/dilithium3/server.crt"
+   export QUANTUM_SAFE_PROXY_KEY="certs/hybrid/dilithium3/server.key"
+   export QUANTUM_SAFE_PROXY_CA_CERT="certs/hybrid/dilithium3/ca.crt"
+   export QUANTUM_SAFE_PROXY_LOG_LEVEL="debug"
+
+   quantum-safe-proxy --from-env
+   ```
+
+3. **Configuration File**:
+   ```bash
+   # Create a config.json file
+   cat > config.json << EOF
+   {
+     "listen": "0.0.0.0:8443",
+     "target": "127.0.0.1:6000",
+     "cert_path": "certs/hybrid/dilithium3/server.crt",
+     "key_path": "certs/hybrid/dilithium3/server.key",
+     "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
+     "log_level": "debug",
+     "hybrid_mode": true,
+     "client_cert_mode": "optional",
+     "environment": "production"
+   }
+   EOF
+
+   # Run with the configuration file
+   quantum-safe-proxy --config-file config.json
+   ```
+
+### Configuration Priority
+
+When multiple configuration methods are used, the following priority order applies:
+
+1. **Command-line Arguments** (highest priority)
+2. **Environment Variables**
+3. **Configuration File**
+4. **Default Values** (lowest priority)
+
+This means that command-line arguments will override environment variables, which will override configuration file values, which will override default values.
+
+### Environment-Specific Configuration
+
+You can create environment-specific configuration files for different environments:
+
+```bash
+# Development environment configuration
+cat > config.development.json << EOF
+{
+  "listen": "127.0.0.1:8443",
+  "target": "127.0.0.1:6000",
+  "cert_path": "certs/hybrid/dilithium3/server.crt",
+  "key_path": "certs/hybrid/dilithium3/server.key",
+  "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
+  "log_level": "debug",
+  "hybrid_mode": true,
+  "client_cert_mode": "optional",
+  "environment": "development"
+}
+EOF
+```
+
+To use an environment-specific configuration:
+
+```bash
+quantum-safe-proxy --environment development
+```
+
+The proxy will automatically look for a `config.{environment}.json` file and load it if it exists.
+
+### Configuration Options
+
+| Option | Description | Default Value |
+|--------|-------------|--------------|
+| `listen` | Listen address for the proxy server | `0.0.0.0:8443` |
+| `target` | Target service address to forward traffic to | `127.0.0.1:6000` |
+| `cert_path` | Server certificate path | `certs/hybrid/dilithium3/server.crt` |
+| `key_path` | Server private key path | `certs/hybrid/dilithium3/server.key` |
+| `ca_cert_path` | CA certificate path for client certificate validation | `certs/hybrid/dilithium3/ca.crt` |
+| `hybrid_mode` | Whether to enable hybrid certificate mode | `true` |
+| `log_level` | Log level (debug, info, warn, error) | `info` |
+| `client_cert_mode` | Client certificate verification mode (required, optional, none) | `required` |
+| `environment` | Environment name (development, testing, production) | `production` |
 
 ## Certificate Types
 

@@ -6,6 +6,7 @@ Cargo.lock
 # Environment and configuration
 .env
 config.json
+config.*.json
 
 # Certificates and keys
 /certs/**/*.crt
