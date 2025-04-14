@@ -165,19 +165,19 @@ RUN mkdir -p ${INSTALLDIR}/openssl/lib && \
 COPY --from=builder /app/target/release/quantum-safe-proxy /usr/local/bin/
 
 # Create a comprehensive check-environment script
-RUN echo '#!/bin/sh
-echo "Checking environment for quantum-safe-proxy..."
-echo "OpenSSL version: $(/opt/oqs/openssl/bin/openssl version 2>/dev/null || echo "Not found")"
-echo "OpenSSL providers: $(/opt/oqs/openssl/bin/openssl list -providers 2>/dev/null || echo "Not found")"
-echo "OQS algorithms: $(/opt/oqs/openssl/bin/openssl list -signature-algorithms 2>/dev/null | grep -i dilithium || echo "None found")"
-echo "OQS_OPENSSL_PATH: $OQS_OPENSSL_PATH"
-echo "Checking expected OQS paths:"
-echo "- OQS_OPENSSL_PATH/bin/openssl: $(ls -la $OQS_OPENSSL_PATH/bin/openssl 2>/dev/null || echo "Not found")"
-echo "- OQS_OPENSSL_PATH/lib/liboqs.so: $(ls -la $OQS_OPENSSL_PATH/lib/liboqs.so 2>/dev/null || echo "Not found")"
-echo "- /opt/oqs/openssl/lib/liboqs.so: $(ls -la /opt/oqs/openssl/lib/liboqs.so 2>/dev/null || echo "Not found")"
-echo "- /opt/oqs/openssl/lib64/ossl-modules/oqsprovider.so: $(ls -la /opt/oqs/openssl/lib64/ossl-modules/oqsprovider.so 2>/dev/null || echo "Not found")"
-echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
-echo "Environment check complete."' > /usr/local/bin/check-environment && \
+RUN echo '#!/bin/sh' > /usr/local/bin/check-environment && \
+    echo 'echo "Checking environment for quantum-safe-proxy..."' >> /usr/local/bin/check-environment && \
+    echo 'echo "OpenSSL version: $(/opt/oqs/openssl/bin/openssl version 2>/dev/null || echo "Not found")"' >> /usr/local/bin/check-environment && \
+    echo 'echo "OpenSSL providers: $(/opt/oqs/openssl/bin/openssl list -providers 2>/dev/null || echo "Not found")"' >> /usr/local/bin/check-environment && \
+    echo 'echo "OQS algorithms: $(/opt/oqs/openssl/bin/openssl list -signature-algorithms 2>/dev/null | grep -i dilithium || echo "None found")"' >> /usr/local/bin/check-environment && \
+    echo 'echo "OQS_OPENSSL_PATH: $OQS_OPENSSL_PATH"' >> /usr/local/bin/check-environment && \
+    echo 'echo "Checking expected OQS paths:"' >> /usr/local/bin/check-environment && \
+    echo 'echo "- OQS_OPENSSL_PATH/bin/openssl: $(ls -la $OQS_OPENSSL_PATH/bin/openssl 2>/dev/null || echo "Not found")"' >> /usr/local/bin/check-environment && \
+    echo 'echo "- OQS_OPENSSL_PATH/lib/liboqs.so: $(ls -la $OQS_OPENSSL_PATH/lib/liboqs.so 2>/dev/null || echo "Not found")"' >> /usr/local/bin/check-environment && \
+    echo 'echo "- /opt/oqs/openssl/lib/liboqs.so: $(ls -la /opt/oqs/openssl/lib/liboqs.so 2>/dev/null || echo "Not found")"' >> /usr/local/bin/check-environment && \
+    echo 'echo "- /opt/oqs/openssl/lib64/ossl-modules/oqsprovider.so: $(ls -la /opt/oqs/openssl/lib64/ossl-modules/oqsprovider.so 2>/dev/null || echo "Not found")"' >> /usr/local/bin/check-environment && \
+    echo 'echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"' >> /usr/local/bin/check-environment && \
+    echo 'echo "Environment check complete."' >> /usr/local/bin/check-environment && \
     chmod +x /usr/local/bin/check-environment
 
 WORKDIR /app
