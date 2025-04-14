@@ -102,17 +102,14 @@ async fn main() -> Result<()> {
     if let Some(config_file) = args.config_file.clone() {
         if Path::new(&config_file).exists() {
             info!("Loading configuration from file: {}", config_file);
-            let config_str = fs::read_to_string(&config_file)
-                .map_err(|e| ProxyError::Config(format!(
-                    "Failed to read configuration file: {}", e
-                )))?;
-
-            let file_config: ProxyConfig = serde_json::from_str(&config_str)
-                .map_err(|e| ProxyError::Config(format!(
-                    "Failed to parse configuration file: {}", e
-                )))?;
-
-            config = config.merge(file_config);
+            match ProxyConfig::from_file(&config_file) {
+                Ok(file_config) => {
+                    config = config.merge(file_config);
+                },
+                Err(e) => {
+                    warn!("Failed to load configuration file: {}", e);
+                }
+            }
         } else {
             warn!("Configuration file not found: {}", config_file);
         }
@@ -195,8 +192,11 @@ async fn main() -> Result<()> {
 
     info!("Configuration loaded successfully");
 
-    // Validate configuration
-    config.validate()?;
+    // Check configuration for warnings
+    let warnings = config.check();
+    for warning in warnings {
+        warn!("{}", warning);
+    }
 
     info!("Listen address: {}", config.listen);
     info!("Target service: {}", config.target);

@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::path::Path;
+use std::fs;
 use std::fmt;
 
 use crate::common::{ProxyError, Result, check_file_exists};
@@ -60,6 +62,8 @@ impl ClientCertMode {
 /// Supports loading from command-line arguments, environment variables,
 /// and configuration files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(default)]
 pub struct ProxyConfig {
     /// Listen address for the proxy server
     #[serde(default = "defaults::listen")]
@@ -210,6 +214,84 @@ impl ProxyConfig {
         }
     }
 
+    /// Load configuration from file
+    ///
+    /// # Parameters
+    ///
+    /// * `path` - Path to the configuration file
+    ///
+    /// # Returns
+    ///
+    /// Returns the configuration result
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use quantum_safe_proxy::config::ProxyConfig;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let config = ProxyConfig::from_file("config.json")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
+        let content = fs::read_to_string(path)
+            .map_err(|e| ProxyError::Config(format!(
+                "Failed to read configuration file {}: {}", path.display(), e
+            )))?;
+
+        serde_json::from_str(&content)
+            .map_err(|e| ProxyError::Config(format!(
+                "Failed to parse JSON configuration file {}: {}", path.display(), e
+            )))
+    }
+
+    /// Save configuration to file
+    ///
+    /// # Parameters
+    ///
+    /// * `path` - Path to the configuration file
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if configuration was saved successfully, otherwise returns an error.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use quantum_safe_proxy::config::ProxyConfig;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let config = ProxyConfig::default();
+    /// config.save_to_file("config.json")?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let path = path.as_ref();
+
+        // Create parent directories if they don't exist
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent)
+                    .map_err(|e| ProxyError::Config(format!(
+                        "Failed to create directory {}: {}", parent.display(), e
+                    )))?;
+            }
+        }
+
+        // Serialize configuration to JSON with pretty formatting
+        let content = serde_json::to_string_pretty(self)
+            .map_err(|e| ProxyError::Config(format!(
+                "Failed to serialize configuration: {}", e
+            )))?;
+
+        // Write to file
+        fs::write(path, content)
+            .map_err(|e| ProxyError::Config(format!(
+                "Failed to write configuration to {}: {}", path.display(), e
+            )))
+    }
+
     /// Validate configuration
     ///
     /// Checks if certificate files exist and other configuration is valid.
@@ -258,6 +340,64 @@ impl ProxyConfig {
         }
 
         Ok(())
+    }
+
+    /// Check configuration for potential issues
+    ///
+    /// This method checks the configuration for potential issues and returns
+    /// a list of warnings. Unlike `validate()`, this method does not return
+    /// an error if issues are found.
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of warning messages.
+    pub fn check(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+
+        // Check if certificate file exists
+        if !self.cert_path.exists() {
+            warnings.push(format!(
+                "Certificate file does not exist: {}", self.cert_path.display()
+            ));
+        }
+
+        // Check if key file exists
+        if !self.key_path.exists() {
+            warnings.push(format!(
+                "Key file does not exist: {}", self.key_path.display()
+            ));
+        }
+
+        // Check if CA certificate file exists
+        if !self.ca_cert_path.exists() {
+            warnings.push(format!(
+                "CA certificate file does not exist: {}", self.ca_cert_path.display()
+            ));
+        }
+
+        // Check if listen address is valid
+        if self.listen.port() == 0 {
+            warnings.push(format!(
+                "Listen address has port 0, which will use a random port: {}", self.listen
+            ));
+        }
+
+        // Check if target address is valid
+        if self.target.port() == 0 {
+            warnings.push(format!(
+                "Target address has port 0, which may not work as expected: {}", self.target
+            ));
+        }
+
+        // Check if log level is valid
+        match self.log_level.to_lowercase().as_str() {
+            "debug" | "info" | "warn" | "error" => {},
+            _ => warnings.push(format!(
+                "Unknown log level: {}", self.log_level
+            )),
+        }
+
+        warnings
     }
 }
 

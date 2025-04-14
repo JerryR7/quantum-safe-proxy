@@ -128,7 +128,21 @@ cp config.json.example config.json
 # Edit config.json to match your requirements
 ```
 
-Or create a `config.json` file manually:
+The configuration file uses JSON format and supports the following options:
+
+| Option | Description | Default |
+|--------|-------------|--------|
+| `listen` | Listen address for the proxy server | `0.0.0.0:8443` |
+| `target` | Target service address to forward traffic to | `127.0.0.1:6000` |
+| `cert_path` | Server certificate path | `certs/hybrid/dilithium3/server.crt` |
+| `key_path` | Server private key path | `certs/hybrid/dilithium3/server.key` |
+| `ca_cert_path` | CA certificate path for client certificate validation | `certs/ca.crt` |
+| `hybrid_mode` | Whether to enable hybrid certificate mode | `true` |
+| `client_cert_mode` | Client certificate verification mode: `required`, `optional`, or `none` | `optional` |
+| `log_level` | Log level: `debug`, `info`, `warn`, or `error` | `info` |
+| `environment` | Environment: `development`, `testing`, or `production` | `production` |
+
+Example configuration file:
 
 ```json
 {
@@ -138,7 +152,9 @@ Or create a `config.json` file manually:
   "key_path": "certs/hybrid/dilithium3/server.key",
   "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
   "hybrid_mode": true,
-  "log_level": "info"
+  "client_cert_mode": "optional",
+  "log_level": "info",
+  "environment": "production"
 }
 ```
 
@@ -147,6 +163,8 @@ Then run:
 ```bash
 quantum-safe-proxy --config-file config.json
 ```
+
+
 
 ### Using Docker
 

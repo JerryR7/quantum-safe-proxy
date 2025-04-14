@@ -6,5 +6,6 @@
   "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
   "hybrid_mode": true,
   "log_level": "info",
-  "client_cert_mode": "optional"
+  "client_cert_mode": "optional",
+  "environment": "production"
 }
