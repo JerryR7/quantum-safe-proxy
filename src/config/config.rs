@@ -127,9 +127,9 @@ impl ProxyConfig {
     /// let config = ProxyConfig::from_args(
     ///     "127.0.0.1:8443",
     ///     "127.0.0.1:6000",
-    ///     "certs/server.crt",
-    ///     "certs/server.key",
-    ///     "certs/ca.crt",
+    ///     "certs/hybrid/dilithium3/server.crt",
+    ///     "certs/hybrid/dilithium3/server.key",
+    ///     "certs/hybrid/dilithium3/ca.crt",
     ///     "info",
     ///     "required"
     /// )?;
@@ -207,13 +207,13 @@ impl ProxyConfig {
             .unwrap_or_else(|_| "127.0.0.1:6000".to_string());
 
         let cert = env::var("QUANTUM_SAFE_PROXY_CERT")
-            .unwrap_or_else(|_| "certs/server.crt".to_string());
+            .unwrap_or_else(|_| "certs/hybrid/dilithium3/server.crt".to_string());
 
         let key = env::var("QUANTUM_SAFE_PROXY_KEY")
-            .unwrap_or_else(|_| "certs/server.key".to_string());
+            .unwrap_or_else(|_| "certs/hybrid/dilithium3/server.key".to_string());
 
         let ca_cert = env::var("QUANTUM_SAFE_PROXY_CA_CERT")
-            .unwrap_or_else(|_| "certs/ca.crt".to_string());
+            .unwrap_or_else(|_| "certs/hybrid/dilithium3/ca.crt".to_string());
 
         let log_level = env::var("QUANTUM_SAFE_PROXY_LOG_LEVEL")
             .unwrap_or_else(|_| "info".to_string());
@@ -282,9 +282,9 @@ mod tests {
         let config = ProxyConfig::from_args(
             "127.0.0.1:8443",
             "127.0.0.1:6000",
-            "certs/server.crt",
-            "certs/server.key",
-            "certs/ca.crt",
+            "certs/hybrid/dilithium3/server.crt",
+            "certs/hybrid/dilithium3/server.key",
+            "certs/hybrid/dilithium3/ca.crt",
             "info",
         );
 
@@ -293,7 +293,7 @@ mod tests {
         if let Ok(config) = config {
             assert_eq!(config.listen.port(), 8443);
             assert_eq!(config.target.port(), 6000);
-            assert_eq!(config.cert_path, PathBuf::from("certs/server.crt"));
+            assert_eq!(config.cert_path, PathBuf::from("certs/hybrid/dilithium3/server.crt"));
             assert_eq!(config.log_level, "info");
             assert!(config.hybrid_mode);
         }

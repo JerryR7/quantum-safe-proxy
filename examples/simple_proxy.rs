@@ -14,9 +14,9 @@ async fn main() -> Result<()> {
 
     // 創建 TLS 接受器
     let tls_acceptor = create_tls_acceptor(
-        Path::new("certs/server.crt"),
-        Path::new("certs/server.key"),
-        Path::new("certs/ca.crt"),
+        Path::new("certs/hybrid/dilithium3/server.crt"),
+        Path::new("certs/hybrid/dilithium3/server.key"),
+        Path::new("certs/hybrid/dilithium3/ca.crt"),
     )?;
 
     // 創建並啟動代理

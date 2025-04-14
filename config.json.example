@@ -1,9 +1,9 @@
 {
   "listen": "0.0.0.0:8443",
   "target": "127.0.0.1:6000",
-  "cert_path": "certs/server.crt",
-  "key_path": "certs/server.key",
-  "ca_cert_path": "certs/ca.crt",
+  "cert_path": "certs/hybrid/dilithium3/server.crt",
+  "key_path": "certs/hybrid/dilithium3/server.key",
+  "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
   "hybrid_mode": true,
   "log_level": "info",
   "client_cert_mode": "optional"

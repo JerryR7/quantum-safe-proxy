@@ -72,9 +72,9 @@ The easiest way to get started with Quantum Safe Proxy is using Docker:
        command: [
          "--listen", "0.0.0.0:8443",
          "--target", "backend:6000",
-         "--cert", "/app/certs/server.crt",
-         "--key", "/app/certs/server.key",
-         "--ca-cert", "/app/certs/ca.crt",
+         "--cert", "/app/certs/hybrid/dilithium3/server.crt",
+         "--key", "/app/certs/hybrid/dilithium3/server.key",
+         "--ca-cert", "/app/certs/hybrid/dilithium3/ca.crt",
          "--log-level", "debug"
        ]
        networks:

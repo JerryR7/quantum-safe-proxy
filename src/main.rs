@@ -24,15 +24,15 @@ struct Args {
     target: String,
 
     /// Server certificate path
-    #[clap(long, default_value = "certs/server.crt")]
+    #[clap(long, default_value = "certs/hybrid/dilithium3/server.crt")]
     cert: String,
 
     /// Server private key path
-    #[clap(long, default_value = "certs/server.key")]
+    #[clap(long, default_value = "certs/hybrid/dilithium3/server.key")]
     key: String,
 
     /// CA certificate path (for client certificate validation)
-    #[clap(long, default_value = "certs/ca.crt")]
+    #[clap(long, default_value = "certs/hybrid/dilithium3/ca.crt")]
     ca_cert: String,
 
     /// Log level

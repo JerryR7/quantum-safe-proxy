@@ -35,9 +35,9 @@ use crate::crypto::provider::{ProviderType, create_provider};
 /// # use quantum_safe_proxy::config::ClientCertMode;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let acceptor = create_tls_acceptor(
-///     Path::new("certs/server.crt"),
-///     Path::new("certs/server.key"),
-///     Path::new("certs/ca.crt"),
+///     Path::new("certs/hybrid/dilithium3/server.crt"),
+///     Path::new("certs/hybrid/dilithium3/server.key"),
+///     Path::new("certs/hybrid/dilithium3/ca.crt"),
 ///     &ClientCertMode::Required
 /// )?;
 /// # Ok(())
@@ -140,9 +140,9 @@ mod tests {
     #[test]
     fn test_create_tls_acceptor() {
         // This test requires valid certificate files
-        let cert_path = PathBuf::from("certs/server.crt");
-        let key_path = PathBuf::from("certs/server.key");
-        let ca_cert_path = PathBuf::from("certs/ca.crt");
+        let cert_path = PathBuf::from("certs/hybrid/dilithium3/server.crt");
+        let key_path = PathBuf::from("certs/hybrid/dilithium3/server.key");
+        let ca_cert_path = PathBuf::from("certs/hybrid/dilithium3/ca.crt");
 
         if !cert_path.exists() || !key_path.exists() || !ca_cert_path.exists() {
             println!("Skipping test: Certificate files do not exist");

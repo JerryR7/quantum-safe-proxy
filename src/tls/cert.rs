@@ -129,7 +129,7 @@ mod tests {
     fn test_is_hybrid_cert() {
         // This test needs a valid certificate file
         // If there isn't one, we can skip this test
-        let cert_path = PathBuf::from("certs/server.crt");
+        let cert_path = PathBuf::from("certs/hybrid/dilithium3/server.crt");
         if !cert_path.exists() {
             println!("Skipping test: Certificate file does not exist");
             return;
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn test_get_cert_subject() {
         // This test needs a valid certificate file
-        let cert_path = PathBuf::from("certs/server.crt");
+        let cert_path = PathBuf::from("certs/hybrid/dilithium3/server.crt");
         if !cert_path.exists() {
             println!("Skipping test: Certificate file does not exist");
             return;
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn test_get_cert_fingerprint() {
         // This test needs a valid certificate file
-        let cert_path = PathBuf::from("certs/server.crt");
+        let cert_path = PathBuf::from("certs/hybrid/dilithium3/server.crt");
         if !cert_path.exists() {
             println!("Skipping test: Certificate file does not exist");
             return;
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn test_load_cert() {
         // This test needs a valid certificate file
-        let cert_path = PathBuf::from("certs/server.crt");
+        let cert_path = PathBuf::from("certs/hybrid/dilithium3/server.crt");
         if !cert_path.exists() {
             println!("Skipping test: Certificate file does not exist");
             return;

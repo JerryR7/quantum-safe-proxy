@@ -100,7 +100,7 @@ docker build -t quantum-safe-proxy .
 ### Basic Usage
 
 ```bash
-quantum-safe-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --cert certs/server.crt --key certs/server.key --ca-cert certs/ca.crt
+quantum-safe-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --cert certs/hybrid/dilithium3/server.crt --key certs/hybrid/dilithium3/server.key --ca-cert certs/hybrid/dilithium3/ca.crt
 ```
 
 ### Using Environment Variables
@@ -109,9 +109,9 @@ quantum-safe-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --cert certs/se
 # Set environment variables
 export QUANTUM_SAFE_PROXY_LISTEN="0.0.0.0:9443"
 export QUANTUM_SAFE_PROXY_TARGET="127.0.0.1:7000"
-export QUANTUM_SAFE_PROXY_CERT="certs/server.crt"
-export QUANTUM_SAFE_PROXY_KEY="certs/server.key"
-export QUANTUM_SAFE_PROXY_CA_CERT="certs/ca.crt"
+export QUANTUM_SAFE_PROXY_CERT="certs/hybrid/dilithium3/server.crt"
+export QUANTUM_SAFE_PROXY_KEY="certs/hybrid/dilithium3/server.key"
+export QUANTUM_SAFE_PROXY_CA_CERT="certs/hybrid/dilithium3/ca.crt"
 export QUANTUM_SAFE_PROXY_LOG_LEVEL="debug"
 export QUANTUM_SAFE_PROXY_HYBRID_MODE="true"
 
@@ -134,9 +134,9 @@ Or create a `config.json` file manually:
 {
   "listen": "0.0.0.0:8443",
   "target": "127.0.0.1:6000",
-  "cert_path": "certs/server.crt",
-  "key_path": "certs/server.key",
-  "ca_cert_path": "certs/ca.crt",
+  "cert_path": "certs/hybrid/dilithium3/server.crt",
+  "key_path": "certs/hybrid/dilithium3/server.key",
+  "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
   "hybrid_mode": true,
   "log_level": "info"
 }
@@ -190,9 +190,9 @@ docker-compose up -d
 |--------|-------------|---------|
 | `--listen` | Listen address | 0.0.0.0:8443 |
 | `--target` | Target service address | 127.0.0.1:6000 |
-| `--cert` | Server certificate path | certs/server.crt |
-| `--key` | Server private key path | certs/server.key |
-| `--ca-cert` | CA certificate path | certs/ca.crt |
+| `--cert` | Server certificate path | certs/hybrid/dilithium3/server.crt |
+| `--key` | Server private key path | certs/hybrid/dilithium3/server.key |
+| `--ca-cert` | CA certificate path | certs/hybrid/dilithium3/ca.crt |
 | `--log-level` | Log level (debug, info, warn, error) | info |
 | `--hybrid-mode` | Enable hybrid certificate mode | true |
 | `--from-env` | Load configuration from environment variables | - |
@@ -249,8 +249,8 @@ export PATH="/opt/oqs-openssl/bin:$PATH"
 export LD_LIBRARY_PATH="/opt/oqs-openssl/lib:$LD_LIBRARY_PATH"
 
 # Generate hybrid certificate
-openssl req -x509 -new -newkey oqsdefault -keyout certs/server.key -out certs/server.crt \
-    -config openssl-hybrid.conf -nodes -days 365
+openssl req -x509 -new -newkey oqsdefault -keyout certs/hybrid/dilithium3/server.key -out certs/hybrid/dilithium3/server.crt \
+    -config scripts/openssl-hybrid.conf -nodes -days 365
 ```
 
 ### Example OpenSSL Configuration

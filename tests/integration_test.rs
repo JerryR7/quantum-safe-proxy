@@ -15,9 +15,9 @@ fn test_config_creation() {
     let config = ProxyConfig::from_args(
         "127.0.0.1:8443",
         "127.0.0.1:6000",
-        "certs/server.crt",
-        "certs/server.key",
-        "certs/ca.crt",
+        "certs/hybrid/dilithium3/server.crt",
+        "certs/hybrid/dilithium3/server.key",
+        "certs/hybrid/dilithium3/ca.crt",
         "info",
     );
 
@@ -27,7 +27,7 @@ fn test_config_creation() {
 #[test]
 fn test_cert_operations() {
     // This test needs a valid certificate file
-    let cert_path = PathBuf::from("certs/server.crt");
+    let cert_path = PathBuf::from("certs/hybrid/dilithium3/server.crt");
     if !cert_path.exists() {
         println!("Skipping test: Certificate file does not exist");
         return;
