@@ -199,25 +199,66 @@ Note that the listen address cannot be changed during hot reload, as this would 
 
 ### Using Docker
 
-#### Standard Docker Image
+#### 1. Build Docker Images
+
+Before using Docker Compose, first build the Docker images manually. This provides better control over the build process and prevents dangling (`<none>`) images.
+
+##### Standard Docker Image
 
 ```bash
-docker run -p 8443:8443 \
-  -v $(pwd)/certs:/app/certs \
-  jerryr7/quantum-safe-proxy:latest \
-  --listen 0.0.0.0:8443 \
+# Run in the project root directory
+docker build -f docker/Dockerfile -t quantum-safe-proxy:latest .
 ```
 
-#### Docker Image with OQS-OpenSSL (Post-Quantum Support)
+##### Docker Image with OQS-OpenSSL (Post-Quantum Support)
 
 ```bash
-docker run -p 8443:8443 \
-  -v $(pwd)/certs:/app/certs \
-  jerryr7/quantum-safe-proxy:oqs \
-  --listen 0.0.0.0:8443 \
+# Run in the project root directory
+docker build -f docker/Dockerfile.oqs -t quantum-safe-proxy:oqs .
 ```
 
-#### Using Docker Compose
+#### 2. Using Docker Run
+
+```bash
+# Standard image
+docker run -p 8443:8443 \
+  -v $(pwd)/certs:/app/certs \
+  quantum-safe-proxy:latest \
+  --listen 0.0.0.0:8443 \
+  --target 127.0.0.1:6000 \
+  --cert /app/certs/hybrid/dilithium3/server.crt \
+  --key /app/certs/hybrid/dilithium3/server.key \
+  --ca-cert /app/certs/hybrid/dilithium3/ca.crt \
+  --client-cert-mode optional
+
+# OQS image (with post-quantum support)
+docker run -p 8443:8443 \
+  -v $(pwd)/certs:/app/certs \
+  quantum-safe-proxy:oqs \
+  --listen 0.0.0.0:8443 \
+  --target 127.0.0.1:6000 \
+  --cert /app/certs/hybrid/dilithium3/server.crt \
+  --key /app/certs/hybrid/dilithium3/server.key \
+  --ca-cert /app/certs/hybrid/dilithium3/ca.crt \
+  --client-cert-mode optional
+```
+
+#### 3. Using Docker Compose
+
+Make sure your `docker-compose.yml` file uses the pre-built images:
+
+```yaml
+services:
+  quantum-safe-proxy:
+    image: quantum-safe-proxy:oqs  # Use pre-built image
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./certs:/app/certs
+    # other configuration...
+```
+
+Then start the services:
 
 ```bash
 # Start the proxy with docker-compose
@@ -227,11 +268,28 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-### Using docker-compose
+#### 4. Updating Images
+
+When your code changes and you need to update the images:
 
 ```bash
+# Rebuild the image
+docker build -f docker/Dockerfile.oqs -t quantum-safe-proxy:oqs .
+
+# Restart the services
+docker-compose down
 docker-compose up -d
 ```
+
+#### 5. Why This Approach?
+
+We recommend building images manually and using only `image:` in docker-compose.yml (without `build:` sections) for several reasons:
+
+- **Prevents dangling images**: Avoids the creation of `<none>` tagged images that waste disk space
+- **Better control**: Gives you more visibility and control over the build process
+- **Clearer versioning**: Makes it easier to manage different versions of your images
+- **Faster startup**: Docker Compose starts faster as it doesn't need to check if rebuilding is necessary
+- **Consistent with CI/CD practices**: Aligns with how images are typically handled in production environments
 
 ### Command-line Options
 

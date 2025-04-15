@@ -56,12 +56,18 @@ Before installing Quantum Safe Proxy, ensure you have the following prerequisite
 
 #### Using Docker (Recommended)
 
-The easiest way to get started with Quantum Safe Proxy is using Docker:
+The easiest way to get started with Quantum Safe Proxy is using Docker. Follow these steps for the best experience:
 
-1. **Pull the image**:
+1. **Build the Docker images**:
+
+   First, build the Docker images manually. This provides better control over the build process and prevents dangling (`<none>`) images.
 
    ```bash
-   docker pull jerryr7/quantum-safe-proxy:latest
+   # Build standard image
+   docker build -f docker/Dockerfile -t quantum-safe-proxy:latest .
+
+   # Build OQS image (with post-quantum support)
+   docker build -f docker/Dockerfile.oqs -t quantum-safe-proxy:oqs .
    ```
 
 2. **Create a docker-compose.yml file**:
@@ -69,7 +75,7 @@ The easiest way to get started with Quantum Safe Proxy is using Docker:
    ```yaml
    services:
      quantum-safe-proxy:
-       image: jerryr7/quantum-safe-proxy:oqs
+       image: quantum-safe-proxy:oqs  # Use the pre-built image
        ports:
          - "8443:8443"
        volumes:
@@ -81,7 +87,8 @@ The easiest way to get started with Quantum Safe Proxy is using Docker:
          "--cert", "/app/certs/hybrid/dilithium3/server.crt",
          "--key", "/app/certs/hybrid/dilithium3/server.key",
          "--ca-cert", "/app/certs/hybrid/dilithium3/ca.crt",
-         "--log-level", "debug"
+         "--log-level", "debug",
+         "--client-cert-mode", "optional"
        ]
        networks:
          - proxy-network
@@ -103,10 +110,43 @@ The easiest way to get started with Quantum Safe Proxy is using Docker:
        driver: bridge
    ```
 
+   > **Note**: Notice that we're using `image: quantum-safe-proxy:oqs` instead of including a `build` section. This approach prevents the creation of dangling images.
+
 3. **Start the services**:
 
    ```bash
    docker-compose up -d
+   ```
+
+4. **Updating images**:
+
+   When your code changes and you need to update the images:
+
+   ```bash
+   # Rebuild the image
+   docker build -f docker/Dockerfile.oqs -t quantum-safe-proxy:oqs .
+
+   # Restart the services
+   docker-compose down
+   docker-compose up -d
+   ```
+
+5. **Image management best practices**:
+
+   If you still see `<none>` tagged images, you can clean them up with:
+
+   ```bash
+   docker image prune -f
+   ```
+
+   For important versions, consider adding version tags:
+
+   ```bash
+   # Build with version tag
+   docker build -f docker/Dockerfile.oqs -t quantum-safe-proxy:oqs-1.0.0 .
+
+   # Add the oqs tag for docker-compose
+   docker tag quantum-safe-proxy:oqs-1.0.0 quantum-safe-proxy:oqs
    ```
 
 #### From Crates.io

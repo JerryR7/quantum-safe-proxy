@@ -1,9 +1,6 @@
 services:
   quantum-safe-proxy:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    image: quantum-safe-proxy:latest
+    image: quantum-safe-proxy:latest  # Use pre-built image
     container_name: quantum-safe-proxy
     ports:
       - "8443:8443"
