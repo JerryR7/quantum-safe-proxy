@@ -100,7 +100,7 @@ docker build -t quantum-safe-proxy .
 ### Basic Usage
 
 ```bash
-quantum-safe-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --cert certs/hybrid/dilithium3/server.crt --key certs/hybrid/dilithium3/server.key --ca-cert certs/hybrid/dilithium3/ca.crt
+quantum-safe-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --cert certs/hybrid/dilithium3/server.crt --key certs/hybrid/dilithium3/server.key --ca-cert certs/hybrid/dilithium3/ca.crt --client-cert-mode optional
 ```
 
 ### Using Environment Variables
@@ -114,6 +114,7 @@ export QUANTUM_SAFE_PROXY_KEY="certs/hybrid/dilithium3/server.key"
 export QUANTUM_SAFE_PROXY_CA_CERT="certs/hybrid/dilithium3/ca.crt"
 export QUANTUM_SAFE_PROXY_LOG_LEVEL="debug"
 export QUANTUM_SAFE_PROXY_HYBRID_MODE="true"
+export QUANTUM_SAFE_PROXY_CLIENT_CERT_MODE="optional"
 
 # Load configuration from environment variables
 quantum-safe-proxy --from-env
@@ -164,6 +165,36 @@ Then run:
 quantum-safe-proxy --config-file config.json
 ```
 
+### Configuration Hot Reload
+
+Quantum Safe Proxy supports hot reloading of configuration without restarting the service:
+
+#### On Unix-like Systems (Linux, macOS)
+
+Send a SIGHUP signal to the process:
+
+```bash
+# Find the process ID
+pidof quantum-safe-proxy
+
+# Send SIGHUP signal
+kill -HUP <process_id>
+```
+
+#### On Windows
+
+On Windows, the proxy automatically checks for configuration file changes every 30 seconds. Simply modify and save the configuration file, and it will be reloaded automatically.
+
+#### What Gets Reloaded
+
+The following configuration options can be changed during hot reload:
+
+- Target service address
+- TLS certificates and keys
+- Client certificate verification mode
+- Log level
+
+Note that the listen address cannot be changed during hot reload, as this would require restarting the listener.
 
 
 ### Using Docker
@@ -213,6 +244,7 @@ docker-compose up -d
 | `--ca-cert` | CA certificate path | certs/hybrid/dilithium3/ca.crt |
 | `--log-level` | Log level (debug, info, warn, error) | info |
 | `--hybrid-mode` | Enable hybrid certificate mode | true |
+| `--client-cert-mode` | Client certificate verification mode (required, optional, none) | optional |
 | `--from-env` | Load configuration from environment variables | - |
 | `--config-file` | Load configuration from specified file | - |
 

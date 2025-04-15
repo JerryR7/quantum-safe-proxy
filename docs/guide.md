@@ -11,6 +11,7 @@
 - [Configuration](#configuration)
   - [Configuration Methods](#configuration-methods)
   - [Configuration Priority](#configuration-priority)
+  - [Configuration Hot Reload](#configuration-hot-reload)
   - [Environment-Specific Configuration](#environment-specific-configuration)
   - [Configuration Options](#configuration-options)
 - [Certificate Types](#certificate-types)
@@ -173,6 +174,7 @@ You can configure the proxy using any of the following methods:
      --cert certs/hybrid/dilithium3/server.crt \
      --key certs/hybrid/dilithium3/server.key \
      --ca-cert certs/hybrid/dilithium3/ca.crt \
+     --client-cert-mode optional \
      --log-level debug
    ```
 
@@ -184,6 +186,7 @@ You can configure the proxy using any of the following methods:
    export QUANTUM_SAFE_PROXY_KEY="certs/hybrid/dilithium3/server.key"
    export QUANTUM_SAFE_PROXY_CA_CERT="certs/hybrid/dilithium3/ca.crt"
    export QUANTUM_SAFE_PROXY_LOG_LEVEL="debug"
+   export QUANTUM_SAFE_PROXY_CLIENT_CERT_MODE="optional"
 
    quantum-safe-proxy --from-env
    ```
@@ -219,6 +222,67 @@ When multiple configuration methods are used, the following priority order appli
 4. **Default Values** (lowest priority)
 
 This means that command-line arguments will override environment variables, which will override configuration file values, which will override default values.
+
+### Configuration Hot Reload
+
+Quantum Safe Proxy supports hot reloading of configuration without restarting the service. This is particularly useful in production environments where downtime should be minimized.
+
+#### Hot Reload Methods
+
+##### On Unix-like Systems (Linux, macOS)
+
+On Unix-like systems, you can trigger a configuration reload by sending a SIGHUP signal to the process:
+
+```bash
+# Find the process ID
+pidof quantum-safe-proxy
+
+# Send SIGHUP signal
+kill -HUP <process_id>
+```
+
+Alternatively, if you're using systemd:
+
+```bash
+systemctl kill --signal=HUP quantum-safe-proxy
+```
+
+##### On Windows
+
+On Windows, the proxy automatically checks for configuration file changes every 30 seconds. To reload the configuration:
+
+1. Modify the configuration file
+2. Save the changes
+3. Wait for up to 30 seconds for the changes to be detected and applied
+
+#### What Gets Reloaded
+
+The following configuration options can be changed during hot reload:
+
+- **Target service address**: You can change where the proxy forwards traffic to
+- **TLS certificates and keys**: Update certificates without downtime
+- **Client certificate verification mode**: Change between required, optional, and none
+- **Log level**: Adjust logging verbosity on the fly
+- **Hybrid mode**: Enable or disable hybrid certificate support
+- **CA certificate**: Update the CA certificate used for client verification
+
+#### What Doesn't Get Reloaded
+
+Some configuration options cannot be changed during hot reload and require a restart:
+
+- **Listen address**: Changing the listen address requires restarting the listener
+
+#### Monitoring Hot Reload
+
+When a configuration reload is triggered, the proxy will log information about the reload process:
+
+```
+INFO: Reloading configuration from config.json
+INFO: New target address: 127.0.0.1:7000
+INFO: Proxy configuration reloaded successfully
+```
+
+If there are any issues with the new configuration, warnings or errors will be logged, and the proxy will continue using the previous configuration.
 
 ### Environment-Specific Configuration
 
@@ -432,6 +496,7 @@ command: >
   --cert /app/certs/traditional/rsa/server.crt
   --key /app/certs/traditional/rsa/server.key
   --ca-cert /app/certs/traditional/rsa/ca.crt
+  --client-cert-mode optional
 ```
 
 #### Hybrid Dilithium5/ML-DSA-87 Certificates
@@ -443,6 +508,7 @@ command: >
   --cert /app/certs/hybrid/dilithium5/server.crt
   --key /app/certs/hybrid/dilithium5/server.key
   --ca-cert /app/certs/hybrid/dilithium5/ca.crt
+  --client-cert-mode optional
 ```
 
 #### Pure Post-Quantum Dilithium5/ML-DSA-87 Certificates
@@ -454,6 +520,7 @@ command: >
   --cert /app/certs/post-quantum/dilithium5/server.crt
   --key /app/certs/post-quantum/dilithium5/server.key
   --ca-cert /app/certs/post-quantum/dilithium5/ca.crt
+  --client-cert-mode optional
 ```
 
 After modifying the configuration, restart the services:

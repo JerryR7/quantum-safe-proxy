@@ -174,7 +174,7 @@ mod tests {
         }
 
         // Test creating TLS acceptor
-        let result = create_tls_acceptor(&cert_path, &key_path, &ca_cert_path);
+        let result = create_tls_acceptor(&cert_path, &key_path, &ca_cert_path, &ClientCertMode::Optional);
         assert!(result.is_ok(), "Should be able to create TLS acceptor");
     }
 }

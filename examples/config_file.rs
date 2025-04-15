@@ -41,6 +41,7 @@ async fn main() -> Result<()> {
         &config.cert_path,
         &config.key_path,
         &config.ca_cert_path,
+        &config.client_cert_mode,
     )?;
 
     // Create and start proxy

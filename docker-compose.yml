@@ -1,8 +1,6 @@
 services:
   quantum-safe-proxy:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.oqs
+    image: quantum-safe-proxy:oqs
     ports:
       - "8443:8443"
     volumes:

@@ -66,3 +66,58 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Application name
 pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
+
+/// Reload proxy configuration from file
+///
+/// This function reloads the proxy configuration from the specified file and
+/// updates the proxy instance with the new configuration.
+///
+/// # Parameters
+///
+/// * `proxy` - Mutable reference to the proxy instance
+/// * `config` - Current configuration
+/// * `config_path` - Path to the configuration file
+///
+/// # Returns
+///
+/// Returns the updated configuration if successful, otherwise returns an error.
+///
+/// # Example
+///
+/// ```no_run
+/// # use quantum_safe_proxy::{Proxy, config::ProxyConfig, reload_config};
+/// # use std::path::Path;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let mut proxy = Proxy::new("127.0.0.1:8443".parse()?, "127.0.0.1:6000".parse()?, Default::default());
+/// # let mut config = ProxyConfig::default();
+/// // Reload configuration
+/// let new_config = reload_config(&mut proxy, &config, Path::new("config.json"))?;
+/// # Ok(())
+/// # }
+/// ```
+pub fn reload_config(
+    proxy: &mut Proxy,
+    config: &config::ProxyConfig,
+    config_path: &std::path::Path,
+) -> Result<config::ProxyConfig> {
+    use log::{info};
+
+    info!("Reloading configuration from {}", config_path.display());
+
+    // Reload configuration from file
+    let new_config = config.reload_from_file(config_path)?;
+
+    // Create new TLS acceptor
+    let tls_acceptor = create_tls_acceptor(
+        &new_config.cert_path,
+        &new_config.key_path,
+        &new_config.ca_cert_path,
+        &new_config.client_cert_mode,
+    )?;
+
+    // Update proxy configuration
+    proxy.update_config(new_config.target, tls_acceptor);
+
+    info!("Proxy configuration reloaded successfully");
+    Ok(new_config)
+}

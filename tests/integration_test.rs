@@ -19,6 +19,7 @@ fn test_config_creation() {
         "certs/hybrid/dilithium3/server.key",
         "certs/hybrid/dilithium3/ca.crt",
         "info",
+        "optional",
     );
 
     assert!(config.is_ok(), "Should be able to create configuration");

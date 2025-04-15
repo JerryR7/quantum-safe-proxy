@@ -40,6 +40,7 @@ async fn main() -> Result<()> {
         Path::new("certs/hybrid/dilithium3/server.crt"),
         Path::new("certs/hybrid/dilithium3/server.key"),
         Path::new("certs/hybrid/dilithium3/ca.crt"),
+        &quantum_safe_proxy::config::ClientCertMode::Optional,
     )?;
 
     // Create proxy
