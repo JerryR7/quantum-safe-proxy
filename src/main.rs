@@ -7,14 +7,13 @@ use log::{info, warn};
 
 // Import our library
 use quantum_safe_proxy::{Proxy, create_tls_acceptor, VERSION, APP_NAME, reload_config};
-use quantum_safe_proxy::common::{Result, init_logger, ProxyError, parse_socket_addr};
-use quantum_safe_proxy::config::{ProxyConfig, ClientCertMode, ENV_PREFIX};
+use quantum_safe_proxy::common::{Result, init_logger};
+use quantum_safe_proxy::config::{ProxyConfig};
+use quantum_safe_proxy::config::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
 use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
 
 // Import for file and environment operations
 use std::path::Path;
-use std::fs;
-use std::env;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
@@ -83,95 +82,57 @@ async fn main() -> Result<()> {
 
     info!("Starting {} v{}", APP_NAME, VERSION);
 
-    // Create default configuration
-    let mut config = ProxyConfig::default();
+    // Load configuration using the auto-load method
+    let mut config = ProxyConfig::auto_load(Some(&args.environment))?;
 
-    // Load environment-specific configuration if it exists
-    let env_config_path = format!("config.{}.json", args.environment);
-    if Path::new(&env_config_path).exists() {
-        info!("Loading environment-specific configuration from {}", env_config_path);
-        let env_config_str = fs::read_to_string(&env_config_path)
-            .map_err(|e| ProxyError::Config(format!(
-                "Failed to read environment configuration file: {}", e
-            )))?;
+    // Override with command line arguments if provided
+    let mut cmd_config_applied = false;
 
-        let env_config: ProxyConfig = serde_json::from_str(&env_config_str)
-            .map_err(|e| ProxyError::Config(format!(
-                "Failed to parse environment configuration file: {}", e
-            )))?;
+    // Check if any command line arguments were explicitly provided
+    let has_explicit_args = [
+        args.listen != LISTEN_STR,
+        args.target != TARGET_STR,
+        args.cert != CERT_PATH_STR,
+        args.key != KEY_PATH_STR,
+        args.ca_cert != CA_CERT_PATH_STR,
+        args.log_level != LOG_LEVEL_STR,
+        args.client_cert_mode != config.client_cert_mode.to_string(),
+        args.hybrid_mode
+    ].iter().any(|&condition| condition);
 
-        config = config.merge(env_config);
-    }
-
-    // Load from configuration file if specified
+    // Load from specific configuration file if specified
     if let Some(config_file) = args.config_file.clone() {
         if Path::new(&config_file).exists() {
-            info!("Loading configuration from file: {}", config_file);
+            info!("Loading configuration from specified file: {}", config_file);
             match ProxyConfig::from_file(&config_file) {
                 Ok(file_config) => {
                     config = config.merge(file_config);
                 },
                 Err(e) => {
-                    warn!("Failed to load configuration file: {}", e);
+                    warn!("Failed to load specified configuration file: {}", e);
                 }
             }
         } else {
-            warn!("Configuration file not found: {}", config_file);
+            warn!("Specified configuration file not found: {}", config_file);
         }
     }
 
-    // Load from environment variables if specified
+    // Load from environment variables if explicitly requested
     if args.from_env {
-        info!("Loading configuration from environment variables");
-        // Helper function to get environment variable with prefix
-        let get_env = |name: &str| -> Option<String> {
-            let full_name = format!("{}{}", ENV_PREFIX, name);
-            env::var(&full_name).ok()
-        };
-
-        // Load each configuration option from environment variables
-        let mut env_config = ProxyConfig::default();
-
-        if let Some(listen) = get_env("LISTEN") {
-            env_config.listen = parse_socket_addr(&listen)?;
+        info!("Explicitly loading configuration from environment variables");
+        match ProxyConfig::from_env() {
+            Ok(env_config) => {
+                config = config.merge(env_config);
+            },
+            Err(e) => {
+                warn!("Failed to load configuration from environment variables: {}", e);
+            }
         }
+    }
 
-        if let Some(target) = get_env("TARGET") {
-            env_config.target = parse_socket_addr(&target)?;
-        }
-
-        if let Some(cert) = get_env("CERT") {
-            env_config.cert_path = cert.into();
-        }
-
-        if let Some(key) = get_env("KEY") {
-            env_config.key_path = key.into();
-        }
-
-        if let Some(ca_cert) = get_env("CA_CERT") {
-            env_config.ca_cert_path = ca_cert.into();
-        }
-
-        if let Some(hybrid_mode) = get_env("HYBRID_MODE") {
-            env_config.hybrid_mode = hybrid_mode.to_lowercase() == "true";
-        }
-
-        if let Some(log_level) = get_env("LOG_LEVEL") {
-            env_config.log_level = log_level;
-        }
-
-        if let Some(client_cert_mode) = get_env("CLIENT_CERT_MODE") {
-            env_config.client_cert_mode = ClientCertMode::from_str(&client_cert_mode)?;
-        }
-
-        if let Some(env_name) = get_env("ENVIRONMENT") {
-            env_config.environment = env_name;
-        }
-
-        config = config.merge(env_config);
-    } else {
-        // Load from command line arguments
-        info!("Loading configuration from command line arguments");
+    // Apply command line arguments if any were explicitly provided
+    if has_explicit_args {
+        info!("Applying command line arguments");
         let cmd_config = ProxyConfig::from_args(
             &args.listen,
             &args.target,
@@ -182,7 +143,7 @@ async fn main() -> Result<()> {
             &args.client_cert_mode,
         )?;
 
-        // Set hybrid mode from command line
+        // Set hybrid mode from command line if specified
         if args.hybrid_mode {
             let mut hybrid_config = cmd_config.clone();
             hybrid_config.hybrid_mode = true;
@@ -190,6 +151,19 @@ async fn main() -> Result<()> {
         } else {
             config = config.merge(cmd_config);
         }
+
+        cmd_config_applied = true;
+    }
+
+    // Log the configuration source
+    if cmd_config_applied {
+        info!("Configuration loaded with command line overrides");
+    } else if args.from_env {
+        info!("Configuration loaded from environment variables");
+    } else if args.config_file.is_some() {
+        info!("Configuration loaded from specified file");
+    } else {
+        info!("Configuration loaded from auto-detected sources");
     }
 
     // Validate the final configuration
@@ -219,7 +193,7 @@ async fn main() -> Result<()> {
         Err(e) => warn!("Unable to get certificate fingerprint: {}", e),
     }
 
-    // Create TLS acceptor
+    // Create TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(
         &config.cert_path,
         &config.key_path,

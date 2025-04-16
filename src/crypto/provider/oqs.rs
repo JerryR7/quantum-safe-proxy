@@ -9,7 +9,7 @@ use openssl::hash::MessageDigest;
 use log::debug;
 
 use crate::common::{ProxyError, Result, read_file};
-use super::{CryptoProvider, CryptoCapabilities, CertificateType};
+use super::{CryptoProvider, CryptoCapabilities, CertificateType, DetectedCapabilities};
 
 /// OQS-OpenSSL provider with post-quantum support
 ///
@@ -196,26 +196,68 @@ impl CryptoProvider for OqsProvider {
     }
 
     fn capabilities(&self) -> CryptoCapabilities {
+        // OQS-OpenSSL 提供者的能力
+        // 支援後量子密碼學，包括 Kyber 密鑰交換和各種後量子簽名算法
+
+        // 定義常量以提高可維護性
+        const OQS_CIPHER_LIST: &str = "HIGH:MEDIUM:!aNULL:!MD5:!RC4";
+        const OQS_TLS13_CIPHERSUITES: &str = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
+        const OQS_GROUPS: &str = "X25519:P-256:P-384:P-521:kyber768:p384_kyber768:kyber512:p256_kyber512:kyber1024:p521_kyber1024";
+
+        // 嘗試檢測 OQS-OpenSSL 能力
+        let detected_capabilities = self.detect_oqs_capabilities();
+
+        // 根據檢測結果构建能力信息
         CryptoCapabilities {
             supports_pqc: true,
-            supported_key_exchange: vec![
-                "RSA".to_string(),
-                "ECDHE".to_string(),
-                "DHE".to_string(),
-                "Kyber".to_string(),
-            ],
-            supported_signatures: vec![
-                "RSA".to_string(),
-                "ECDSA".to_string(),
-                "DSA".to_string(),
-                "Dilithium".to_string(),
-                "Falcon".to_string(),
-                "SPHINCS+".to_string(),
-            ],
+            supported_key_exchange: self.detect_supported_key_exchange(),
+            supported_signatures: self.detect_supported_signatures(),
+            // 使用檢測到的能力或預設值
+            recommended_cipher_list: detected_capabilities.cipher_list.unwrap_or_else(|| OQS_CIPHER_LIST.to_string()),
+            recommended_tls13_ciphersuites: detected_capabilities.tls13_ciphersuites.unwrap_or_else(|| OQS_TLS13_CIPHERSUITES.to_string()),
+            recommended_groups: detected_capabilities.groups.unwrap_or_else(|| OQS_GROUPS.to_string()),
         }
     }
 
     fn name(&self) -> &'static str {
         "OQS-OpenSSL (Post-Quantum)"
+    }
+}
+
+// Private implementation methods for OqsProvider
+impl OqsProvider {
+    /// 檢測 OQS-OpenSSL 能力
+    fn detect_oqs_capabilities(&self) -> DetectedCapabilities {
+        // 在實際應用中，這裡應該使用 OQS-OpenSSL API 檢測系統能力
+        // 目前返回 None 表示使用預設值
+        DetectedCapabilities {
+            cipher_list: None,
+            tls13_ciphersuites: None,
+            groups: None,
+        }
+    }
+
+    /// 檢測支援的密鑰交換算法
+    fn detect_supported_key_exchange(&self) -> Vec<String> {
+        // 在實際應用中，這裡應該動態檢測
+        vec![
+            "RSA".to_string(),
+            "ECDHE".to_string(),
+            "DHE".to_string(),
+            "Kyber".to_string(),
+        ]
+    }
+
+    /// 檢測支援的簽名算法
+    fn detect_supported_signatures(&self) -> Vec<String> {
+        // 在實際應用中，這裡應該動態檢測
+        vec![
+            "RSA".to_string(),
+            "ECDSA".to_string(),
+            "DSA".to_string(),
+            "Dilithium".to_string(),
+            "Falcon".to_string(),
+            "SPHINCS+".to_string(),
+        ]
     }
 }

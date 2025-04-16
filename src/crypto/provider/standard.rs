@@ -10,7 +10,7 @@ use openssl::hash::MessageDigest;
 use log::debug;
 
 use crate::common::{ProxyError, Result, read_file};
-use super::{CryptoProvider, CryptoCapabilities};
+use super::{CryptoProvider, CryptoCapabilities, DetectedCapabilities};
 
 /// Standard OpenSSL provider
 ///
@@ -106,6 +106,17 @@ impl CryptoProvider for StandardProvider {
     }
 
     fn capabilities(&self) -> CryptoCapabilities {
+        // 標準 OpenSSL 提供者的能力
+        // 不支援後量子密碼學，只提供傳統的密碼套件和群組
+
+        // 定義常量以提高可維護性
+        const STANDARD_CIPHER_LIST: &str = "HIGH:MEDIUM:!aNULL:!MD5:!RC4";
+        const STANDARD_TLS13_CIPHERSUITES: &str = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
+        const STANDARD_GROUPS: &str = "X25519:P-256:P-384:P-521";
+
+        // 嘗試檢測系統能力（簡化版）
+        let detected_capabilities = self.detect_openssl_capabilities();
+
         CryptoCapabilities {
             supports_pqc: false,
             supported_key_exchange: vec![
@@ -118,10 +129,30 @@ impl CryptoProvider for StandardProvider {
                 "ECDSA".to_string(),
                 "DSA".to_string(),
             ],
+            // 使用檢測到的能力或預設值
+            recommended_cipher_list: detected_capabilities.cipher_list.unwrap_or_else(|| STANDARD_CIPHER_LIST.to_string()),
+            recommended_tls13_ciphersuites: detected_capabilities.tls13_ciphersuites.unwrap_or_else(|| STANDARD_TLS13_CIPHERSUITES.to_string()),
+            recommended_groups: detected_capabilities.groups.unwrap_or_else(|| STANDARD_GROUPS.to_string()),
         }
     }
 
     fn name(&self) -> &'static str {
         "Standard OpenSSL"
+    }
+}
+
+// Private implementation methods for StandardProvider
+impl StandardProvider {
+    /// 檢測 OpenSSL 能力
+    ///
+    /// 這是一個簡化的實現，實際應用中應該使用 OpenSSL API 進行檢測
+    fn detect_openssl_capabilities(&self) -> DetectedCapabilities {
+        // 在實際應用中，這裡應該使用 OpenSSL API 檢測系統能力
+        // 目前返回 None 表示使用預設值
+        DetectedCapabilities {
+            cipher_list: None,
+            tls13_ciphersuites: None,
+            groups: None,
+        }
     }
 }

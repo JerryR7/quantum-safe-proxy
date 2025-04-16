@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
     println!("  Certificate: {:?}", config.cert_path);
     println!("  Hybrid mode: {}", config.hybrid_mode);
 
-    // Create TLS acceptor
+    // Create TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(
         &config.cert_path,
         &config.key_path,

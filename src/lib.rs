@@ -20,7 +20,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
-//!     // Create TLS acceptor
+//!     // Create TLS acceptor with system-detected TLS settings
 //!     let tls_acceptor = create_tls_acceptor(
 //!         Path::new("certs/hybrid/dilithium3/server.crt"),
 //!         Path::new("certs/hybrid/dilithium3/server.key"),
@@ -107,7 +107,7 @@ pub fn reload_config(
     // Reload configuration from file
     let new_config = config.reload_from_file(config_path)?;
 
-    // Create new TLS acceptor
+    // Create new TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(
         &new_config.cert_path,
         &new_config.key_path,

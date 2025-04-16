@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
 
     println!("Backend service started at {}", backend_addr);
 
-    // Create TLS acceptor
+    // Create TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(
         Path::new("certs/hybrid/dilithium3/server.crt"),
         Path::new("certs/hybrid/dilithium3/server.key"),

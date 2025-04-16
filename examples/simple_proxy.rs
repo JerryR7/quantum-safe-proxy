@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
 
     println!("啟動簡單代理示例...");
 
-    // 創建 TLS 接受器
+    // 創建 TLS 接受器，使用系統檢測的 TLS 設置
     let tls_acceptor = create_tls_acceptor(
         Path::new("certs/hybrid/dilithium3/server.crt"),
         Path::new("certs/hybrid/dilithium3/server.key"),

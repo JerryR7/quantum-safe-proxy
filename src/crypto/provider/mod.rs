@@ -58,6 +58,26 @@ pub struct CryptoCapabilities {
     pub supported_key_exchange: Vec<String>,
     /// Supported signature algorithms
     pub supported_signatures: Vec<String>,
+    /// Recommended TLS cipher list for TLS 1.2 and below
+    pub recommended_cipher_list: String,
+    /// Recommended TLS 1.3 ciphersuites
+    pub recommended_tls13_ciphersuites: String,
+    /// Recommended TLS groups (curves and key exchange mechanisms)
+    pub recommended_groups: String,
+}
+
+/// Detected OpenSSL capabilities
+///
+/// This structure holds the capabilities detected from the OpenSSL environment.
+/// If a field is None, it means the capability could not be detected and a default value should be used.
+#[derive(Debug, Default)]
+pub struct DetectedCapabilities {
+    /// Detected TLS cipher list
+    pub cipher_list: Option<String>,
+    /// Detected TLS 1.3 ciphersuites
+    pub tls13_ciphersuites: Option<String>,
+    /// Detected TLS groups
+    pub groups: Option<String>,
 }
 
 /// Cryptographic provider trait

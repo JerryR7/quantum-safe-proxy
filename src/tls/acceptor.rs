@@ -49,17 +49,33 @@ pub fn create_tls_acceptor(
     ca_cert_path: &Path,
     client_cert_mode: &ClientCertMode,
 ) -> Result<SslAcceptor> {
-    // Create a crypto provider (auto-select the best available)
+    // 創建提供者以檢測環境能力
+    // 自動選擇最適合的提供者，優先選擇 OQS-OpenSSL（如果可用）
     let provider = create_provider(ProviderType::Auto)?;
+    let capabilities = provider.capabilities();
+
+    // 記錄所使用的提供者和其能力
+    log::info!("Using crypto provider: {}", provider.name());
+    log::debug!("Provider supports PQC: {}", capabilities.supports_pqc);
+
+    if capabilities.supports_pqc {
+        log::info!("Post-quantum cryptography is available");
+    } else {
+        log::warn!("Post-quantum cryptography is NOT available - using classical cryptography only");
+    }
 
     // Create TLS acceptor
     let mut acceptor = SslAcceptor::mozilla_modern(SslMethod::tls())
         .map_err(|e| ProxyError::Certificate(format!("Failed to create SSL acceptor: {}", e)))?;
 
-    // Use a more conservative cipher list for better compatibility
+    // Use a cipher list based on system capabilities
     // This includes high and medium strength ciphers but excludes anonymous and weak ciphers
-    acceptor.set_cipher_list("HIGH:MEDIUM:!aNULL:!MD5:!RC4")
+    let cipher_list = &capabilities.recommended_cipher_list;
+    acceptor.set_cipher_list(cipher_list)
         .map_err(|e| ProxyError::Certificate(format!("Failed to set cipher list: {}", e)))?;
+
+    // Log TLS settings at trace level for detailed debugging
+    log::trace!("Using TLS cipher list: {}", cipher_list);
 
     // Enable TLSv1.2 and TLSv1.3 for better compatibility
     // Disable older, insecure protocols
@@ -142,17 +158,26 @@ pub fn create_tls_acceptor(
 
     // Set TLS 1.3 ciphersuites including post-quantum ones if available
     // This is a critical step for enabling post-quantum key exchange
-    // Use a simpler set of TLS 1.3 ciphersuites for better compatibility
-    let tls13_ciphersuites = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
+    // Use ciphersuites based on system capabilities
+    let tls13_ciphersuites = &capabilities.recommended_tls13_ciphersuites;
     acceptor.set_ciphersuites(tls13_ciphersuites)
         .map_err(|e| ProxyError::Certificate(format!("Failed to set TLS 1.3 ciphersuites: {}", e)))?;
+
+    log::trace!("Using TLS 1.3 ciphersuites: {}", tls13_ciphersuites);
 
     // Enable post-quantum groups if available
     // The actual groups will be determined by the OQS provider
     // Traditional groups are listed first for better compatibility
-    let groups = "X25519:P-256:P-384:P-521:kyber768:p384_kyber768:kyber512:p256_kyber512:kyber1024:p521_kyber1024";
+    let groups = &capabilities.recommended_groups;
     acceptor.set_groups_list(groups)
         .map_err(|e| ProxyError::Certificate(format!("Failed to set groups: {}", e)))?;
+
+    log::trace!("Using TLS groups: {}", groups);
+
+    // Log a summary of TLS settings at debug level
+    log::debug!("TLS settings configured with {} cipher suites and {} groups",
+              tls13_ciphersuites.split(':').count(),
+              groups.split(':').count());
 
     // Build the acceptor
     Ok(acceptor.build())

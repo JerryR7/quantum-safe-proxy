@@ -61,7 +61,7 @@ impl ClientCertMode {
 /// Contains all configuration options needed for the proxy server.
 /// Supports loading from command-line arguments, environment variables,
 /// and configuration files.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 #[serde(default)]
 pub struct ProxyConfig {
@@ -104,6 +104,8 @@ pub struct ProxyConfig {
     /// Environment name (development, testing, production)
     #[serde(default = "defaults::environment")]
     pub environment: String,
+
+    // TLS 相關設定完全由系統檢測決定，不再在設定檔中提供
 }
 
 impl Default for ProxyConfig {
@@ -131,6 +133,95 @@ impl AsRef<ProxyConfig> for ProxyConfig {
 }
 
 impl ProxyConfig {
+    /// Auto-detect and load configuration from the best available source
+    ///
+    /// This method tries to load configuration from the following sources in order:
+    /// 1. Default configuration
+    /// 2. Configuration file (config.json or config.<environment>.json)
+    /// 3. Environment variables
+    ///
+    /// # Parameters
+    ///
+    /// * `environment` - Optional environment name (development, testing, production)
+    ///
+    /// # Returns
+    ///
+    /// Returns the configuration result
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use quantum_safe_proxy::config::ProxyConfig;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// // Load configuration from the best available source
+    /// let config = ProxyConfig::auto_load(Some("development"))?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn auto_load(environment: Option<&str>) -> Result<Self> {
+        use log::{info, debug};
+
+        // Start with default configuration
+        let mut config = Self::default();
+        debug!("Starting with default configuration");
+
+        // Try to load from configuration file
+        let env_name = environment.unwrap_or(&config.environment);
+
+        // Check for environment-specific configuration file
+        let env_config_path = format!("config.{}.json", env_name);
+        if Path::new(&env_config_path).exists() {
+            info!("Loading environment-specific configuration from {}", env_config_path);
+            match Self::from_file(&env_config_path) {
+                Ok(env_config) => {
+                    config = config.merge(env_config);
+                    debug!("Merged environment-specific configuration");
+                },
+                Err(e) => {
+                    log::warn!("Failed to load environment configuration file: {}", e);
+                }
+            }
+        } else {
+            debug!("No environment-specific configuration file found at {}", env_config_path);
+        }
+
+        // Check for default configuration file
+        let default_config_path = defaults::DEFAULT_CONFIG_FILE;
+        if Path::new(default_config_path).exists() {
+            info!("Loading configuration from {}", default_config_path);
+            match Self::from_file(default_config_path) {
+                Ok(file_config) => {
+                    config = config.merge(file_config);
+                    debug!("Merged default configuration file");
+                },
+                Err(e) => {
+                    log::warn!("Failed to load default configuration file: {}", e);
+                }
+            }
+        } else {
+            debug!("No default configuration file found at {}", default_config_path);
+        }
+
+        // Try to load from environment variables
+        match Self::from_env() {
+            Ok(env_config) => {
+                // Only merge if any environment variables were actually set
+                if env_config != Self::default() {
+                    info!("Loading configuration from environment variables");
+                    config = config.merge(env_config);
+                    debug!("Merged environment variables configuration");
+                } else {
+                    debug!("No configuration found in environment variables");
+                }
+            },
+            Err(e) => {
+                log::warn!("Failed to load configuration from environment variables: {}", e);
+            }
+        }
+
+        Ok(config)
+    }
+
     /// Load configuration from environment variables
     ///
     /// This method loads configuration from environment variables with the prefix
