@@ -145,14 +145,103 @@ impl CryptoProvider for StandardProvider {
 impl StandardProvider {
     /// 檢測 OpenSSL 能力
     ///
-    /// 這是一個簡化的實現，實際應用中應該使用 OpenSSL API 進行檢測
+    /// 使用 OpenSSL 命令行工具檢測系統支持的 TLS 設置
     fn detect_openssl_capabilities(&self) -> DetectedCapabilities {
-        // 在實際應用中，這裡應該使用 OpenSSL API 檢測系統能力
-        // 目前返回 None 表示使用預設值
-        DetectedCapabilities {
-            cipher_list: None,
-            tls13_ciphersuites: None,
-            groups: None,
+        use std::process::Command;
+        use once_cell::sync::OnceCell;
+        use log::{debug, warn};
+
+        // 使用 OnceCell 緩存檢測結果，避免重複檢測
+        static DETECTED_CAPABILITIES: OnceCell<DetectedCapabilities> = OnceCell::new();
+
+        // 如果已經檢測過，直接返回緩存的結果
+        if let Some(capabilities) = DETECTED_CAPABILITIES.get() {
+            return capabilities.clone();
         }
+
+        // 初始化結果
+        let mut capabilities = DetectedCapabilities::default();
+
+        // 檢測支持的密碼套件
+        match Command::new("openssl").args(["ciphers", "-v"]).output() {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let ciphers = stdout.lines()
+                    .filter_map(|line| line.split_whitespace().next())
+                    .filter(|cipher| !cipher.is_empty())
+                    .collect::<Vec<&str>>();
+
+                if !ciphers.is_empty() {
+                    let cipher_list = "HIGH:MEDIUM:!aNULL:!MD5:!RC4".to_string();
+                    capabilities.cipher_list = Some(cipher_list);
+                    debug!("Detected {} cipher suites", ciphers.len());
+                }
+            },
+            _ => warn!("Failed to detect OpenSSL cipher suites, using defaults")
+        }
+
+        // 檢測支持的 TLS 1.3 密碼套件
+        // 注意：此命令可能不適用於所有 OpenSSL 版本
+        match Command::new("openssl").args(["ciphers", "-tls1_3"]).output() {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let ciphersuites = stdout.trim();
+
+                if !ciphersuites.is_empty() {
+                    capabilities.tls13_ciphersuites = Some(ciphersuites.to_string());
+                    debug!("Detected TLS 1.3 ciphersuites: {}", ciphersuites);
+                }
+            },
+            _ => {
+                // 如果無法直接檢測 TLS 1.3 密碼套件，使用預設值
+                let default_tls13 = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
+                capabilities.tls13_ciphersuites = Some(default_tls13.to_string());
+                debug!("Using default TLS 1.3 ciphersuites: {}", default_tls13);
+            }
+        }
+
+        // 檢測支持的群組
+        // 注意：此命令可能不適用於所有 OpenSSL 版本
+        match Command::new("openssl").args(["ecparam", "-list_curves"]).output() {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let curves = stdout.lines()
+                    .filter_map(|line| line.split(':').next())
+                    .map(|curve| curve.trim())
+                    .filter(|curve| !curve.is_empty())
+                    .collect::<Vec<&str>>();
+
+                if !curves.is_empty() {
+                    // 從檢測到的曲線中選擇常用的曲線
+                    let mut selected_curves = Vec::new();
+
+                    // 優先選擇這些常用曲線
+                    for curve in ["X25519", "P-256", "P-384", "P-521"].iter() {
+                        if curves.iter().any(|c| c.contains(curve)) {
+                            selected_curves.push(*curve);
+                        }
+                    }
+
+                    if !selected_curves.is_empty() {
+                        let groups = selected_curves.join(":");
+                        capabilities.groups = Some(groups.clone());
+                        debug!("Detected elliptic curves: {}", groups);
+                    }
+                }
+            },
+            _ => warn!("Failed to detect OpenSSL curves, using defaults")
+        }
+
+        // 如果沒有檢測到群組，使用預設值
+        if capabilities.groups.is_none() {
+            let default_groups = "X25519:P-256:P-384:P-521";
+            capabilities.groups = Some(default_groups.to_string());
+            debug!("Using default groups: {}", default_groups);
+        }
+
+        // 緩存檢測結果
+        let _ = DETECTED_CAPABILITIES.set(capabilities.clone());
+
+        capabilities
     }
 }

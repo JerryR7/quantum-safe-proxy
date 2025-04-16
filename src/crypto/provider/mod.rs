@@ -70,7 +70,7 @@ pub struct CryptoCapabilities {
 ///
 /// This structure holds the capabilities detected from the OpenSSL environment.
 /// If a field is None, it means the capability could not be detected and a default value should be used.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct DetectedCapabilities {
     /// Detected TLS cipher list
     pub cipher_list: Option<String>,

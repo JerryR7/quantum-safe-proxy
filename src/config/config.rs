@@ -15,7 +15,7 @@ use crate::common::{ProxyError, Result, check_file_exists};
 use crate::config::defaults;
 
 /// Client certificate verification mode
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 pub enum ClientCertMode {
     /// Require client certificate, connection fails if not provided
     Required,
@@ -23,6 +23,17 @@ pub enum ClientCertMode {
     Optional,
     /// Don't verify client certificates
     None,
+}
+
+// 自定義反序列化實現，使其對大小寫不敏感
+impl<'de> Deserialize<'de> for ClientCertMode {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        ClientCertMode::from_str(&s).map_err(serde::de::Error::custom)
+    }
 }
 
 impl Default for ClientCertMode {

@@ -169,17 +169,15 @@ async fn main() -> Result<()> {
     // Validate the final configuration
     config.validate()?;
 
-    info!("Configuration loaded successfully");
-
     // Check configuration for warnings
     let warnings = config.check();
     for warning in warnings {
         warn!("{}", warning);
     }
 
-    info!("Listen address: {}", config.listen);
-    info!("Target service: {}", config.target);
-    info!("Using certificate: {:?}", config.cert_path);
+    // Log configuration summary
+    info!("Configuration: listen={}, target={}, cert={:?}",
+          config.listen, config.target, config.cert_path);
 
     // Try to get certificate subject
     match get_cert_subject(&config.cert_path) {
@@ -200,9 +198,6 @@ async fn main() -> Result<()> {
         &config.ca_cert_path,
         &config.client_cert_mode,
     )?;
-
-    // Log client certificate mode
-    info!("Client certificate mode: {}", config.client_cert_mode);
 
     // Create proxy instance
     let proxy = Proxy::new(

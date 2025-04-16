@@ -2,7 +2,7 @@
 //!
 //! This module provides functionality for creating TLS acceptors.
 
-use log::{info, warn};
+use log::{debug, info, warn};
 use openssl::ssl::{SslMethod, SslAcceptor, SslFiletype, SslVerifyMode};
 use std::path::Path;
 
@@ -55,14 +55,10 @@ pub fn create_tls_acceptor(
     let capabilities = provider.capabilities();
 
     // 記錄所使用的提供者和其能力
-    log::info!("Using crypto provider: {}", provider.name());
+    log::info!("Using crypto provider: {} (PQC support: {})",
+              provider.name(),
+              if capabilities.supports_pqc { "available" } else { "not available" });
     log::debug!("Provider supports PQC: {}", capabilities.supports_pqc);
-
-    if capabilities.supports_pqc {
-        log::info!("Post-quantum cryptography is available");
-    } else {
-        log::warn!("Post-quantum cryptography is NOT available - using classical cryptography only");
-    }
 
     // Create TLS acceptor
     let mut acceptor = SslAcceptor::mozilla_modern(SslMethod::tls())
@@ -134,23 +130,17 @@ pub fn create_tls_acceptor(
         }
     });
 
-    // Log provider capabilities
-    let capabilities = provider.capabilities();
+    // Log provider capabilities only if they haven't been logged already
     LOGGED_PQC_STATUS.with(|logged| {
         if !logged.get() {
-            if capabilities.supports_pqc {
-                info!("Post-quantum cryptography support is available");
-                if !capabilities.supported_key_exchange.is_empty() {
-                    let pqc_algos = capabilities.supported_key_exchange.iter()
-                        .filter(|alg| alg.contains("Kyber") || alg.contains("NTRU"))
-                        .cloned().collect::<Vec<_>>();
+            if capabilities.supports_pqc && !capabilities.supported_key_exchange.is_empty() {
+                let pqc_algos = capabilities.supported_key_exchange.iter()
+                    .filter(|alg| alg.contains("Kyber") || alg.contains("NTRU"))
+                    .cloned().collect::<Vec<_>>();
 
-                    if !pqc_algos.is_empty() {
-                        info!("Supported PQC key exchange algorithms: {}", pqc_algos.join(", "));
-                    }
+                if !pqc_algos.is_empty() {
+                    debug!("Supported PQC key exchange algorithms: {}", pqc_algos.join(", "));
                 }
-            } else {
-                warn!("Post-quantum cryptography support is NOT available");
             }
             logged.set(true);
         }

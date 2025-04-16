@@ -10,14 +10,14 @@
 pub fn init_logger(level: &str) {
     let env = env_logger::Env::default()
         .filter_or("RUST_LOG", level);
-    
+
     env_logger::init_from_env(env);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_init_logger() {
         // 測試初始化日誌系統

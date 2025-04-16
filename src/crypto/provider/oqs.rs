@@ -228,36 +228,267 @@ impl CryptoProvider for OqsProvider {
 impl OqsProvider {
     /// 檢測 OQS-OpenSSL 能力
     fn detect_oqs_capabilities(&self) -> DetectedCapabilities {
-        // 在實際應用中，這裡應該使用 OQS-OpenSSL API 檢測系統能力
-        // 目前返回 None 表示使用預設值
-        DetectedCapabilities {
-            cipher_list: None,
-            tls13_ciphersuites: None,
-            groups: None,
+        use std::process::Command;
+        use once_cell::sync::OnceCell;
+        use log::{debug, warn, info};
+        use super::factory::get_oqs_path;
+
+        // 使用 OnceCell 緩存檢測結果，避免重複檢測
+        static DETECTED_CAPABILITIES: OnceCell<DetectedCapabilities> = OnceCell::new();
+
+        // 如果已經檢測過，直接返回緩存的結果
+        if let Some(capabilities) = DETECTED_CAPABILITIES.get() {
+            return capabilities.clone();
         }
+
+        // 初始化結果
+        let mut capabilities = DetectedCapabilities::default();
+
+        // 從 factory 模組獲取 OQS-OpenSSL 路徑
+        let oqs_path = get_oqs_path();
+
+        // 如果找不到 OQS-OpenSSL，使用預設值
+        if oqs_path.is_none() {
+            warn!("OQS-OpenSSL path not found, using default TLS settings");
+            let default_cipher_list = "HIGH:MEDIUM:!aNULL:!MD5:!RC4";
+            let default_tls13 = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
+            let default_groups = "X25519:P-256:P-384:P-521:kyber768:p384_kyber768";
+
+            capabilities.cipher_list = Some(default_cipher_list.to_string());
+            capabilities.tls13_ciphersuites = Some(default_tls13.to_string());
+            capabilities.groups = Some(default_groups.to_string());
+
+            // 緩存檢測結果
+            let _ = DETECTED_CAPABILITIES.set(capabilities.clone());
+            return capabilities;
+        }
+
+        let oqs_path = oqs_path.unwrap();
+        info!("Using OQS-OpenSSL at: {}", oqs_path.display());
+
+        // 檢測 OQS-OpenSSL 支持的密碼套件
+        let openssl_bin = oqs_path.join("bin").join("openssl");
+
+        // 檢測支持的密碼套件
+        match Command::new(&openssl_bin).args(["ciphers", "-v"]).output() {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let ciphers = stdout.lines()
+                    .filter_map(|line| line.split_whitespace().next())
+                    .filter(|cipher| !cipher.is_empty())
+                    .collect::<Vec<&str>>();
+
+                if !ciphers.is_empty() {
+                    let cipher_list = "HIGH:MEDIUM:!aNULL:!MD5:!RC4".to_string();
+                    capabilities.cipher_list = Some(cipher_list);
+                    debug!("Detected {} cipher suites in OQS-OpenSSL", ciphers.len());
+                }
+            },
+            _ => warn!("Failed to detect OQS-OpenSSL cipher suites, using defaults")
+        }
+
+        // 檢測支持的 TLS 1.3 密碼套件
+        match Command::new(&openssl_bin).args(["ciphers", "-tls1_3"]).output() {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let ciphersuites = stdout.trim();
+
+                if !ciphersuites.is_empty() {
+                    capabilities.tls13_ciphersuites = Some(ciphersuites.to_string());
+                    debug!("Detected TLS 1.3 ciphersuites in OQS-OpenSSL: {}", ciphersuites);
+                }
+            },
+            _ => {
+                // 如果無法直接檢測 TLS 1.3 密碼套件，使用預設值
+                let default_tls13 = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
+                capabilities.tls13_ciphersuites = Some(default_tls13.to_string());
+                debug!("Using default TLS 1.3 ciphersuites: {}", default_tls13);
+            }
+        }
+
+        // 檢測支持的群組，包括後量子群組
+        // 先檢測傳統的橘圈曲線
+        let mut detected_groups = Vec::new();
+
+        match Command::new(&openssl_bin).args(["ecparam", "-list_curves"]).output() {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let curves = stdout.lines()
+                    .filter_map(|line| line.split(':').next())
+                    .map(|curve| curve.trim())
+                    .filter(|curve| !curve.is_empty())
+                    .collect::<Vec<&str>>();
+
+                if !curves.is_empty() {
+                    // 從檢測到的曲線中選擇常用的曲線
+                    for curve in ["X25519", "P-256", "P-384", "P-521"].iter() {
+                        if curves.iter().any(|c| c.contains(curve)) {
+                            detected_groups.push((*curve).to_string());
+                        }
+                    }
+
+                    debug!("Detected elliptic curves in OQS-OpenSSL: {}", detected_groups.join(":"));
+                }
+            },
+            _ => warn!("Failed to detect OQS-OpenSSL curves, using defaults")
+        }
+
+        // 檢測後量子群組
+        // 我們使用 openssl list -kem-algorithms 來檢測支持的後量子密鑰交換算法
+        match Command::new(&openssl_bin).args(["list", "-kem-algorithms"]).output() {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+
+                // 檢測常見的後量子群組
+                for kem in ["kyber768", "p384_kyber768", "kyber512", "p256_kyber512", "kyber1024", "p521_kyber1024"].iter() {
+                    if stdout.contains(kem) {
+                        detected_groups.push((*kem).to_string());
+                        debug!("Detected post-quantum KEM: {}", kem);
+                    }
+                }
+            },
+            _ => {
+                // 如果無法直接檢測，則假設支持常見的後量子群組
+                for kem in ["kyber768", "p384_kyber768"].iter() {
+                    detected_groups.push((*kem).to_string());
+                }
+                debug!("Assuming support for common post-quantum KEMs");
+            }
+        }
+
+        // 如果檢測到了群組，則使用檢測到的群組
+        if !detected_groups.is_empty() {
+            let groups = detected_groups.join(":");
+            capabilities.groups = Some(groups.clone());
+            info!("Using detected groups: {}", groups);
+        } else {
+            // 如果沒有檢測到群組，使用預設值
+            let default_groups = "X25519:P-256:P-384:P-521:kyber768:p384_kyber768";
+            capabilities.groups = Some(default_groups.to_string());
+            warn!("No groups detected, using default groups: {}", default_groups);
+        }
+
+        // 如果沒有檢測到密碼套件，使用預設值
+        if capabilities.cipher_list.is_none() {
+            let default_cipher_list = "HIGH:MEDIUM:!aNULL:!MD5:!RC4";
+            capabilities.cipher_list = Some(default_cipher_list.to_string());
+            debug!("Using default cipher list: {}", default_cipher_list);
+        }
+
+        // 如果沒有檢測到 TLS 1.3 密碼套件，使用預設值
+        if capabilities.tls13_ciphersuites.is_none() {
+            let default_tls13 = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
+            capabilities.tls13_ciphersuites = Some(default_tls13.to_string());
+            debug!("Using default TLS 1.3 ciphersuites: {}", default_tls13);
+        }
+
+        // 緩存檢測結果
+        let _ = DETECTED_CAPABILITIES.set(capabilities.clone());
+
+        capabilities
     }
 
     /// 檢測支援的密鑰交換算法
     fn detect_supported_key_exchange(&self) -> Vec<String> {
-        // 在實際應用中，這裡應該動態檢測
-        vec![
+        use std::process::Command;
+        use super::factory::get_oqs_path;
+        use log::debug;
+
+        // 初始化基本的密鑰交換算法
+        let mut key_exchange = vec![
             "RSA".to_string(),
             "ECDHE".to_string(),
             "DHE".to_string(),
-            "Kyber".to_string(),
-        ]
+        ];
+
+        // 從 factory 模組獲取 OQS-OpenSSL 路徑
+        let oqs_path = get_oqs_path();
+
+        // 如果找不到 OQS-OpenSSL，使用預設值
+        if oqs_path.is_none() {
+            key_exchange.push("Kyber".to_string());
+            return key_exchange;
+        }
+
+        let oqs_path = oqs_path.unwrap();
+        let openssl_bin = oqs_path.join("bin").join("openssl");
+
+        // 檢測支持的後量子密鑰交換算法
+        match Command::new(&openssl_bin).args(["list", "-kem-algorithms"]).output() {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+
+                // 檢測常見的後量子密鑰交換算法
+                for kem in ["Kyber", "NTRU", "SIKE"].iter() {
+                    if stdout.contains(kem) {
+                        key_exchange.push((*kem).to_string());
+                        debug!("Detected post-quantum key exchange: {}", kem);
+                    }
+                }
+            },
+            _ => {
+                // 如果無法直接檢測，則假設支持 Kyber
+                key_exchange.push("Kyber".to_string());
+                debug!("Assuming support for Kyber key exchange");
+            }
+        }
+
+        key_exchange
     }
 
     /// 檢測支援的簽名算法
     fn detect_supported_signatures(&self) -> Vec<String> {
-        // 在實際應用中，這裡應該動態檢測
-        vec![
+        use std::process::Command;
+        use super::factory::get_oqs_path;
+        use log::debug;
+
+        // 初始化基本的簽名算法
+        let mut signatures = vec![
             "RSA".to_string(),
             "ECDSA".to_string(),
             "DSA".to_string(),
-            "Dilithium".to_string(),
-            "Falcon".to_string(),
-            "SPHINCS+".to_string(),
-        ]
+        ];
+
+        // 從 factory 模組獲取 OQS-OpenSSL 路徑
+        let oqs_path = get_oqs_path();
+
+        // 如果找不到 OQS-OpenSSL，使用預設值
+        if oqs_path.is_none() {
+            signatures.extend(vec![
+                "Dilithium".to_string(),
+                "Falcon".to_string(),
+                "SPHINCS+".to_string(),
+            ]);
+            return signatures;
+        }
+
+        let oqs_path = oqs_path.unwrap();
+        let openssl_bin = oqs_path.join("bin").join("openssl");
+
+        // 檢測支持的後量子簽名算法
+        match Command::new(&openssl_bin).args(["list", "-signature-algorithms"]).output() {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+
+                // 檢測常見的後量子簽名算法
+                for sig in ["Dilithium", "Falcon", "SPHINCS", "Rainbow"].iter() {
+                    if stdout.contains(sig) {
+                        signatures.push((*sig).to_string());
+                        debug!("Detected post-quantum signature: {}", sig);
+                    }
+                }
+            },
+            _ => {
+                // 如果無法直接檢測，則假設支持常見的後量子簽名算法
+                signatures.extend(vec![
+                    "Dilithium".to_string(),
+                    "Falcon".to_string(),
+                    "SPHINCS+".to_string(),
+                ]);
+                debug!("Assuming support for common post-quantum signatures");
+            }
+        }
+
+        signatures
     }
 }
