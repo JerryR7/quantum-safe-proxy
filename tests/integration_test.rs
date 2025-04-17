@@ -3,7 +3,7 @@
 //! This file contains integration tests for Quantum Safe Proxy.
 
 use quantum_safe_proxy::config::ProxyConfig;
-use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
+use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint, CertProviderType};
 use quantum_safe_proxy::common::types::{ConnectionInfo, CertificateInfo};
 use quantum_safe_proxy::common::{check_file_exists, read_file};
 use std::path::PathBuf;
@@ -35,16 +35,20 @@ fn test_cert_operations() {
     }
 
     // Test if we can check the certificate type
-    let is_hybrid = is_hybrid_cert(&cert_path);
+    let is_hybrid = is_hybrid_cert(&cert_path, None);
     assert!(is_hybrid.is_ok(), "Should be able to check certificate type");
 
     // Test if we can get the certificate subject
-    let subject = get_cert_subject(&cert_path);
+    let subject = get_cert_subject(&cert_path, None);
     assert!(subject.is_ok(), "Should be able to get certificate subject");
 
     // Test if we can get the certificate fingerprint
-    let fingerprint = get_cert_fingerprint(&cert_path);
+    let fingerprint = get_cert_fingerprint(&cert_path, None);
     assert!(fingerprint.is_ok(), "Should be able to get certificate fingerprint");
+
+    // Test with explicit provider type
+    let is_hybrid_explicit = is_hybrid_cert(&cert_path, Some(CertProviderType::Auto));
+    assert!(is_hybrid_explicit.is_ok(), "Should be able to check certificate type with explicit provider");
 }
 
 #[test]

@@ -3,290 +3,122 @@
 //! This module provides factory functions for creating cryptographic providers.
 //! It handles provider selection based on availability and configuration.
 
-use std::env;
-use std::path::{Path, PathBuf};
 use std::sync::Once;
+use std::process::Command;
 use once_cell::sync::OnceCell;
 
-use crate::common::{Result, ProxyError};
-use super::{CryptoProvider, ProviderType, StandardProvider, OqsProvider};
+use crate::common::Result;
+use super::{CryptoProvider, ProviderType};
+use super::openssl::OpenSSLProvider;
 
-// Static initialization
-static OQS_CHECK: Once = Once::new();
-static OQS_AVAILABLE: OnceCell<bool> = OnceCell::new();
-static OQS_PATH: OnceCell<Option<PathBuf>> = OnceCell::new();
+// Provider singleton for better performance
+static OPENSSL_PROVIDER: OnceCell<OpenSSLProvider> = OnceCell::new();
 
-// Provider singletons for better performance
-static STANDARD_PROVIDER: OnceCell<StandardProvider> = OnceCell::new();
-static OQS_PROVIDER: OnceCell<OqsProvider> = OnceCell::new();
-
-// Logging flags to avoid duplicate logs
-static LOGGED_OQS_WARNING: OnceCell<bool> = OnceCell::new();
-static LOGGED_OQS_INFO: OnceCell<bool> = OnceCell::new();
-
-/// Get the standard provider singleton
-///
-/// This function returns a reference to the standard provider singleton.
-/// The provider is initialized on first access.
-fn get_standard_provider() -> &'static StandardProvider {
-    STANDARD_PROVIDER.get_or_init(|| {
-        log::trace!("Initializing standard OpenSSL provider");
-        StandardProvider::new()
-    })
-}
-
-/// Get the OQS provider singleton
-///
-/// This function returns a reference to the OQS provider singleton if available.
-/// The provider is initialized on first access.
-fn get_oqs_provider() -> Option<&'static OqsProvider> {
-    // Check if OQS is available
-    if !is_oqs_available() {
-        return None;
-    }
-
-    // Initialize the provider if needed
-    if OQS_PROVIDER.get().is_none() {
-        let provider = OqsProvider::new();
-        OQS_PROVIDER.set(provider).ok();
-    }
-
-    OQS_PROVIDER.get()
-}
+// Initialization flag
+static INIT_CHECK: Once = Once::new();
 
 /// Create a cryptographic provider based on the specified type
 ///
 /// # Arguments
 ///
-/// * `provider_type` - The type of provider to create (Standard, OQS, or Auto)
+/// * `provider_type` - The type of provider to create
 ///
 /// # Returns
 ///
 /// A boxed provider implementing the CryptoProvider trait
 pub fn create_provider(provider_type: ProviderType) -> Result<Box<dyn CryptoProvider>> {
-    // Initialize OQS check if not already done
-    initialize_oqs_check();
+    // Initialize provider if needed
+    initialize_provider();
 
     match provider_type {
-        ProviderType::Standard => {
-            // Return the standard provider
-            let provider = get_standard_provider();
-            // Clone the provider to avoid lifetime issues
+        ProviderType::Standard | ProviderType::Oqs | ProviderType::Auto => {
+            // Get the OpenSSL provider
+            let provider = get_openssl_provider();
+
+            // Log provider information
+            let capabilities = provider.capabilities();
+            if capabilities.supports_pqc {
+                log::info!("Using {} with post-quantum support", provider.name());
+            } else {
+                log::warn!("Using {} without post-quantum support", provider.name());
+            }
+
+            // Return the provider
             Ok(Box::new(provider.clone()))
-        },
-        ProviderType::Oqs => {
-            // Return the OQS provider if available
-            if let Some(provider) = get_oqs_provider() {
-                log::debug!("Using OQS-OpenSSL provider");
-                // Clone the provider to avoid lifetime issues
-                Ok(Box::new(provider.clone()))
-            } else {
-                Err(ProxyError::Certificate("OQS-OpenSSL provider not available. Install OQS-OpenSSL or use the standard provider.".to_string()))
-            }
-        },
-        ProviderType::Auto => {
-            // Try OQS provider first, fall back to standard if not available
-            if let Some(provider) = get_oqs_provider() {
-                // Log OQS availability (only once)
-                if LOGGED_OQS_INFO.get().is_none() {
-                    log::info!("Using OQS-OpenSSL provider with post-quantum support");
-                    LOGGED_OQS_INFO.set(true).ok();
-                }
-
-                // Clone the provider to avoid lifetime issues
-                Ok(Box::new(provider.clone()))
-            } else {
-                // Log fallback warning (only once)
-                if LOGGED_OQS_WARNING.get().is_none() {
-                    log::warn!("OQS-OpenSSL not available, falling back to standard OpenSSL (no post-quantum support)");
-                    LOGGED_OQS_WARNING.set(true).ok();
-                }
-
-                let provider = get_standard_provider();
-                // Clone the provider to avoid lifetime issues
-                Ok(Box::new(provider.clone()))
-            }
         }
     }
 }
 
-/// Check if OQS-OpenSSL is available
+/// Get the OpenSSL provider singleton
 ///
-/// This function checks if OQS-OpenSSL is available on the system.
-/// It caches the result for subsequent calls.
-///
-/// # Returns
-///
-/// `true` if OQS-OpenSSL is available, `false` otherwise
-pub fn is_oqs_available() -> bool {
-    // Initialize if not already initialized
-    initialize_oqs_check();
+/// This function returns a reference to the OpenSSL provider singleton.
+/// The provider is initialized on first access.
+fn get_openssl_provider() -> &'static OpenSSLProvider {
+    // Initialize provider if needed
+    initialize_provider();
 
-    // Return cached result
-    *OQS_AVAILABLE.get_or_init(|| false)
+    // Return the provider
+    OPENSSL_PROVIDER.get().expect("OpenSSL provider not initialized")
 }
 
-/// Get the path to OQS-OpenSSL installation
+/// Initialize the provider
 ///
-/// # Returns
-///
-/// Some(PathBuf) if OQS-OpenSSL is found, None otherwise
-pub fn get_oqs_path() -> Option<PathBuf> {
-    // Initialize if not already initialized
-    initialize_oqs_check();
+/// This function initializes the provider if not already initialized.
+fn initialize_provider() {
+    INIT_CHECK.call_once(|| {
+        // Create the OpenSSL provider
+        let provider = OpenSSLProvider::new();
 
-    // Return cached result
-    OQS_PATH.get().cloned().unwrap_or(None)
-}
-
-/// Initialize OQS check
-///
-/// This function initializes the OQS check if not already initialized.
-fn initialize_oqs_check() {
-    // Initialize once
-    OQS_CHECK.call_once(|| {
-        // Try to find OQS-OpenSSL
-        let oqs_path = find_oqs_openssl();
-        let available = oqs_path.is_some();
-
-        // Store the results
-        OQS_AVAILABLE.set(available).ok();
-        OQS_PATH.set(oqs_path.clone()).ok();
-
-        // Log the result (only once during initialization)
-        if available {
-            log::info!("OQS-OpenSSL detected at {:?}", oqs_path.unwrap());
-        } else {
-            log::debug!("OQS-OpenSSL not detected");
-        }
+        // Store the provider
+        OPENSSL_PROVIDER.set(provider).ok();
     });
 }
 
-/// Find OQS-OpenSSL installation
+/// Check if post-quantum cryptography is available
 ///
-/// This function tries to find OQS-OpenSSL installation by checking:
-/// 1. Environment variables
-/// 2. Common installation paths
-/// 3. Dynamic library loading
+/// This function checks if post-quantum cryptography is available
+/// in the OpenSSL installation.
 ///
 /// # Returns
 ///
-/// Some(PathBuf) if OQS-OpenSSL is found, None otherwise
-fn find_oqs_openssl() -> Option<PathBuf> {
-    // Check environment variables
-    if let Ok(path) = env::var("OQS_OPENSSL_PATH") {
-        let path = PathBuf::from(path);
-        log::debug!("Checking OQS_OPENSSL_PATH: {}", path.display());
-        if path.exists() {
-            log::debug!("Path exists: {}", path.display());
-            if is_valid_oqs_path(&path) {
-                log::debug!("Valid OQS path found: {}", path.display());
-                return Some(path);
-            } else {
-                log::debug!("Path exists but is not a valid OQS path: {}", path.display());
-            }
-        } else {
-            log::debug!("Path does not exist: {}", path.display());
-        }
-    } else {
-        log::debug!("OQS_OPENSSL_PATH environment variable not set");
-    }
+/// `true` if post-quantum cryptography is available, `false` otherwise
+pub fn is_pqc_available() -> bool {
+    // Initialize provider if needed
+    initialize_provider();
 
-    // Check common installation paths
-    let common_paths = [
-        "/opt/oqs-openssl",
-        "/usr/local/opt/oqs-openssl",
-        "/usr/local/oqs-openssl",
-        "/usr/opt/oqs-openssl",
-        // Add paths for OpenSSL 3.x with OQS provider
-        "/opt/oqs/openssl",
-        "/usr/local/opt/oqs/openssl",
-        "/usr/local/oqs/openssl",
-    ];
-
-    for &path_str in &common_paths {
-        let path = PathBuf::from(path_str);
-        log::debug!("Checking common path: {}", path.display());
-        if path.exists() {
-            log::debug!("Path exists: {}", path.display());
-            if is_valid_oqs_path(&path) {
-                log::debug!("Valid OQS path found: {}", path.display());
-                return Some(path);
-            } else {
-                log::debug!("Path exists but is not a valid OQS path: {}", path.display());
-            }
-        }
-    }
-
-    // Try to dynamically load OQS library
-    // This is a simplified check; a real implementation would try to load the library
-
-    None
+    // Check if PQC is available
+    get_openssl_provider().capabilities().supports_pqc
 }
 
-/// Check if a path is a valid OQS-OpenSSL installation
+/// Backward compatibility function for OQS availability
 ///
-/// # Arguments
-///
-/// * `path` - The path to check
+/// This function is provided for backward compatibility with code
+/// that checks for OQS availability. It now checks for PQC support
+/// in general, regardless of whether it's provided by OQS or OpenSSL 3.5.
 ///
 /// # Returns
 ///
-/// `true` if the path contains a valid OQS-OpenSSL installation, `false` otherwise
-fn is_valid_oqs_path(path: &Path) -> bool {
-    // First, check if this is a standard OQS-OpenSSL installation
-    // with bin/openssl and lib/liboqs.so
-    let standard_check = || {
-        // Check for lib directory
-        let lib_path = path.join("lib");
-        if !lib_path.exists() || !lib_path.is_dir() {
-            return false;
-        }
+/// `true` if post-quantum cryptography is available, `false` otherwise
+pub fn is_oqs_available() -> bool {
+    is_pqc_available()
+}
 
-        // Check for bin directory
-        let bin_path = path.join("bin");
-        if !bin_path.exists() || !bin_path.is_dir() {
-            return false;
-        }
-
-        // Check for openssl executable
-        let openssl_path = bin_path.join("openssl");
-        if !openssl_path.exists() {
-            return false;
-        }
-
-        // Check for liboqs library
-        let liboqs_path = lib_path.join("liboqs.so");
-        let liboqs_path_alt = lib_path.join("liboqs.dylib");
-        if !liboqs_path.exists() && !liboqs_path_alt.exists() {
-            return false;
-        }
-
-        true
-    };
-
-    // If standard check passes, return true
-    if standard_check() {
-        return true;
+/// Check if OpenSSL 3.5+ is available
+///
+/// This function checks if OpenSSL 3.5+ is available in the system.
+/// OpenSSL 3.5+ includes built-in post-quantum cryptography support.
+///
+/// # Returns
+///
+/// `true` if OpenSSL 3.5+ is available, `false` otherwise
+pub fn is_openssl35_available() -> bool {
+    // Try to run openssl version command
+    match Command::new("openssl").arg("version").output() {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout);
+            // Check if version contains 3.5
+            version.contains("3.5")
+        },
+        _ => false
     }
-
-    // If standard check fails, check for OpenSSL 3.x with OQS provider
-    // This is for installations where OpenSSL and liboqs are in separate directories
-
-    // Check for bin directory with openssl executable
-    let bin_path = path.join("bin");
-    let openssl_path = bin_path.join("openssl");
-    if !bin_path.exists() || !bin_path.is_dir() || !openssl_path.exists() {
-        return false;
-    }
-
-    // Check for lib64/ossl-modules directory with oqsprovider.so
-    let modules_path = path.join("lib64").join("ossl-modules");
-    let oqsprovider_path = modules_path.join("oqsprovider.so");
-    if !modules_path.exists() || !modules_path.is_dir() || !oqsprovider_path.exists() {
-        return false;
-    }
-
-    // If we get here, we have a valid OpenSSL 3.x with OQS provider
-    true
 }

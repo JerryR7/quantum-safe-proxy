@@ -1,211 +1,215 @@
-//! Environment detection and diagnostics
+//! Environment checking module
 //!
-//! This module provides functionality for detecting and diagnosing
-//! the cryptographic environment, including OpenSSL and OQS-OpenSSL.
+//! This module provides functionality to check the environment
+//! for OpenSSL and post-quantum cryptography support.
 
-use std::path::PathBuf;
 use std::process::Command;
-
-use super::{ProviderType, is_oqs_available};
-
-/// Environment information
-#[derive(Debug, Clone)]
-pub struct EnvironmentInfo {
-    /// OpenSSL version
-    pub openssl_version: String,
-    /// Whether OQS-OpenSSL is available
-    pub oqs_available: bool,
-    /// Path to OQS-OpenSSL installation (if available)
-    pub oqs_path: Option<PathBuf>,
-    /// Supported provider types
-    pub supported_providers: Vec<ProviderType>,
-    /// Available post-quantum algorithms
-    pub available_pqc_algorithms: Vec<String>,
-}
+use std::collections::HashMap;
 
 /// Environment issue severity
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IssueSeverity {
     /// Informational message
     Info,
-    /// Warning (non-critical issue)
+    
+    /// Warning message
     Warning,
-    /// Error (critical issue)
+    
+    /// Error message
     Error,
 }
 
 /// Environment issue
 #[derive(Debug, Clone)]
 pub struct EnvironmentIssue {
-    /// Issue severity
-    pub severity: IssueSeverity,
     /// Issue message
     pub message: String,
-    /// Suggested resolution
-    pub resolution: Option<String>,
+    
+    /// Issue severity
+    pub severity: IssueSeverity,
 }
 
-/// Check the cryptographic environment
-///
-/// This function checks the cryptographic environment and returns
-/// information about the available providers and algorithms.
+/// Environment information
+#[derive(Debug, Clone)]
+pub struct EnvironmentInfo {
+    /// OpenSSL version
+    pub openssl_version: String,
+    
+    /// Whether post-quantum cryptography is available
+    pub pqc_available: bool,
+    
+    /// Supported key exchange algorithms
+    pub key_exchange_algorithms: Vec<String>,
+    
+    /// Supported signature algorithms
+    pub signature_algorithms: Vec<String>,
+    
+    /// Environment issues
+    pub issues: Vec<EnvironmentIssue>,
+    
+    /// Environment variables
+    pub env_vars: HashMap<String, String>,
+}
+
+/// Check the environment for OpenSSL and post-quantum cryptography support
 ///
 /// # Returns
 ///
 /// Environment information
 pub fn check_environment() -> EnvironmentInfo {
-    // Check if OQS is available
-    let oqs_available = is_oqs_available();
-
-    // Get OpenSSL version
-    let openssl_version = get_openssl_version();
-
-    // Determine supported providers
-    let mut supported_providers = vec![ProviderType::Standard];
-    if oqs_available {
-        supported_providers.push(ProviderType::Oqs);
-    }
-    supported_providers.push(ProviderType::Auto);
-
-    // Get available PQC algorithms
-    let available_pqc_algorithms = if oqs_available {
-        get_available_pqc_algorithms()
-    } else {
-        Vec::new()
+    let mut info = EnvironmentInfo {
+        openssl_version: "unknown".to_string(),
+        pqc_available: false,
+        key_exchange_algorithms: Vec::new(),
+        signature_algorithms: Vec::new(),
+        issues: Vec::new(),
+        env_vars: HashMap::new(),
     };
-
-    // Get OQS path
-    let oqs_path = if oqs_available {
-        // Access OQS_PATH through a public function
-        super::factory::get_oqs_path()
-    } else {
-        None
-    };
-
-    EnvironmentInfo {
-        openssl_version,
-        oqs_available,
-        oqs_path,
-        supported_providers,
-        available_pqc_algorithms,
+    
+    // Check OpenSSL version
+    match Command::new("openssl").arg("version").output() {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout).to_string();
+            info.openssl_version = version.trim().to_string();
+            
+            // Check if OpenSSL 3.5+
+            if version.contains("3.5") {
+                info.issues.push(EnvironmentIssue {
+                    message: "OpenSSL 3.5+ detected with built-in post-quantum support".to_string(),
+                    severity: IssueSeverity::Info,
+                });
+            } else {
+                info.issues.push(EnvironmentIssue {
+                    message: format!("OpenSSL version {} does not have built-in post-quantum support", version.trim()),
+                    severity: IssueSeverity::Warning,
+                });
+            }
+        },
+        _ => {
+            info.issues.push(EnvironmentIssue {
+                message: "Failed to detect OpenSSL version".to_string(),
+                severity: IssueSeverity::Error,
+            });
+        }
     }
+    
+    // Check for PQC support
+    match Command::new("openssl").args(["list", "-kem-algorithms"]).output() {
+        Ok(output) if output.status.success() => {
+            let kem_list = String::from_utf8_lossy(&output.stdout);
+            if kem_list.contains("ML-KEM") {
+                info.pqc_available = true;
+                info.issues.push(EnvironmentIssue {
+                    message: "Post-quantum key exchange algorithms (ML-KEM) are available".to_string(),
+                    severity: IssueSeverity::Info,
+                });
+                
+                // Extract ML-KEM algorithms
+                for line in kem_list.lines() {
+                    if line.contains("ML-KEM") {
+                        let parts: Vec<&str> = line.split('@').collect();
+                        if let Some(alg_part) = parts.first() {
+                            let alg = alg_part.trim();
+                            if alg.contains("ML-KEM") {
+                                info.key_exchange_algorithms.push(alg.to_string());
+                            }
+                        }
+                    }
+                }
+            } else {
+                info.issues.push(EnvironmentIssue {
+                    message: "Post-quantum key exchange algorithms (ML-KEM) are not available".to_string(),
+                    severity: IssueSeverity::Warning,
+                });
+            }
+        },
+        _ => {
+            info.issues.push(EnvironmentIssue {
+                message: "Failed to detect key exchange algorithms".to_string(),
+                severity: IssueSeverity::Warning,
+            });
+        }
+    }
+    
+    // Check for signature algorithms
+    match Command::new("openssl").args(["list", "-signature-algorithms"]).output() {
+        Ok(output) if output.status.success() => {
+            let sig_list = String::from_utf8_lossy(&output.stdout);
+            if sig_list.contains("ML-DSA") || sig_list.contains("SLH-DSA") {
+                info.issues.push(EnvironmentIssue {
+                    message: "Post-quantum signature algorithms (ML-DSA/SLH-DSA) are available".to_string(),
+                    severity: IssueSeverity::Info,
+                });
+                
+                // Extract PQ signature algorithms
+                for line in sig_list.lines() {
+                    if line.contains("ML-DSA") || line.contains("SLH-DSA") {
+                        let parts: Vec<&str> = line.split('@').collect();
+                        if let Some(alg_part) = parts.first() {
+                            let alg = alg_part.trim();
+                            if alg.contains("ML-DSA") || alg.contains("SLH-DSA") {
+                                info.signature_algorithms.push(alg.to_string());
+                            }
+                        }
+                    }
+                }
+            } else {
+                info.issues.push(EnvironmentIssue {
+                    message: "Post-quantum signature algorithms (ML-DSA/SLH-DSA) are not available".to_string(),
+                    severity: IssueSeverity::Warning,
+                });
+            }
+        },
+        _ => {
+            info.issues.push(EnvironmentIssue {
+                message: "Failed to detect signature algorithms".to_string(),
+                severity: IssueSeverity::Warning,
+            });
+        }
+    }
+    
+    // Check environment variables
+    for var in &["OPENSSL_DIR", "OPENSSL_LIB_DIR", "OPENSSL_INCLUDE_DIR", "LD_LIBRARY_PATH"] {
+        if let Ok(value) = std::env::var(var) {
+            info.env_vars.insert(var.to_string(), value);
+        }
+    }
+    
+    info
 }
 
-/// Diagnose the cryptographic environment
+/// Diagnose environment issues
 ///
-/// This function diagnoses the cryptographic environment and returns
-/// a list of issues that may affect functionality.
+/// # Arguments
+///
+/// * `info` - Environment information
 ///
 /// # Returns
 ///
 /// A list of environment issues
-pub fn diagnose_environment() -> Vec<EnvironmentIssue> {
-    let mut issues = Vec::new();
-
-    // Check OpenSSL
-    let openssl_version = get_openssl_version();
-    if openssl_version.is_empty() {
+pub fn diagnose_environment(info: &EnvironmentInfo) -> Vec<EnvironmentIssue> {
+    let mut issues = info.issues.clone();
+    
+    // Check if PQC is available
+    if !info.pqc_available {
         issues.push(EnvironmentIssue {
-            severity: IssueSeverity::Error,
-            message: "OpenSSL not found".to_string(),
-            resolution: Some("Install OpenSSL development libraries".to_string()),
-        });
-    } else {
-        issues.push(EnvironmentIssue {
-            severity: IssueSeverity::Info,
-            message: format!("OpenSSL version: {}", openssl_version),
-            resolution: None,
-        });
-    }
-
-    // Check OQS-OpenSSL
-    if is_oqs_available() {
-        issues.push(EnvironmentIssue {
-            severity: IssueSeverity::Info,
-            message: "OQS-OpenSSL is available".to_string(),
-            resolution: None,
-        });
-
-        // Check available PQC algorithms
-        let algorithms = get_available_pqc_algorithms();
-        if algorithms.is_empty() {
-            issues.push(EnvironmentIssue {
-                severity: IssueSeverity::Warning,
-                message: "No post-quantum algorithms detected".to_string(),
-                resolution: Some("Check OQS-OpenSSL installation".to_string()),
-            });
-        } else {
-            issues.push(EnvironmentIssue {
-                severity: IssueSeverity::Info,
-                message: format!("Available PQC algorithms: {}", algorithms.join(", ")),
-                resolution: None,
-            });
-        }
-    } else {
-        issues.push(EnvironmentIssue {
+            message: "Post-quantum cryptography is not available. Consider upgrading to OpenSSL 3.5+.".to_string(),
             severity: IssueSeverity::Warning,
-            message: "OQS-OpenSSL not available".to_string(),
-            resolution: Some("Install OQS-OpenSSL for post-quantum support".to_string()),
         });
     }
-
-    // Check environment variables
-    if std::env::var("OQS_OPENSSL_PATH").is_err() {
+    
+    // Check OpenSSL version
+    if info.openssl_version.contains("unknown") {
         issues.push(EnvironmentIssue {
-            severity: IssueSeverity::Info,
-            message: "OQS_OPENSSL_PATH environment variable not set".to_string(),
-            resolution: Some("Set OQS_OPENSSL_PATH to the OQS-OpenSSL installation directory".to_string()),
+            message: "OpenSSL version could not be detected".to_string(),
+            severity: IssueSeverity::Error,
+        });
+    } else if !info.openssl_version.contains("3.5") {
+        issues.push(EnvironmentIssue {
+            message: format!("OpenSSL version {} does not have built-in post-quantum support. Consider upgrading to OpenSSL 3.5+.", info.openssl_version),
+            severity: IssueSeverity::Warning,
         });
     }
-
+    
     issues
-}
-
-/// Get OpenSSL version
-///
-/// # Returns
-///
-/// OpenSSL version string
-fn get_openssl_version() -> String {
-    // Try to get OpenSSL version using the openssl command
-    let output = Command::new("openssl")
-        .arg("version")
-        .output();
-
-    match output {
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).trim().to_string()
-        },
-        _ => {
-            // Try to get version from OpenSSL library
-            openssl::version::version().to_string()
-        }
-    }
-}
-
-/// Get available post-quantum algorithms
-///
-/// # Returns
-///
-/// A list of available post-quantum algorithms
-fn get_available_pqc_algorithms() -> Vec<String> {
-    let mut algorithms = Vec::new();
-
-    // This is a simplified implementation
-    // A real implementation would query OQS-OpenSSL for available algorithms
-
-    // Check for common PQC algorithms
-    let common_algorithms = [
-        "Kyber512", "Kyber768", "Kyber1024",
-        "Dilithium2", "Dilithium3", "Dilithium5",
-        "Falcon512", "Falcon1024",
-        "SPHINCS+-SHA256-128s", "SPHINCS+-SHA256-192s", "SPHINCS+-SHA256-256s",
-    ];
-
-    // For now, just return common algorithms if OQS is available
-    if is_oqs_available() {
-        algorithms.extend(common_algorithms.iter().map(|s| s.to_string()));
-    }
-
-    algorithms
 }

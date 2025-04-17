@@ -1,7 +1,7 @@
 //! Environment check tool
 //!
-//! This tool checks the environment for OpenSSL with OQS Provider and other dependencies.
-//! It supports both OpenSSL 1.1.1 with OQS-OpenSSL and OpenSSL 3.x with OQS Provider.
+//! This tool checks the environment for OpenSSL with post-quantum cryptography support.
+//! It supports both OpenSSL 3.5+ with built-in PQC and older versions with OQS Provider.
 
 use std::process::exit;
 use quantum_safe_proxy::crypto::provider::{check_environment, diagnose_environment, IssueSeverity};
@@ -19,28 +19,34 @@ fn main() {
 
     // Print environment information
     println!("OpenSSL version: {}", env_info.openssl_version);
-    println!("Post-quantum cryptography available: {}", if env_info.oqs_available { "Yes" } else { "No" });
+    println!("Post-quantum cryptography available: {}", if env_info.pqc_available { "Yes" } else { "No" });
 
-    if let Some(path) = &env_info.oqs_path {
-        println!("Post-quantum cryptography path: {}", path.display());
-    }
-
-    println!("\nSupported providers:");
-    for provider in &env_info.supported_providers {
-        println!("  - {:?}", provider);
-    }
-
-    if !env_info.available_pqc_algorithms.is_empty() {
-        println!("\nAvailable post-quantum algorithms:");
-        for algo in &env_info.available_pqc_algorithms {
+    // Print key exchange algorithms
+    if !env_info.key_exchange_algorithms.is_empty() {
+        println!("\nSupported post-quantum key exchange algorithms:");
+        for algo in &env_info.key_exchange_algorithms {
             println!("  - {}", algo);
         }
-    } else if env_info.oqs_available {
-        println!("\nNo post-quantum algorithms detected, but post-quantum cryptography support is available.");
+    }
+
+    // Print signature algorithms
+    if !env_info.signature_algorithms.is_empty() {
+        println!("\nSupported post-quantum signature algorithms:");
+        for algo in &env_info.signature_algorithms {
+            println!("  - {}", algo);
+        }
+    }
+
+    // Print environment variables
+    if !env_info.env_vars.is_empty() {
+        println!("\nEnvironment variables:");
+        for (name, value) in &env_info.env_vars {
+            println!("  {}={}", name, value);
+        }
     }
 
     // Diagnose environment issues
-    let issues = diagnose_environment();
+    let issues = diagnose_environment(&env_info);
 
     if !issues.is_empty() {
         println!("\nEnvironment issues:");
@@ -58,10 +64,6 @@ fn main() {
             };
 
             println!("  [{:7}] {}", prefix, issue.message);
-
-            if let Some(resolution) = &issue.resolution {
-                println!("             Resolution: {}", resolution);
-            }
         }
 
         if has_errors {
@@ -74,16 +76,16 @@ fn main() {
 
     // Print summary
     println!("\n=== Summary ===");
-    if env_info.oqs_available {
+    if env_info.pqc_available {
         println!("✅ Post-quantum cryptography support is available and properly configured.");
         println!("✅ Quantum-safe TLS connections are enabled.");
     } else {
         println!("⚠️  Post-quantum cryptography support is NOT available.");
         println!("⚠️  Quantum-safe TLS connections are NOT enabled.");
-        println!("\nTo enable post-quantum support, install OpenSSL with post-quantum capabilities:");
-        println!("  1. Run the installation script: ./scripts/install-oqs-provider.sh");
-        println!("  2. Set the environment variables as instructed");
+        println!("\nTo enable post-quantum support, install OpenSSL 3.5+ with built-in post-quantum capabilities:");
+        println!("  1. Use the provided Docker image: docker/Dockerfile.openssl35");
+        println!("  2. Or install OpenSSL 3.5+ manually and set the environment variables");
     }
 
-    println!("\nFor more information, visit: https://github.com/open-quantum-safe/oqs-provider");
+    println!("\nFor more information, visit: https://github.com/openssl/openssl");
 }

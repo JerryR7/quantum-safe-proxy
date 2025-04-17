@@ -24,7 +24,7 @@ use tokio::signal::unix::{signal, SignalKind};
 #[derive(Parser, Debug)]
 #[clap(author, version = VERSION, about, long_about = None)]
 struct Args {
-    /// Listen address
+    /// Listen to the address
     #[clap(short, long, default_value = "0.0.0.0:8443")]
     listen: String,
 
@@ -180,13 +180,13 @@ async fn main() -> Result<()> {
           config.listen, config.target, config.cert_path);
 
     // Try to get certificate subject
-    match get_cert_subject(&config.cert_path) {
+    match get_cert_subject(&config.cert_path, None) {
         Ok(subject) => info!("Certificate subject: {}", subject),
         Err(e) => warn!("Unable to get certificate subject: {}", e),
     }
 
     // Try to get certificate fingerprint
-    match get_cert_fingerprint(&config.cert_path) {
+    match get_cert_fingerprint(&config.cert_path, None) {
         Ok(fingerprint) => info!("Certificate fingerprint: {}", fingerprint),
         Err(e) => warn!("Unable to get certificate fingerprint: {}", e),
     }
