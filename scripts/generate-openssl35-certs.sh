@@ -9,7 +9,7 @@
 #   traditional, hybrid, and pure post-quantum certificates for testing and production.
 #
 # USAGE:
-#   docker compose -f docker-compose.openssl35.yml exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh
+#   docker compose -f docker compose.yml exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh
 #
 # REQUIREMENTS:
 #   - Must be run inside the Docker container with OpenSSL 3.5+ installed

@@ -66,7 +66,10 @@ The easiest way to get started with Quantum Safe Proxy is using Docker. Follow t
    # Build standard image
    docker build -f docker/Dockerfile -t quantum-safe-proxy:latest .
 
-   # Build OQS image (with post-quantum support)
+   # Build OpenSSL 3.5 image (with built-in post-quantum support)
+   docker build -f docker/Dockerfile.openssl35 -t quantum-safe-proxy:openssl35 .
+
+   # Build OQS image (with legacy post-quantum support)
    docker build -f docker/Dockerfile.oqs -t quantum-safe-proxy:oqs .
    ```
 
@@ -75,7 +78,9 @@ The easiest way to get started with Quantum Safe Proxy is using Docker. Follow t
    ```yaml
    services:
      quantum-safe-proxy:
-       image: quantum-safe-proxy:oqs  # Use the pre-built image
+       # Choose one of the following images:
+       image: quantum-safe-proxy:openssl35  # Use OpenSSL 3.5 with built-in PQC
+       # image: quantum-safe-proxy:oqs      # Use legacy OQS provider
        ports:
          - "8443:8443"
        volumes:
@@ -84,9 +89,14 @@ The easiest way to get started with Quantum Safe Proxy is using Docker. Follow t
        command: [
          "--listen", "0.0.0.0:8443",
          "--target", "backend:6000",
-         "--cert", "/app/certs/hybrid/dilithium3/server.crt",
-         "--key", "/app/certs/hybrid/dilithium3/server.key",
-         "--ca-cert", "/app/certs/hybrid/dilithium3/ca.crt",
+         # For OpenSSL 3.5, use ML-DSA certificates
+         "--cert", "/app/certs/hybrid/ml-dsa-65/server.crt",
+         "--key", "/app/certs/hybrid/ml-dsa-65/server.key",
+         "--ca-cert", "/app/certs/hybrid/ml-dsa-65/ca.crt",
+         # For OQS provider, use Dilithium certificates
+         # "--cert", "/app/certs/hybrid/dilithium3/server.crt",
+         # "--key", "/app/certs/hybrid/dilithium3/server.key",
+         # "--ca-cert", "/app/certs/hybrid/dilithium3/ca.crt",
          "--log-level", "debug",
          "--client-cert-mode", "optional"
        ]
@@ -110,7 +120,7 @@ The easiest way to get started with Quantum Safe Proxy is using Docker. Follow t
        driver: bridge
    ```
 
-   > **Note**: Notice that we're using `image: quantum-safe-proxy:oqs` instead of including a `build` section. This approach prevents the creation of dangling images.
+   > **Note**: Notice that we're using `image:` instead of including a `build:` section. This approach prevents the creation of dangling images. Choose either `quantum-safe-proxy:openssl35` for OpenSSL 3.5 with built-in PQC or `quantum-safe-proxy:oqs` for legacy OQS provider support.
 
 3. **Start the services**:
 
@@ -123,7 +133,9 @@ The easiest way to get started with Quantum Safe Proxy is using Docker. Follow t
    When your code changes and you need to update the images:
 
    ```bash
-   # Rebuild the image
+   # Rebuild the image (choose the appropriate Dockerfile)
+   docker build -f docker/Dockerfile.openssl35 -t quantum-safe-proxy:openssl35 .
+   # or
    docker build -f docker/Dockerfile.oqs -t quantum-safe-proxy:oqs .
 
    # Restart the services
@@ -382,16 +394,33 @@ These use classical cryptographic algorithms that are widely supported but vulne
 
 These combine traditional and post-quantum algorithms for maximum security and compatibility:
 
-- **Dilithium3 + ECDSA**: Combines NIST security level 2 post-quantum with traditional ECDSA
-- **Dilithium5/ML-DSA-87 + ECDSA**: Uses higher security level post-quantum algorithm
+#### OpenSSL 3.5+ Terminology (NIST Standardized Names)
+
+- **ML-DSA-44 + ECDSA**: Combines NIST security level 2 post-quantum with traditional ECDSA (formerly Dilithium2)
+- **ML-DSA-65 + ECDSA**: Uses medium security level post-quantum algorithm (formerly Dilithium3)
+- **ML-DSA-87 + ECDSA**: Uses higher security level post-quantum algorithm (formerly Dilithium5)
+- **ML-KEM-768 + X25519**: Combines post-quantum key exchange with traditional elliptic curve
+
+#### OQS Provider Terminology (Legacy)
+
+- **Dilithium2/3 + ECDSA**: Combines NIST security level 2 post-quantum with traditional ECDSA
+- **Dilithium5 + ECDSA**: Uses higher security level post-quantum algorithm
 - **Falcon-1024 + ECDSA**: Uses an alternative lattice-based post-quantum algorithm
 
 ### 3. Pure Post-Quantum Certificates
 
 These use only post-quantum algorithms, providing maximum quantum resistance:
 
-- **Dilithium3**: NIST security level 2 post-quantum algorithm
-- **Dilithium5/ML-DSA-87**: NIST security level 3 post-quantum algorithm
+#### OpenSSL 3.5+ Terminology (NIST Standardized Names)
+
+- **ML-DSA-44**: NIST security level 2 post-quantum algorithm (formerly Dilithium2)
+- **ML-DSA-65**: NIST security level 3 post-quantum algorithm (formerly Dilithium3)
+- **ML-DSA-87**: NIST security level 5 post-quantum algorithm (formerly Dilithium5)
+
+#### OQS Provider Terminology (Legacy)
+
+- **Dilithium2/3**: NIST security level 2 post-quantum algorithm
+- **Dilithium5**: NIST security level 3 post-quantum algorithm
 - **Falcon-1024**: Alternative lattice-based post-quantum algorithm
 
 ## Utility Scripts
@@ -402,14 +431,16 @@ The project includes several utility scripts to help with certificate generation
 
 | Script | Description | Usage |
 |--------|-------------|-------|
-| `generate_certificates.sh` | **Main certificate generation script** that creates a complete set of certificates for all supported algorithms (traditional, hybrid, and pure post-quantum). | Run inside Docker container:<br>`docker compose exec quantum-safe-proxy /scripts/generate_certificates.sh` |
+| `generate-openssl35-certs.sh` | **Recommended certificate generation script** that creates a complete set of certificates using OpenSSL 3.5+ with built-in PQC support. Generates ML-DSA and ML-KEM certificates. | Run inside Docker container:<br>`docker compose exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh` |
+| `generate_certificates.sh` | **Legacy certificate generation script** that creates certificates using OQS provider. Generates Dilithium and Falcon certificates. | Run inside Docker container:<br>`docker compose exec quantum-safe-proxy /scripts/generate_certificates.sh` |
 | `generate-test-certs.sh` | **Simplified certificate generation script** for development and testing. Creates a smaller set of certificates. | Run on host system:<br>`./scripts/generate-test-certs.sh` |
 
 ### OpenSSL Installation Scripts
 
 | Script | Description | Usage |
 |--------|-------------|-------|
-| `install-oqs-provider.sh` | **RECOMMENDED** installation script for OpenSSL 3.x with OQS Provider. Uses modern OpenSSL architecture with pluggable providers. | `./scripts/install-oqs-provider.sh [OPTIONS]` |
+| `build-openssl35.sh` | **RECOMMENDED** script for building Docker image with OpenSSL 3.5+ that has built-in post-quantum cryptography support. | `./scripts/build-openssl35.sh` |
+| `install-oqs-provider.sh` | Installation script for OpenSSL 3.x with OQS Provider. Uses modern OpenSSL architecture with pluggable providers. | `./scripts/install-oqs-provider.sh [OPTIONS]` |
 | `install-oqs.sh` | **LEGACY** installation script for OpenSSL 1.1.1 with OQS patches. Provided for backward compatibility only. | `./scripts/install-oqs.sh [OPTIONS]` |
 
 ### Configuration Files
@@ -434,21 +465,39 @@ These configuration files serve different purposes but contain similar settings:
 
 ### Choosing the Right Script
 
-- For **production environments**, use `generate_certificates.sh` to create a complete set of certificates.
+- For **production environments**:
+  - Use `generate-openssl35-certs.sh` to create certificates with OpenSSL 3.5+ (recommended)
+  - Use `generate_certificates.sh` for legacy OQS provider certificates
 - For **development and testing**, use `generate-test-certs.sh` for a simpler setup.
 - For **installing OpenSSL with post-quantum support**:
-  - New projects should use `install-oqs-provider.sh` (OpenSSL 3.x)
+  - New projects should use `build-openssl35.sh` to build a Docker image with OpenSSL 3.5+ (recommended)
+  - Alternative approach: use `install-oqs-provider.sh` for OpenSSL 3.x with OQS provider
   - Legacy systems can use `install-oqs.sh` (OpenSSL 1.1.1)
 
 ## Working with Certificates
 
 ### Installing OpenSSL with Post-Quantum Support
 
-To use post-quantum cryptography features, you need OpenSSL with OQS support.
+To use post-quantum cryptography features, you need OpenSSL with PQC support. There are three options available:
 
-#### OpenSSL 3.x with OQS Provider (Recommended)
+#### Option 1: OpenSSL 3.5+ with Built-in PQC (Recommended)
 
-For new projects, we recommend using OpenSSL 3.x with the OQS Provider:
+For new projects, we recommend using OpenSSL 3.5+ which has built-in support for post-quantum cryptography:
+
+```bash
+# Build the Docker image with OpenSSL 3.5+
+./scripts/build-openssl35.sh
+
+# Verify the installation
+docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl version
+docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl list -kem-algorithms | grep -i ML-KEM
+```
+
+This will build a Docker image with OpenSSL 3.5+ installed at `/opt/openssl35`.
+
+#### Option 2: OpenSSL 3.x with OQS Provider
+
+As an alternative, you can use OpenSSL 3.x with the OQS Provider:
 
 ```bash
 # Run the installation script
@@ -460,7 +509,7 @@ source /opt/oqs/env.sh
 
 This will install OpenSSL 3.x with OQS Provider to `/opt/oqs` by default.
 
-#### Legacy OpenSSL 1.1.1 with OQS Patches
+#### Option 3: Legacy OpenSSL 1.1.1 with OQS Patches (Deprecated)
 
 For compatibility with older systems, you can use OpenSSL 1.1.1 with OQS patches:
 
@@ -476,11 +525,25 @@ This will install OQS-OpenSSL 1.1.1 to `/opt/oqs-openssl` by default.
 
 ### Generating Certificates
 
-The project includes two scripts to generate certificates:
+The project includes several scripts to generate certificates:
 
-#### Complete Certificate Set (Recommended for Production)
+#### OpenSSL 3.5+ Certificates (Recommended for Production)
 
-To generate a complete set of certificates including all types (traditional, hybrid, and post-quantum):
+To generate a complete set of certificates using OpenSSL 3.5+ with built-in PQC support:
+
+```bash
+# Run the script inside the Docker container
+docker compose exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh
+```
+
+This script generates certificates for all supported algorithms in OpenSSL 3.5+, including:
+- Traditional certificates (RSA, ECDSA)
+- Hybrid certificates (ML-DSA-44/65/87 + ECDSA, ML-KEM-768 + X25519)
+- Pure post-quantum certificates (ML-DSA-44/65/87)
+
+#### OQS Provider Certificates (Legacy Support)
+
+To generate certificates using the OQS Provider:
 
 ```bash
 # Run the script inside the Docker container
@@ -508,13 +571,20 @@ This will create certificates in the following directory structure:
 │   ├── rsa/
 │   └── ecdsa/
 ├── hybrid/
-│   ├── dilithium3/
-│   ├── dilithium5/
-│   └── falcon1024/
+│   ├── ml-dsa-44/       # OpenSSL 3.5+ (equivalent to Dilithium2)
+│   ├── ml-dsa-65/       # OpenSSL 3.5+ (equivalent to Dilithium3)
+│   ├── ml-dsa-87/       # OpenSSL 3.5+ (equivalent to Dilithium5)
+│   ├── ml-kem-768/      # OpenSSL 3.5+ (equivalent to Kyber768)
+│   ├── dilithium3/      # OQS Provider (symlinks to ml-dsa-44 for compatibility)
+│   ├── dilithium5/      # OQS Provider (symlinks to ml-dsa-87 for compatibility)
+│   └── falcon1024/      # OQS Provider only
 └── post-quantum/
-    ├── dilithium3/
-    ├── dilithium5/
-    └── falcon1024/
+    ├── ml-dsa-44/       # OpenSSL 3.5+ (pure PQC)
+    ├── ml-dsa-65/       # OpenSSL 3.5+ (pure PQC)
+    ├── ml-dsa-87/       # OpenSSL 3.5+ (pure PQC)
+    ├── dilithium3/      # OQS Provider (symlinks to ml-dsa-44 for compatibility)
+    ├── dilithium5/      # OQS Provider (symlinks to ml-dsa-87 for compatibility)
+    └── falcon1024/      # OQS Provider only
 ```
 
 Each directory contains:
@@ -539,27 +609,39 @@ command: >
   --client-cert-mode optional
 ```
 
+#### Hybrid ML-DSA-65 Certificates (OpenSSL 3.5+)
+
+```yaml
+command: >
+  --listen 0.0.0.0:8443
+  --target backend:6000
+  --cert /app/certs/hybrid/ml-dsa-65/server.crt
+  --key /app/certs/hybrid/ml-dsa-65/server.key
+  --ca-cert /app/certs/hybrid/ml-dsa-65/ca.crt
+  --client-cert-mode optional
+```
+
 #### Hybrid Dilithium5/ML-DSA-87 Certificates
 
 ```yaml
 command: >
   --listen 0.0.0.0:8443
   --target backend:6000
-  --cert /app/certs/hybrid/dilithium5/server.crt
-  --key /app/certs/hybrid/dilithium5/server.key
-  --ca-cert /app/certs/hybrid/dilithium5/ca.crt
+  --cert /app/certs/hybrid/ml-dsa-87/server.crt  # or dilithium5/server.crt for OQS provider
+  --key /app/certs/hybrid/ml-dsa-87/server.key   # or dilithium5/server.key for OQS provider
+  --ca-cert /app/certs/hybrid/ml-dsa-87/ca.crt   # or dilithium5/ca.crt for OQS provider
   --client-cert-mode optional
 ```
 
-#### Pure Post-Quantum Dilithium5/ML-DSA-87 Certificates
+#### Pure Post-Quantum ML-DSA-65 Certificates (OpenSSL 3.5+)
 
 ```yaml
 command: >
   --listen 0.0.0.0:8443
   --target backend:6000
-  --cert /app/certs/post-quantum/dilithium5/server.crt
-  --key /app/certs/post-quantum/dilithium5/server.key
-  --ca-cert /app/certs/post-quantum/dilithium5/ca.crt
+  --cert /app/certs/post-quantum/ml-dsa-65/server.crt
+  --key /app/certs/post-quantum/ml-dsa-65/server.key
+  --ca-cert /app/certs/post-quantum/ml-dsa-65/ca.crt
   --client-cert-mode optional
 ```
 
@@ -581,6 +663,10 @@ docker compose logs quantum-safe-proxy
 Look for messages like:
 - `Using traditional certificate, not hybrid` (for traditional certificates)
 - `Hybrid certificate mode enabled` (for hybrid certificates)
+- `Using OpenSSL 3.5+ with built-in post-quantum support` (when using OpenSSL 3.5+)
+- `Post-quantum key exchange algorithms (ML-KEM) are available` (when using OpenSSL 3.5+)
+- `Post-quantum signature algorithms (ML-DSA) are available` (when using OpenSSL 3.5+)
+- `Using OpenSSL with oqs-provider` (when using OQS provider)
 - Messages about post-quantum algorithms being used
 
 ## Performance and Compatibility
@@ -606,6 +692,73 @@ When testing, consider monitoring:
 - Pure post-quantum certificates only work with clients that support the specific algorithm
 
 For maximum compatibility and security, hybrid certificates are recommended for most use cases.
+
+## Migrating from OQS to OpenSSL 3.5+
+
+If you're currently using the OQS provider and want to migrate to OpenSSL 3.5+ with built-in PQC support, follow these steps:
+
+### 1. Build the OpenSSL 3.5+ Docker Image
+
+```bash
+./scripts/build-openssl35.sh
+```
+
+### 2. Update Your docker-compose.yml File
+
+Change the image from `quantum-safe-proxy:oqs` to `quantum-safe-proxy:openssl35`:
+
+```yaml
+services:
+  quantum-safe-proxy:
+    image: quantum-safe-proxy:openssl35  # Changed from quantum-safe-proxy:oqs
+    # rest of configuration...
+```
+
+### 3. Generate New Certificates
+
+```bash
+docker compose exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh
+```
+
+### 4. Update Certificate Paths
+
+Update your certificate paths to use the new ML-DSA certificates:
+
+```yaml
+command: [
+  # other options...
+  "--cert", "/app/certs/hybrid/ml-dsa-65/server.crt",  # Changed from dilithium3
+  "--key", "/app/certs/hybrid/ml-dsa-65/server.key",   # Changed from dilithium3
+  "--ca-cert", "/app/certs/hybrid/ml-dsa-65/ca.crt",  # Changed from dilithium3
+  # other options...
+]
+```
+
+### 5. Restart the Services
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+### 6. Verify the Migration
+
+Check the logs to confirm that OpenSSL 3.5+ is being used:
+
+```bash
+docker compose logs quantum-safe-proxy
+```
+
+Look for messages like:
+- `Using OpenSSL 3.5+ with built-in post-quantum support`
+- `Post-quantum key exchange algorithms (ML-KEM) are available`
+- `Post-quantum signature algorithms (ML-DSA) are available`
+
+### Compatibility Notes
+
+- The `generate-openssl35-certs.sh` script creates symbolic links for backward compatibility, so existing paths like `/app/certs/hybrid/dilithium3/` will still work, but they now point to the ML-DSA certificates.
+- The algorithm names have changed (Dilithium → ML-DSA, Kyber → ML-KEM), but the functionality remains the same.
+- OpenSSL 3.5+ provides better integration and standardization compared to the OQS provider.
 
 ## Troubleshooting
 

@@ -21,8 +21,11 @@ The following documentation is planned for future development:
 ## External Resources
 
 - [OpenSSL Documentation](https://www.openssl.org/docs/)
+- [OpenSSL 3.5 Release Notes](https://www.openssl.org/news/openssl-3.5-notes.html)
+- [OpenSSL 3.5 Post-Quantum Cryptography](https://www.openssl.org/docs/man3.5/man7/ossl-guide-pq.html)
 - [Open Quantum Safe Project](https://openquantumsafe.org/)
 - [NIST Post-Quantum Cryptography](https://csrc.nist.gov/projects/post-quantum-cryptography)
+- [NIST PQC Standardization](https://csrc.nist.gov/Projects/post-quantum-cryptography/selected-algorithms-2022)
 
 ## Contributing to Documentation
 

@@ -61,10 +61,10 @@ graph LR
 | Component | Technology |
 |-----------|------------|
 | **Language** | Rust |
-| **TLS Library** | OpenSSL with oqs-provider (hybrid certificate support) |
+| **TLS Library** | OpenSSL 3.5+ with built-in PQC support or OpenSSL with oqs-provider |
 | **Proxy Runtime** | tokio + tokio-openssl |
 | **Deployment** | Docker / Kubernetes / Systemd sidecar mode |
-| **Certificate Tools** | OQS OpenSSL CLI (hybrid CSR and certificates) |
+| **Certificate Tools** | OpenSSL 3.5+ CLI or OQS OpenSSL CLI (hybrid CSR and certificates) |
 
 ## 5. Installation
 
@@ -210,7 +210,14 @@ Before using Docker Compose, first build the Docker images manually. This provid
 docker build -f docker/Dockerfile -t quantum-safe-proxy:latest .
 ```
 
-##### Docker Image with OQS-OpenSSL (Post-Quantum Support)
+##### Docker Image with OpenSSL 3.5 (Built-in Post-Quantum Support)
+
+```bash
+# Run in the project root directory
+docker build -f docker/Dockerfile.openssl35 -t quantum-safe-proxy:openssl35 .
+```
+
+##### Docker Image with OQS-OpenSSL (Legacy Post-Quantum Support)
 
 ```bash
 # Run in the project root directory
@@ -231,7 +238,18 @@ docker run -p 8443:8443 \
   --ca-cert /app/certs/hybrid/dilithium3/ca.crt \
   --client-cert-mode optional
 
-# OQS image (with post-quantum support)
+# OpenSSL 3.5 image (with built-in post-quantum support)
+docker run -p 8443:8443 \
+  -v $(pwd)/certs:/app/certs \
+  quantum-safe-proxy:openssl35 \
+  --listen 0.0.0.0:8443 \
+  --target 127.0.0.1:6000 \
+  --cert /app/certs/hybrid/ml-dsa-65/server.crt \
+  --key /app/certs/hybrid/ml-dsa-65/server.key \
+  --ca-cert /app/certs/hybrid/ml-dsa-65/ca.crt \
+  --client-cert-mode optional
+
+# OQS image (with legacy post-quantum support)
 docker run -p 8443:8443 \
   -v $(pwd)/certs:/app/certs \
   quantum-safe-proxy:oqs \
@@ -250,11 +268,14 @@ Make sure your `docker-compose.yml` file uses the pre-built images:
 ```yaml
 services:
   quantum-safe-proxy:
-    image: quantum-safe-proxy:oqs  # Use pre-built image
+    # Choose one of the following images:
+    image: quantum-safe-proxy:openssl35  # Use OpenSSL 3.5 with built-in PQC
+    # image: quantum-safe-proxy:oqs      # Use legacy OQS provider
     ports:
       - "8443:8443"
     volumes:
       - ./certs:/app/certs
+      - ./config:/app/config
     # other configuration...
 ```
 
@@ -308,15 +329,15 @@ We recommend building images manually and using only `image:` in docker-compose.
 
 ## 7. Hybrid Certificate Support
 
-Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL with the [OQS-provider](https://github.com/open-quantum-safe/oqs-provider). This allows the server to accept connections from both PQC-enabled and traditional clients.
+Quantum Safe Proxy supports **hybrid X.509 certificates** using either OpenSSL 3.5+ with built-in PQC support or OpenSSL with the [OQS-provider](https://github.com/open-quantum-safe/oqs-provider). This allows the server to accept connections from both PQC-enabled and traditional clients.
 
 ### Supported Algorithms
 
-| Type | Algorithms |
-|------|------------|
-| **Key Exchange** | Kyber (NIST PQC standard) |
-| **Signatures** | Dilithium (NIST PQC standard) |
-| **Classical Fallback** | ECDSA, RSA |
+| Type | Algorithms (OpenSSL 3.5+) | Algorithms (OQS Provider) |
+|------|--------------------------|---------------------------|
+| **Key Exchange** | ML-KEM (formerly Kyber, NIST PQC standard) | Kyber (NIST PQC standard) |
+| **Signatures** | ML-DSA (formerly Dilithium, NIST PQC standard) | Dilithium (NIST PQC standard) |
+| **Classical Fallback** | ECDSA, RSA | ECDSA, RSA |
 
 ### TLS Handshake Behavior
 
@@ -324,9 +345,32 @@ Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL with the
 - Clients with PQC support negotiate using quantum-resistant algorithms
 - Legacy clients fall back to classical algorithms
 
-### Installing OQS OpenSSL
+### Installing Post-Quantum Cryptography Support
 
-#### Using the Installation Script
+#### Option 1: Using OpenSSL 3.5+ (Recommended)
+
+OpenSSL 3.5+ includes built-in support for post-quantum cryptography algorithms standardized by NIST.
+
+```bash
+# Run the installation script
+./scripts/build-openssl35.sh
+
+# Verify the installation
+docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl version
+docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl list -kem-algorithms | grep -i ML-KEM
+```
+
+#### Option 2: Using OQS Provider (Legacy Support)
+
+```bash
+# Run the installation script
+./scripts/install-oqs-provider.sh
+
+# Source the environment variables
+source /opt/oqs/env.sh
+```
+
+#### Option 3: Using Legacy OQS OpenSSL (Deprecated)
 
 ```bash
 # Run the installation script
@@ -336,28 +380,27 @@ Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL with the
 source /opt/oqs-openssl/env.sh
 ```
 
-#### Manual Installation
+### Generating Hybrid Certificates
+
+#### Using OpenSSL 3.5+ (Recommended)
 
 ```bash
-# Clone the OQS OpenSSL repository
-git clone --branch OQS-OpenSSL_1_1_1-stable https://github.com/open-quantum-safe/openssl.git oqs-openssl
-cd oqs-openssl
+# Run the certificate generation script in the Docker container
+docker compose -f docker-compose.yml exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh
 
-# Compile and install
-./config --prefix=/opt/oqs-openssl shared
-make -j$(nproc)
-make install
+# Or generate a specific certificate manually
+docker run --rm -v $(pwd)/certs:/app/certs quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl req -x509 -new -newkey ML-DSA-65 -keyout /app/certs/hybrid/ml-dsa-65/server.key -out /app/certs/hybrid/ml-dsa-65/server.crt -nodes -days 365 -subj "/CN=Hybrid ML-DSA-65/O=Quantum Safe Proxy/OU=Testing/C=TW"
 ```
 
-### Generating Hybrid Certificates
+#### Using OQS Provider (Legacy)
 
 ```bash
 # Set environment variables
-export PATH="/opt/oqs-openssl/bin:$PATH"
-export LD_LIBRARY_PATH="/opt/oqs-openssl/lib:$LD_LIBRARY_PATH"
+export PATH="/opt/oqs/openssl/bin:$PATH"
+export LD_LIBRARY_PATH="/opt/oqs/openssl/lib64:/opt/oqs/liboqs/lib:$LD_LIBRARY_PATH"
 
 # Generate hybrid certificate
-openssl req -x509 -new -newkey oqsdefault -keyout certs/hybrid/dilithium3/server.key -out certs/hybrid/dilithium3/server.crt \
+openssl req -x509 -new -newkey dilithium3 -keyout certs/hybrid/dilithium3/server.key -out certs/hybrid/dilithium3/server.crt \
     -config scripts/openssl-hybrid.conf -nodes -days 365
 ```
 

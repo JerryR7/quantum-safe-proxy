@@ -1,6 +1,7 @@
 services:
   quantum-safe-proxy:
-    image: quantum-safe-proxy:oqs
+    image: quantum-safe-proxy:openssl35
+#    image: quantum-safe-proxy:oqs
     ports:
       - "8443:8443"
     volumes:
@@ -9,19 +10,18 @@ services:
       - ./scripts:/app/scripts
     environment:
       - RUST_LOG=debug
-      - OQS_OPENSSL_PATH=/opt/oqs/openssl
-      - LD_LIBRARY_PATH=/opt/oqs/openssl/lib64:/opt/oqs/liboqs/lib:/opt/oqs/openssl/lib
-      - OPENSSL_DIR=/opt/oqs/openssl
-      - OPENSSL_LIB_DIR=/opt/oqs/openssl/lib64
-      - OPENSSL_INCLUDE_DIR=/opt/oqs/openssl/include
+      - LD_LIBRARY_PATH=/opt/openssl35/lib64:/opt/openssl35/lib
+      - OPENSSL_DIR=/opt/openssl35
+      - OPENSSL_LIB_DIR=/opt/openssl35/lib64
+      - OPENSSL_INCLUDE_DIR=/opt/openssl35/include
       - RUST_BACKTRACE=1
-    # Use a simpler command to start the proxy
+      - AUTO_GENERATE_CERTS=true
     command: [
       "--listen", "0.0.0.0:8443",
       "--target", "backend:6000",
-      "--cert", "/app/certs/hybrid/dilithium3/server.crt",
-      "--key", "/app/certs/hybrid/dilithium3/server.key",
-      "--ca-cert", "/app/certs/hybrid/dilithium3/ca.crt",
+      "--cert", "/app/certs/hybrid/ml-dsa-87/server.crt",
+      "--key", "/app/certs/hybrid/ml-dsa-87/server.key",
+      "--ca-cert", "/app/certs/hybrid/ml-dsa-87/ca.crt",
       "--log-level", "debug",
       "--client-cert-mode", "optional"
     ]
