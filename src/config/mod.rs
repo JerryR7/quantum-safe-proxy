@@ -1,8 +1,17 @@
-//! 配置處理模組
+//! Configuration module
 //!
-//! 這個模組處理應用程序的配置，包括命令行參數和配置文件。
+//! This module handles application configuration, including command-line arguments,
+//! environment variables, and configuration files.
 
 mod config;
+mod defaults;
 
-pub use config::ProxyConfig;
-// 注意：現在從 common::net 模組導出 parse_socket_addr
+pub use config::{ProxyConfig, ClientCertMode};
+
+// Export specific items from defaults that are needed externally
+pub use defaults::{ENV_PREFIX, DEFAULT_CONFIG_FILE, DEFAULT_CONFIG_DIR};
+
+// Export constants needed for main.rs
+pub use defaults::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
+
+// Note: parse_socket_addr is now exported from common::net module

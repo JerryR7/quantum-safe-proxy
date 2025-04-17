@@ -7,7 +7,7 @@
 
 ## 1. Overview
 
-**Quantum Safe Proxy** is a lightweight TCP proxy designed to secure long-lived connections using **Post-Quantum Cryptography (PQC)** with **hybrid X.509 certificates**. It enables secure mTLS communication via **OpenSSL + oqs-provider**, supporting both traditional and quantum-resistant algorithms through hybrid negotiation.
+**Quantum Safe Proxy** is a lightweight TCP proxy designed to secure long-lived connections using **Post-Quantum Cryptography (PQC)** with **hybrid X.509 certificates**. It enables secure mTLS communication via **OpenSSL with post-quantum support**, supporting both traditional and quantum-resistant algorithms through hybrid negotiation.
 
 ### Key Goals
 
@@ -48,6 +48,9 @@ graph LR
 - **Hybrid Certificate Support**: Seamlessly works with hybrid X.509 certificates (Kyber + ECDSA)
 - **Quantum-Safe Algorithms**: Support for post-quantum algorithms like Kyber and Dilithium
 - **Transparent PQC Integration**: Handles both PQC and traditional clients
+- **Automatic Provider Detection**: Automatically detects and uses OQS-OpenSSL when available
+- **Environment Diagnostics**: Provides tools to check and diagnose the cryptographic environment
+- **Docker Integration**: Pre-built Docker images with OQS-OpenSSL included
 - **Efficient TCP Proxying**: High-performance data forwarding with Tokio async runtime
 - **Complete mTLS Support**: Client and server certificate validation
 - **Flexible Configuration**: Command-line arguments, environment variables, and config files
@@ -58,10 +61,10 @@ graph LR
 | Component | Technology |
 |-----------|------------|
 | **Language** | Rust |
-| **TLS Library** | OpenSSL with oqs-provider (hybrid certificate support) |
+| **TLS Library** | OpenSSL 3.5+ with built-in PQC support or OpenSSL with oqs-provider |
 | **Proxy Runtime** | tokio + tokio-openssl |
 | **Deployment** | Docker / Kubernetes / Systemd sidecar mode |
-| **Certificate Tools** | OQS OpenSSL CLI (hybrid CSR and certificates) |
+| **Certificate Tools** | OpenSSL 3.5+ CLI or OQS OpenSSL CLI (hybrid CSR and certificates) |
 
 ## 5. Installation
 
@@ -97,7 +100,7 @@ docker build -t quantum-safe-proxy .
 ### Basic Usage
 
 ```bash
-quantum-safe-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --cert certs/server.crt --key certs/server.key --ca-cert certs/ca.crt
+quantum-safe-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --cert certs/hybrid/dilithium3/server.crt --key certs/hybrid/dilithium3/server.key --ca-cert certs/hybrid/dilithium3/ca.crt --client-cert-mode optional
 ```
 
 ### Using Environment Variables
@@ -106,11 +109,12 @@ quantum-safe-proxy --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --cert certs/se
 # Set environment variables
 export QUANTUM_SAFE_PROXY_LISTEN="0.0.0.0:9443"
 export QUANTUM_SAFE_PROXY_TARGET="127.0.0.1:7000"
-export QUANTUM_SAFE_PROXY_CERT="certs/server.crt"
-export QUANTUM_SAFE_PROXY_KEY="certs/server.key"
-export QUANTUM_SAFE_PROXY_CA_CERT="certs/ca.crt"
+export QUANTUM_SAFE_PROXY_CERT="certs/hybrid/dilithium3/server.crt"
+export QUANTUM_SAFE_PROXY_KEY="certs/hybrid/dilithium3/server.key"
+export QUANTUM_SAFE_PROXY_CA_CERT="certs/hybrid/dilithium3/ca.crt"
 export QUANTUM_SAFE_PROXY_LOG_LEVEL="debug"
 export QUANTUM_SAFE_PROXY_HYBRID_MODE="true"
+export QUANTUM_SAFE_PROXY_CLIENT_CERT_MODE="optional"
 
 # Load configuration from environment variables
 quantum-safe-proxy --from-env
@@ -118,17 +122,40 @@ quantum-safe-proxy --from-env
 
 ### Using Configuration File
 
-Create a `config.json` file:
+You can use the provided example configuration file as a starting point:
+
+```bash
+cp config.json.example config.json
+# Edit config.json to match your requirements
+```
+
+The configuration file uses JSON format and supports the following options:
+
+| Option | Description | Default |
+|--------|-------------|--------|
+| `listen` | Listen address for the proxy server | `0.0.0.0:8443` |
+| `target` | Target service address to forward traffic to | `127.0.0.1:6000` |
+| `cert_path` | Server certificate path | `certs/hybrid/dilithium3/server.crt` |
+| `key_path` | Server private key path | `certs/hybrid/dilithium3/server.key` |
+| `ca_cert_path` | CA certificate path for client certificate validation | `certs/ca.crt` |
+| `hybrid_mode` | Whether to enable hybrid certificate mode | `true` |
+| `client_cert_mode` | Client certificate verification mode: `required`, `optional`, or `none` | `optional` |
+| `log_level` | Log level: `debug`, `info`, `warn`, or `error` | `info` |
+| `environment` | Environment: `development`, `testing`, or `production` | `production` |
+
+Example configuration file:
 
 ```json
 {
   "listen": "0.0.0.0:8443",
   "target": "127.0.0.1:6000",
-  "cert_path": "certs/server.crt",
-  "key_path": "certs/server.key",
-  "ca_cert_path": "certs/ca.crt",
+  "cert_path": "certs/hybrid/dilithium3/server.crt",
+  "key_path": "certs/hybrid/dilithium3/server.key",
+  "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
   "hybrid_mode": true,
-  "log_level": "info"
+  "client_cert_mode": "optional",
+  "log_level": "info",
+  "environment": "production"
 }
 ```
 
@@ -138,24 +165,152 @@ Then run:
 quantum-safe-proxy --config-file config.json
 ```
 
+### Configuration Hot Reload
+
+Quantum Safe Proxy supports hot reloading of configuration without restarting the service:
+
+#### On Unix-like Systems (Linux, macOS)
+
+Send a SIGHUP signal to the process:
+
+```bash
+# Find the process ID
+pidof quantum-safe-proxy
+
+# Send SIGHUP signal
+kill -HUP <process_id>
+```
+
+#### On Windows
+
+On Windows, the proxy automatically checks for configuration file changes every 30 seconds. Simply modify and save the configuration file, and it will be reloaded automatically.
+
+#### What Gets Reloaded
+
+The following configuration options can be changed during hot reload:
+
+- Target service address
+- TLS certificates and keys
+- Client certificate verification mode
+- Log level
+
+Note that the listen address cannot be changed during hot reload, as this would require restarting the listener.
+
+
 ### Using Docker
 
+#### 1. Build Docker Images
+
+Before using Docker Compose, first build the Docker images manually. This provides better control over the build process and prevents dangling (`<none>`) images.
+
+##### Standard Docker Image
+
 ```bash
+# Run in the project root directory
+docker build -f docker/Dockerfile -t quantum-safe-proxy:latest .
+```
+
+##### Docker Image with OpenSSL 3.5 (Built-in Post-Quantum Support)
+
+```bash
+# Run in the project root directory
+docker build -f docker/Dockerfile.openssl35 -t quantum-safe-proxy:openssl35 .
+```
+
+##### Docker Image with OQS-OpenSSL (Legacy Post-Quantum Support)
+
+```bash
+# Run in the project root directory
+docker build -f docker/Dockerfile.oqs -t quantum-safe-proxy:oqs .
+```
+
+#### 2. Using Docker Run
+
+```bash
+# Standard image
 docker run -p 8443:8443 \
   -v $(pwd)/certs:/app/certs \
-  jerryr7/quantum-safe-proxy:latest \
+  quantum-safe-proxy:latest \
   --listen 0.0.0.0:8443 \
-  --target host.docker.internal:6000 \
-  --cert /app/certs/server.crt \
-  --key /app/certs/server.key \
-  --ca-cert /app/certs/ca.crt
+  --target 127.0.0.1:6000 \
+  --cert /app/certs/hybrid/dilithium3/server.crt \
+  --key /app/certs/hybrid/dilithium3/server.key \
+  --ca-cert /app/certs/hybrid/dilithium3/ca.crt \
+  --client-cert-mode optional
+
+# OpenSSL 3.5 image (with built-in post-quantum support)
+docker run -p 8443:8443 \
+  -v $(pwd)/certs:/app/certs \
+  quantum-safe-proxy:openssl35 \
+  --listen 0.0.0.0:8443 \
+  --target 127.0.0.1:6000 \
+  --cert /app/certs/hybrid/ml-dsa-65/server.crt \
+  --key /app/certs/hybrid/ml-dsa-65/server.key \
+  --ca-cert /app/certs/hybrid/ml-dsa-65/ca.crt \
+  --client-cert-mode optional
+
+# OQS image (with legacy post-quantum support)
+docker run -p 8443:8443 \
+  -v $(pwd)/certs:/app/certs \
+  quantum-safe-proxy:oqs \
+  --listen 0.0.0.0:8443 \
+  --target 127.0.0.1:6000 \
+  --cert /app/certs/hybrid/dilithium3/server.crt \
+  --key /app/certs/hybrid/dilithium3/server.key \
+  --ca-cert /app/certs/hybrid/dilithium3/ca.crt \
+  --client-cert-mode optional
 ```
 
-### Using docker-compose
+#### 3. Using Docker Compose
+
+Make sure your `docker-compose.yml` file uses the pre-built images:
+
+```yaml
+services:
+  quantum-safe-proxy:
+    # Choose one of the following images:
+    image: quantum-safe-proxy:openssl35  # Use OpenSSL 3.5 with built-in PQC
+    # image: quantum-safe-proxy:oqs      # Use legacy OQS provider
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./certs:/app/certs
+      - ./config:/app/config
+    # other configuration...
+```
+
+Then start the services:
 
 ```bash
+# Start the proxy with docker-compose
+docker-compose up -d
+
+# Check the logs
+docker-compose logs -f
+```
+
+#### 4. Updating Images
+
+When your code changes and you need to update the images:
+
+```bash
+# Rebuild the image
+docker build -f docker/Dockerfile.oqs -t quantum-safe-proxy:oqs .
+
+# Restart the services
+docker-compose down
 docker-compose up -d
 ```
+
+#### 5. Why This Approach?
+
+We recommend building images manually and using only `image:` in docker-compose.yml (without `build:` sections) for several reasons:
+
+- **Prevents dangling images**: Avoids the creation of `<none>` tagged images that waste disk space
+- **Better control**: Gives you more visibility and control over the build process
+- **Clearer versioning**: Makes it easier to manage different versions of your images
+- **Faster startup**: Docker Compose starts faster as it doesn't need to check if rebuilding is necessary
+- **Consistent with CI/CD practices**: Aligns with how images are typically handled in production environments
 
 ### Command-line Options
 
@@ -163,25 +318,26 @@ docker-compose up -d
 |--------|-------------|---------|
 | `--listen` | Listen address | 0.0.0.0:8443 |
 | `--target` | Target service address | 127.0.0.1:6000 |
-| `--cert` | Server certificate path | certs/server.crt |
-| `--key` | Server private key path | certs/server.key |
-| `--ca-cert` | CA certificate path | certs/ca.crt |
+| `--cert` | Server certificate path | certs/hybrid/dilithium3/server.crt |
+| `--key` | Server private key path | certs/hybrid/dilithium3/server.key |
+| `--ca-cert` | CA certificate path | certs/hybrid/dilithium3/ca.crt |
 | `--log-level` | Log level (debug, info, warn, error) | info |
 | `--hybrid-mode` | Enable hybrid certificate mode | true |
+| `--client-cert-mode` | Client certificate verification mode (required, optional, none) | optional |
 | `--from-env` | Load configuration from environment variables | - |
 | `--config-file` | Load configuration from specified file | - |
 
 ## 7. Hybrid Certificate Support
 
-Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL with the [OQS-provider](https://github.com/open-quantum-safe/oqs-provider). This allows the server to accept connections from both PQC-enabled and traditional clients.
+Quantum Safe Proxy supports **hybrid X.509 certificates** using either OpenSSL 3.5+ with built-in PQC support or OpenSSL with the [OQS-provider](https://github.com/open-quantum-safe/oqs-provider). This allows the server to accept connections from both PQC-enabled and traditional clients.
 
 ### Supported Algorithms
 
-| Type | Algorithms |
-|------|------------|
-| **Key Exchange** | Kyber (NIST PQC standard) |
-| **Signatures** | Dilithium (NIST PQC standard) |
-| **Classical Fallback** | ECDSA, RSA |
+| Type | Algorithms (OpenSSL 3.5+) | Algorithms (OQS Provider) |
+|------|--------------------------|---------------------------|
+| **Key Exchange** | ML-KEM (formerly Kyber, NIST PQC standard) | Kyber (NIST PQC standard) |
+| **Signatures** | ML-DSA (formerly Dilithium, NIST PQC standard) | Dilithium (NIST PQC standard) |
+| **Classical Fallback** | ECDSA, RSA | ECDSA, RSA |
 
 ### TLS Handshake Behavior
 
@@ -189,29 +345,63 @@ Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL with the
 - Clients with PQC support negotiate using quantum-resistant algorithms
 - Legacy clients fall back to classical algorithms
 
-### Installing OQS OpenSSL
+### Installing Post-Quantum Cryptography Support
+
+#### Option 1: Using OpenSSL 3.5+ (Recommended)
+
+OpenSSL 3.5+ includes built-in support for post-quantum cryptography algorithms standardized by NIST.
 
 ```bash
-# Clone the OQS OpenSSL repository
-git clone --branch OQS-OpenSSL_1_1_1-stable https://github.com/open-quantum-safe/openssl.git oqs-openssl
-cd oqs-openssl
+# Run the installation script
+./scripts/build-openssl35.sh
 
-# Compile and install
-./config --prefix=/opt/oqs-openssl shared
-make -j$(nproc)
-make install
+# Verify the installation
+docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl version
+docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl list -kem-algorithms | grep -i ML-KEM
+```
+
+#### Option 2: Using OQS Provider (Legacy Support)
+
+```bash
+# Run the installation script
+./scripts/install-oqs-provider.sh
+
+# Source the environment variables
+source /opt/oqs/env.sh
+```
+
+#### Option 3: Using Legacy OQS OpenSSL (Deprecated)
+
+```bash
+# Run the installation script
+./scripts/install-oqs.sh
+
+# Source the environment variables
+source /opt/oqs-openssl/env.sh
 ```
 
 ### Generating Hybrid Certificates
 
+#### Using OpenSSL 3.5+ (Recommended)
+
+```bash
+# Run the certificate generation script in the Docker container
+docker compose -f docker-compose.yml exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh
+
+# Or generate a specific certificate manually
+docker run --rm -v $(pwd)/certs:/app/certs quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl req -x509 -new -newkey ML-DSA-65 -keyout /app/certs/hybrid/ml-dsa-65/server.key -out /app/certs/hybrid/ml-dsa-65/server.crt -nodes -days 365 -subj "/CN=Hybrid ML-DSA-65/O=Quantum Safe Proxy/OU=Testing/C=TW"
+```
+
+#### Using OQS Provider (Legacy)
+
 ```bash
 # Set environment variables
-export PATH="/opt/oqs-openssl/bin:$PATH"
-export LD_LIBRARY_PATH="/opt/oqs-openssl/lib:$LD_LIBRARY_PATH"
+export PATH="/opt/oqs/openssl/bin:$PATH"
+export LD_LIBRARY_PATH="/opt/oqs/openssl/lib64:/opt/oqs/liboqs/lib:$LD_LIBRARY_PATH"
 
 # Generate hybrid certificate
-openssl req -x509 -new -newkey oqsdefault -keyout certs/server.key -out certs/server.crt \
-    -config openssl-hybrid.conf -nodes -days 365
+openssl req -x509 -new -newkey dilithium3 -keyout certs/hybrid/dilithium3/server.key -out certs/hybrid/dilithium3/server.crt \
+    -config scripts/openssl-hybrid.conf -nodes -days 365
 ```
 
 ### Example OpenSSL Configuration
@@ -269,6 +459,14 @@ quantum-safe-proxy/
 │   │   ├── handler.rs     # Connection handler
 │   │   ├── forwarder.rs   # Data forwarding logic
 │   │   └── mod.rs         # Re-exports
+│   ├── crypto/            # Cryptographic operations
+│   │   ├── provider/       # Cryptographic providers
+│   │   │   ├── standard.rs # Standard OpenSSL provider
+│   │   │   ├── oqs.rs      # OQS-OpenSSL provider
+│   │   │   ├── factory.rs  # Provider factory
+│   │   │   ├── environment.rs # Environment detection
+│   │   │   └── mod.rs      # Provider trait and types
+│   │   └── mod.rs          # Re-exports
 │   ├── tls/               # TLS and certificate handling
 │   │   ├── acceptor.rs    # TLS acceptor creation
 │   │   ├── cert.rs        # Certificate operations
@@ -283,12 +481,16 @@ quantum-safe-proxy/
 │   ├── env_vars.rs         # Environment variables example
 │   └── hybrid_certs.rs     # Hybrid certificate example
 ├── docker/                # Container configurations
-│   ├── Dockerfile          # Docker image definition
+│   ├── Dockerfile          # Standard Docker image definition
+│   ├── Dockerfile.oqs      # Docker image with OQS-OpenSSL
 │   └── docker-compose.yml  # Docker Compose configuration
+├── scripts/               # Utility scripts
+│   └── install-oqs.sh      # OQS-OpenSSL installation script
 ├── kubernetes/            # Kubernetes deployment
 │   ├── deployment.yaml     # Kubernetes deployment
 │   └── service.yaml        # Kubernetes service
-└── certs/                 # Certificate directory
+├── certs/                 # Certificate directory
+└── config.json.example    # Example configuration file
 ```
 
 ## 9. Development and Testing
@@ -339,6 +541,17 @@ cargo clippy
 - WASM-based certificate authorization plugin
 - PQC-only mode with Kyber + Dilithium enforcement
 - Performance optimizations for high-throughput scenarios
+- Enhanced OQS integration with more PQC algorithms
+- Certificate chain validation with hybrid certificates
+- Automatic OQS-OpenSSL detection and configuration
+
+## Documentation
+
+Detailed documentation is available in the `docs/` directory:
+
+- [Comprehensive Guide](docs/guide.md): Complete guide covering installation, certificates, cryptography, utility scripts, and troubleshooting
+
+See [docs/README.md](docs/README.md) for additional resources and information.
 
 ## Contributing
 

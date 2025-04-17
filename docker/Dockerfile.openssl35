@@ -1,0 +1,116 @@
+# Quantum Safe Proxy with OpenSSL 3.5 (with built-in PQC support)
+# This Dockerfile builds a Docker image with OpenSSL 3.5 which includes native post-quantum cryptography
+
+# Builder stage
+FROM rust:1.86.0-slim-bookworm AS builder
+
+# Set OpenSSL version and installation directory
+ARG OPENSSL_VERSION=3.5.0
+ARG OPENSSL_DIR=/opt/openssl35
+
+# Install essential build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    git \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create necessary directories
+RUN mkdir -p /opt/src /opt/build ${OPENSSL_DIR}
+
+# Download OpenSSL 3.5 source
+WORKDIR /opt/src
+RUN git clone --depth 1 --branch openssl-${OPENSSL_VERSION} https://github.com/openssl/openssl.git
+
+# Build and install OpenSSL 3.5
+WORKDIR /opt/build
+RUN cd /opt/src/openssl && \
+    ./config --prefix=${OPENSSL_DIR} \
+             --openssldir=${OPENSSL_DIR}/ssl \
+             --libdir=lib64 \
+             shared \
+             no-tests \
+    && make -j$(nproc) \
+    && make install_sw install_ssldirs \
+    && mkdir -p ${OPENSSL_DIR}/lib64/pkgconfig \
+    && if [ -d ${OPENSSL_DIR}/lib/pkgconfig ]; then \
+           cp -a ${OPENSSL_DIR}/lib/pkgconfig/* ${OPENSSL_DIR}/lib64/pkgconfig/ 2>/dev/null || true; \
+       fi \
+    && rm -rf /opt/src/openssl /opt/build/*
+
+# Create symbolic links for lib directories if needed
+RUN if [ -d ${OPENSSL_DIR}/lib64 ] && [ ! -d ${OPENSSL_DIR}/lib ]; then \
+        ln -s ${OPENSSL_DIR}/lib64 ${OPENSSL_DIR}/lib; \
+    elif [ -d ${OPENSSL_DIR}/lib ] && [ ! -d ${OPENSSL_DIR}/lib64 ]; then \
+        ln -s ${OPENSSL_DIR}/lib ${OPENSSL_DIR}/lib64; \
+    fi
+
+# Verify the installation
+RUN export LD_LIBRARY_PATH="${OPENSSL_DIR}/lib64:${OPENSSL_DIR}/lib" && \
+    ${OPENSSL_DIR}/bin/openssl version && \
+    ${OPENSSL_DIR}/bin/openssl list -kem-algorithms | grep -i ML-KEM && \
+    ${OPENSSL_DIR}/bin/openssl list -signature-algorithms | grep -i ML-DSA
+
+# Copy source code
+WORKDIR /app
+COPY . .
+
+# Ensure scripts are executable
+RUN chmod +x /app/scripts/*.sh
+
+# Set environment variables for building with our custom OpenSSL installation
+ENV PKG_CONFIG_PATH="${OPENSSL_DIR}/lib64/pkgconfig:${OPENSSL_DIR}/lib/pkgconfig"
+ENV OPENSSL_DIR="${OPENSSL_DIR}"
+ENV OPENSSL_LIB_DIR="${OPENSSL_DIR}/lib64"
+ENV OPENSSL_INCLUDE_DIR="${OPENSSL_DIR}/include"
+ENV LD_LIBRARY_PATH="${OPENSSL_DIR}/lib64:${OPENSSL_DIR}/lib"
+
+# Build the application
+RUN cargo build --release
+
+# Final stage
+FROM debian:bookworm-slim AS final
+
+# Set OpenSSL directory
+ARG OPENSSL_DIR=/opt/openssl35
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Copy OpenSSL from builder stage
+COPY --from=builder ${OPENSSL_DIR} ${OPENSSL_DIR}
+
+# Copy the built application
+COPY --from=builder /app/target/release/quantum-safe-proxy /usr/local/bin/
+
+# Copy scripts
+COPY --from=builder /app/scripts /app/scripts
+RUN chmod +x /app/scripts/*.sh
+
+# Set environment variables
+ENV PATH=${OPENSSL_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV LD_LIBRARY_PATH=${OPENSSL_DIR}/lib64:${OPENSSL_DIR}/lib
+
+# Configure dynamic linker
+RUN mkdir -p /etc/ld.so.conf.d \
+    && echo "${OPENSSL_DIR}/lib64" > /etc/ld.so.conf.d/openssl35.conf \
+    && echo "${OPENSSL_DIR}/lib" >> /etc/ld.so.conf.d/openssl35.conf \
+    && ldconfig
+
+# Create necessary directories
+RUN mkdir -p /app/certs /app/config
+
+# Add healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ${OPENSSL_DIR}/bin/openssl version || exit 1
+
+# Expose ports
+EXPOSE 8443
+
+# Set entrypoint
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
+
+# Default command
+CMD ["/usr/local/bin/quantum-safe-proxy", "--config", "/app/config/config.toml"]

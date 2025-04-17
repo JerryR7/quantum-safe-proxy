@@ -12,11 +12,12 @@ async fn main() -> Result<()> {
 
     println!("啟動簡單代理示例...");
 
-    // 創建 TLS 接受器
+    // 創建 TLS 接受器，使用系統檢測的 TLS 設置
     let tls_acceptor = create_tls_acceptor(
-        Path::new("certs/server.crt"),
-        Path::new("certs/server.key"),
-        Path::new("certs/ca.crt"),
+        Path::new("certs/hybrid/dilithium3/server.crt"),
+        Path::new("certs/hybrid/dilithium3/server.key"),
+        Path::new("certs/hybrid/dilithium3/ca.crt"),
+        &quantum_safe_proxy::config::ClientCertMode::Optional,
     )?;
 
     // 創建並啟動代理

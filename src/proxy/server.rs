@@ -70,6 +70,30 @@ impl Proxy {
         }
     }
 
+    /// Update the proxy configuration
+    ///
+    /// This method updates the proxy configuration with new values.
+    /// Note that this does not affect existing connections, only new ones.
+    ///
+    /// # Parameters
+    ///
+    /// * `target_addr` - New target service address
+    /// * `tls_acceptor` - New TLS acceptor
+    ///
+    /// # Returns
+    ///
+    /// Returns a reference to the updated proxy
+    pub fn update_config(&mut self, target_addr: SocketAddr, tls_acceptor: SslAcceptor) -> &Self {
+        log::info!("Updating proxy configuration");
+        log::info!("New target address: {}", target_addr);
+
+        self.target_addr = target_addr;
+        self.tls_acceptor = Arc::new(tls_acceptor);
+
+        log::info!("Proxy configuration updated successfully");
+        self
+    }
+
     /// Start the proxy service
     ///
     /// This method starts the proxy service, listens for connections and handles them.
