@@ -4,12 +4,12 @@
 //! It handles provider selection based on availability and configuration.
 
 use std::sync::Once;
-use std::process::Command;
 use once_cell::sync::OnceCell;
 
 use crate::common::Result;
 use super::{CryptoProvider, ProviderType};
 use super::openssl::OpenSSLProvider;
+use super::api;
 
 // Provider singleton for better performance
 static OPENSSL_PROVIDER: OnceCell<OpenSSLProvider> = OnceCell::new();
@@ -34,14 +34,6 @@ pub fn create_provider(provider_type: ProviderType) -> Result<Box<dyn CryptoProv
         ProviderType::Standard | ProviderType::Oqs | ProviderType::Auto => {
             // Get the OpenSSL provider
             let provider = get_openssl_provider();
-
-            // Log provider information
-            let capabilities = provider.capabilities();
-            if capabilities.supports_pqc {
-                log::info!("Using {} with post-quantum support", provider.name());
-            } else {
-                log::warn!("Using {} without post-quantum support", provider.name());
-            }
 
             // Return the provider
             Ok(Box::new(provider.clone()))
@@ -69,6 +61,14 @@ fn initialize_provider() {
         // Create the OpenSSL provider
         let provider = OpenSSLProvider::new();
 
+        // Log provider information
+        let capabilities = provider.capabilities();
+        if capabilities.supports_pqc {
+            log::info!("Using {} with post-quantum support", provider.name());
+        } else {
+            log::warn!("Using {} without post-quantum support", provider.name());
+        }
+
         // Store the provider
         OPENSSL_PROVIDER.set(provider).ok();
     });
@@ -83,11 +83,9 @@ fn initialize_provider() {
 ///
 /// `true` if post-quantum cryptography is available, `false` otherwise
 pub fn is_pqc_available() -> bool {
-    // Initialize provider if needed
-    initialize_provider();
-
-    // Check if PQC is available
-    get_openssl_provider().capabilities().supports_pqc
+    // Use the API layer's is_pqc_available function
+    // This ensures consistent results across the application
+    api::is_pqc_available()
 }
 
 /// Backward compatibility function for OQS availability
@@ -111,14 +109,7 @@ pub fn is_oqs_available() -> bool {
 /// # Returns
 ///
 /// `true` if OpenSSL 3.5+ is available, `false` otherwise
+#[allow(dead_code)]
 pub fn is_openssl35_available() -> bool {
-    // Try to run openssl version command
-    match Command::new("openssl").arg("version").output() {
-        Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout);
-            // Check if version contains 3.5
-            version.contains("3.5")
-        },
-        _ => false
-    }
+    api::is_openssl35_available()
 }

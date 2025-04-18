@@ -3,9 +3,12 @@
 //! This module provides functionality to detect the capabilities of the
 //! OpenSSL installation, including post-quantum cryptography support.
 
-use std::process::Command;
 use log::{debug, info};
 use once_cell::sync::OnceCell;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use super::api;
+use super::environment;
 
 /// OpenSSL capabilities
 ///
@@ -33,6 +36,38 @@ pub struct OpenSSLCapabilities {
 }
 
 impl OpenSSLCapabilities {
+    /// Create a new OpenSSL capabilities object
+    ///
+    /// This function creates a new OpenSSL capabilities object
+    /// with the specified parameters.
+    ///
+    /// # Arguments
+    ///
+    /// * `supports_pqc` - Whether OpenSSL supports post-quantum cryptography
+    /// * `key_exchange` - Supported key exchange algorithms
+    /// * `signatures` - Supported signature algorithms
+    /// * `cipher_list` - Recommended TLS cipher list
+    /// * `tls13_ciphersuites` - Recommended TLS 1.3 ciphersuites
+    /// * `groups` - Recommended TLS groups
+    #[allow(dead_code)]
+    pub fn new(
+        supports_pqc: bool,
+        key_exchange: Vec<String>,
+        signatures: Vec<String>,
+        cipher_list: String,
+        tls13_ciphersuites: String,
+        groups: String,
+    ) -> Self {
+        Self {
+            supports_pqc,
+            supported_key_exchange: key_exchange,
+            supported_signatures: signatures,
+            recommended_cipher_list: cipher_list,
+            recommended_tls13_ciphersuites: tls13_ciphersuites,
+            recommended_groups: groups,
+        }
+    }
+
     /// Detect OpenSSL capabilities
     ///
     /// This function detects the capabilities of the OpenSSL installation,
@@ -40,36 +75,31 @@ impl OpenSSLCapabilities {
     pub fn detect() -> Self {
         // Use OnceCell to cache the detection result
         static CAPABILITIES: OnceCell<OpenSSLCapabilities> = OnceCell::new();
+        static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
         // Return cached detection result if available
-        if let Some(capabilities) = CAPABILITIES.get() {
-            return capabilities.clone();
+        if INITIALIZED.load(Ordering::Relaxed) {
+            debug!("Using cached OpenSSLCapabilities");
+            return CAPABILITIES.get().unwrap().clone();
         }
 
-        // Default values
-        const DEFAULT_CIPHER_LIST: &str = "HIGH:MEDIUM:!aNULL:!MD5:!RC4";
-        const DEFAULT_TLS13_CIPHERSUITES: &str = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
-        const DEFAULT_GROUPS: &str = "X25519:P-256:P-384:P-521";
+        debug!("Detecting OpenSSL capabilities");
+        INITIALIZED.store(true, Ordering::Relaxed);
 
-        // OpenSSL 3.5 specific values
-        const OPENSSL35_GROUPS: &str = "X25519:P-256:P-384:P-521:X25519MLKEM768:P384MLDSA65:P256MLDSA44";
-        // OpenSSL 3.5 specific values
-        const HYBRID_GROUPS: &str = "X25519:P-256:P-384:P-521:X25519MLKEM768:X25519MLKEM1024:P256MLDSA44:P384MLDSA65";
-        // Detect OpenSSL version and capabilities
-        let openssl_version = Self::detect_openssl_version();
-        let is_openssl35 = openssl_version.starts_with("3.5");
+        // Get environment info
+        let env_info = environment::initialize_environment();
 
         // Log OpenSSL version
-        if is_openssl35 {
-            info!("Detected OpenSSL 3.5+ with built-in post-quantum support: {}", openssl_version);
+        if env_info.openssl_version.contains("3.5") {
+            info!("Detected OpenSSL 3.5+ with built-in post-quantum support: {}", env_info.openssl_version);
         } else {
-            debug!("Detected OpenSSL version: {}", openssl_version);
+            debug!("Detected OpenSSL version: {}", env_info.openssl_version);
         }
 
         // Check for PQC support
-        let supports_pqc = is_openssl35 && Self::has_pqc_support();
+        let supports_pqc = env_info.pqc_available;
 
-        // Detect available algorithms
+        // Get basic algorithms
         let mut key_exchange = vec![
             "RSA".to_string(),
             "ECDHE".to_string(),
@@ -82,50 +112,17 @@ impl OpenSSLCapabilities {
             "DSA".to_string(),
         ];
 
-        let groups = if supports_pqc {
-            // If OpenSSL 3.5+ with PQC support, add ML-KEM algorithms
-            key_exchange.push("ML-KEM".to_string());
-
-            // Add ML-DSA and SLH-DSA algorithms
-            signatures.push("ML-DSA".to_string());
-            signatures.push("SLH-DSA".to_string());
-
-            // Use PQC groups
-            OPENSSL35_GROUPS.to_string()
-        } else {
-            // Standard OpenSSL without PQC support
-            DEFAULT_GROUPS.to_string()
-        };
-
-        // Detect specific algorithms if OpenSSL 3.5+ is available
+        // Add post-quantum algorithms if available
         if supports_pqc {
-            Self::detect_pqc_algorithms(&mut key_exchange, &mut signatures);
+            key_exchange.extend(env_info.key_exchange_algorithms.clone());
+            signatures.extend(env_info.signature_algorithms.clone());
         }
 
-        let recommended_cipher_list = if supports_pqc {
-            // 傳統 + 可用的 PQC cipher
-            format!("{}:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256", DEFAULT_CIPHER_LIST)
-        } else {
-            DEFAULT_CIPHER_LIST.to_string()
-        };
+        // Get recommended cipher list, ciphersuites, and groups
+        let recommended_cipher_list = api::get_recommended_cipher_list(supports_pqc);
+        let recommended_tls13_ciphersuites = api::get_recommended_tls13_ciphersuites(supports_pqc);
+        let recommended_groups = api::get_recommended_groups(supports_pqc);
 
-        let recommended_tls13_ciphersuites = if supports_pqc {
-            format!(
-                "{}:{}",
-                DEFAULT_TLS13_CIPHERSUITES,
-                "TLS_MLDSA87_WITH_AES_256_GCM_SHA384" // 假設有定義這樣的 cipher suite
-            )
-        } else {
-            DEFAULT_TLS13_CIPHERSUITES.to_string()
-        };
-
-        let recommended_groups = if supports_pqc {
-            // 混合傳統與 PQC groups（讓老 client fallback）
-            format!("{}:{}", DEFAULT_GROUPS, HYBRID_GROUPS)
-        } else {
-            DEFAULT_GROUPS.to_string()
-        };
-        
         // Create capabilities
         let capabilities = Self {
             supports_pqc,
@@ -139,89 +136,15 @@ impl OpenSSLCapabilities {
         // Cache the result
         let _ = CAPABILITIES.set(capabilities.clone());
 
+        // Log capabilities
+        if supports_pqc {
+            info!("OpenSSL supports post-quantum cryptography");
+        } else if env_info.openssl_version.contains("3.5") {
+            info!("OpenSSL 3.5+ detected but post-quantum cryptography not available");
+        } else {
+            info!("OpenSSL does not support post-quantum cryptography");
+        }
+
         capabilities
-    }
-
-    /// Detect OpenSSL version
-    ///
-    /// This function detects the version of the OpenSSL installation.
-    fn detect_openssl_version() -> String {
-        // Try to run openssl version command
-        match Command::new("openssl").arg("version").output() {
-            Ok(output) if output.status.success() => {
-                let version = String::from_utf8_lossy(&output.stdout);
-                // Extract version number (e.g., "OpenSSL 3.5.0 8 Apr 2025" -> "3.5.0")
-                if let Some(version_str) = version.split_whitespace().nth(1) {
-                    version_str.to_string()
-                } else {
-                    "unknown".to_string()
-                }
-            },
-            _ => "unknown".to_string()
-        }
-    }
-
-    /// Check if OpenSSL has post-quantum support
-    ///
-    /// This function checks if the OpenSSL installation supports
-    /// post-quantum cryptography by looking for ML-KEM algorithms.
-    fn has_pqc_support() -> bool {
-        // Try to run openssl list -kem-algorithms command
-        match Command::new("openssl").args(["list", "-kem-algorithms"]).output() {
-            Ok(output) if output.status.success() => {
-                let kem_list = String::from_utf8_lossy(&output.stdout);
-                kem_list.contains("ML-KEM")
-            },
-            _ => false
-        }
-    }
-
-    /// Detect post-quantum algorithms
-    ///
-    /// This function detects the available post-quantum algorithms
-    /// in the OpenSSL installation.
-    ///
-    /// # Arguments
-    ///
-    /// * `key_exchange` - Vector to store detected key exchange algorithms
-    /// * `signatures` - Vector to store detected signature algorithms
-    fn detect_pqc_algorithms(key_exchange: &mut Vec<String>, signatures: &mut Vec<String>) {
-        // Detect ML-KEM algorithms
-        if let Ok(output) = Command::new("openssl").args(["list", "-kem-algorithms"]).output() {
-            if output.status.success() {
-                let kem_list = String::from_utf8_lossy(&output.stdout);
-
-                // Look for specific ML-KEM variants
-                for kem in ["ML-KEM-512", "ML-KEM-768", "ML-KEM-1024"] {
-                    if kem_list.contains(kem) {
-                        key_exchange.push(kem.to_string());
-                        debug!("Detected post-quantum key exchange: {}", kem);
-                    }
-                }
-            }
-        }
-
-        // Detect ML-DSA and SLH-DSA algorithms
-        if let Ok(output) = Command::new("openssl").args(["list", "-signature-algorithms"]).output() {
-            if output.status.success() {
-                let sig_list = String::from_utf8_lossy(&output.stdout);
-
-                // Look for specific ML-DSA variants
-                for sig in ["ML-DSA-44", "ML-DSA-65", "ML-DSA-87"] {
-                    if sig_list.contains(sig) {
-                        signatures.push(sig.to_string());
-                        debug!("Detected post-quantum signature: {}", sig);
-                    }
-                }
-
-                // Look for specific SLH-DSA variants
-                for sig in ["SLH-DSA-SHAKE-128S", "SLH-DSA-SHAKE-256S"] {
-                    if sig_list.contains(sig) {
-                        signatures.push(sig.to_string());
-                        debug!("Detected post-quantum signature: {}", sig);
-                    }
-                }
-            }
-        }
     }
 }

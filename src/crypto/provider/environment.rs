@@ -2,6 +2,10 @@
 //!
 //! This module provides functionality to check the environment
 //! for OpenSSL and post-quantum cryptography support.
+//!
+//! This module also provides a function to initialize the environment
+//! at application startup, ensuring that environment checks are
+//! performed only once.
 
 use std::process::Command;
 use std::collections::HashMap;
@@ -11,10 +15,10 @@ use std::collections::HashMap;
 pub enum IssueSeverity {
     /// Informational message
     Info,
-    
+
     /// Warning message
     Warning,
-    
+
     /// Error message
     Error,
 }
@@ -24,7 +28,7 @@ pub enum IssueSeverity {
 pub struct EnvironmentIssue {
     /// Issue message
     pub message: String,
-    
+
     /// Issue severity
     pub severity: IssueSeverity,
 }
@@ -34,19 +38,19 @@ pub struct EnvironmentIssue {
 pub struct EnvironmentInfo {
     /// OpenSSL version
     pub openssl_version: String,
-    
+
     /// Whether post-quantum cryptography is available
     pub pqc_available: bool,
-    
+
     /// Supported key exchange algorithms
     pub key_exchange_algorithms: Vec<String>,
-    
+
     /// Supported signature algorithms
     pub signature_algorithms: Vec<String>,
-    
+
     /// Environment issues
     pub issues: Vec<EnvironmentIssue>,
-    
+
     /// Environment variables
     pub env_vars: HashMap<String, String>,
 }
@@ -65,13 +69,13 @@ pub fn check_environment() -> EnvironmentInfo {
         issues: Vec::new(),
         env_vars: HashMap::new(),
     };
-    
+
     // Check OpenSSL version
     match Command::new("openssl").arg("version").output() {
         Ok(output) if output.status.success() => {
             let version = String::from_utf8_lossy(&output.stdout).to_string();
             info.openssl_version = version.trim().to_string();
-            
+
             // Check if OpenSSL 3.5+
             if version.contains("3.5") {
                 info.issues.push(EnvironmentIssue {
@@ -92,7 +96,7 @@ pub fn check_environment() -> EnvironmentInfo {
             });
         }
     }
-    
+
     // Check for PQC support
     match Command::new("openssl").args(["list", "-kem-algorithms"]).output() {
         Ok(output) if output.status.success() => {
@@ -103,7 +107,7 @@ pub fn check_environment() -> EnvironmentInfo {
                     message: "Post-quantum key exchange algorithms (ML-KEM) are available".to_string(),
                     severity: IssueSeverity::Info,
                 });
-                
+
                 // Extract ML-KEM algorithms
                 for line in kem_list.lines() {
                     if line.contains("ML-KEM") {
@@ -130,7 +134,7 @@ pub fn check_environment() -> EnvironmentInfo {
             });
         }
     }
-    
+
     // Check for signature algorithms
     match Command::new("openssl").args(["list", "-signature-algorithms"]).output() {
         Ok(output) if output.status.success() => {
@@ -140,7 +144,7 @@ pub fn check_environment() -> EnvironmentInfo {
                     message: "Post-quantum signature algorithms (ML-DSA/SLH-DSA) are available".to_string(),
                     severity: IssueSeverity::Info,
                 });
-                
+
                 // Extract PQ signature algorithms
                 for line in sig_list.lines() {
                     if line.contains("ML-DSA") || line.contains("SLH-DSA") {
@@ -167,14 +171,14 @@ pub fn check_environment() -> EnvironmentInfo {
             });
         }
     }
-    
+
     // Check environment variables
     for var in &["OPENSSL_DIR", "OPENSSL_LIB_DIR", "OPENSSL_INCLUDE_DIR", "LD_LIBRARY_PATH"] {
         if let Ok(value) = std::env::var(var) {
             info.env_vars.insert(var.to_string(), value);
         }
     }
-    
+
     info
 }
 
@@ -189,7 +193,7 @@ pub fn check_environment() -> EnvironmentInfo {
 /// A list of environment issues
 pub fn diagnose_environment(info: &EnvironmentInfo) -> Vec<EnvironmentIssue> {
     let mut issues = info.issues.clone();
-    
+
     // Check if PQC is available
     if !info.pqc_available {
         issues.push(EnvironmentIssue {
@@ -197,7 +201,7 @@ pub fn diagnose_environment(info: &EnvironmentInfo) -> Vec<EnvironmentIssue> {
             severity: IssueSeverity::Warning,
         });
     }
-    
+
     // Check OpenSSL version
     if info.openssl_version.contains("unknown") {
         issues.push(EnvironmentIssue {
@@ -210,6 +214,40 @@ pub fn diagnose_environment(info: &EnvironmentInfo) -> Vec<EnvironmentIssue> {
             severity: IssueSeverity::Warning,
         });
     }
-    
+
     issues
+}
+
+/// Initialize the environment
+///
+/// This function initializes the environment at application startup,
+/// ensuring that environment checks are performed only once.
+///
+/// # Returns
+///
+/// The environment information
+pub fn initialize_environment() -> &'static EnvironmentInfo {
+    use std::sync::Once;
+    use once_cell::sync::OnceCell;
+    use log::info;
+
+    // Use OnceCell to cache the environment info
+    static ENV_INFO: OnceCell<EnvironmentInfo> = OnceCell::new();
+    static INIT: Once = Once::new();
+
+    INIT.call_once(|| {
+        // Check the environment
+        let env_info = check_environment();
+
+        // Log environment information
+        info!("Environment check: OpenSSL version {}", env_info.openssl_version);
+        info!("Environment check: Post-quantum cryptography {}",
+            if env_info.pqc_available { "available" } else { "not available" });
+
+        // Store the environment info
+        ENV_INFO.set(env_info).ok();
+    });
+
+    // Return a reference to the environment info
+    ENV_INFO.get().unwrap()
 }

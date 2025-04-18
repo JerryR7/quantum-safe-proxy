@@ -25,7 +25,7 @@ path = "src/bin/check-environment.rs"
 tokio = { version = "1.44.2", features = ["full"] }
 
 # TLS and OpenSSL support
-openssl = { version = "0.10.72", features = ["v110", "v111"] }
+openssl = { version = "0.10.72", features = ["v110", "v111"], optional = true }
 tokio-openssl = "0.6.5"
 
 # Logging
@@ -50,7 +50,7 @@ once_cell = "1.19.0"
 # Enable OpenSSL feature for our crate
 [features]
 default = ["openssl"]
-openssl = []
+openssl = ["dep:openssl"]
 
 [dev-dependencies]
 # Testing tools

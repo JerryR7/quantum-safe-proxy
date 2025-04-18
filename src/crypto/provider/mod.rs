@@ -7,11 +7,18 @@
 mod factory;
 mod openssl;
 mod capabilities;
-mod environment;
+pub mod environment;
+mod api;
 
 // Re-exports
-pub use factory::{create_provider, is_pqc_available, is_oqs_available, is_openssl35_available};
+pub use factory::create_provider;
 pub use environment::{check_environment, diagnose_environment, EnvironmentInfo, EnvironmentIssue, IssueSeverity};
+pub use api::get_api_strategy;
+pub use api::get_openssl_version;
+pub use api::get_supported_pq_algorithms;
+pub use api::is_openssl35_available;
+pub use api::is_pqc_available;
+pub use factory::is_oqs_available;
 
 // Import OpenSSL types
 use std::path::Path;

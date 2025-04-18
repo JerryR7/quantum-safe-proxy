@@ -11,6 +11,7 @@ use quantum_safe_proxy::common::{Result, init_logger};
 use quantum_safe_proxy::config::{ProxyConfig};
 use quantum_safe_proxy::config::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
 use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
+use quantum_safe_proxy::crypto::provider::environment::initialize_environment;
 
 // Import for file and environment operations
 use std::path::Path;
@@ -81,6 +82,13 @@ async fn main() -> Result<()> {
     init_logger(&args.log_level);
 
     info!("Starting {} v{}", APP_NAME, VERSION);
+
+    // Initialize environment
+    // This ensures that environment checks are performed only once
+    let env_info = initialize_environment();
+    info!("Environment initialized: OpenSSL {}, PQC {}",
+          &env_info.openssl_version,
+          if env_info.pqc_available { "available" } else { "not available" });
 
     // Load configuration using the auto-load method
     let mut config = ProxyConfig::auto_load(Some(&args.environment))?;
