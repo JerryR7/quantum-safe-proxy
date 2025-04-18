@@ -3,19 +3,19 @@
 //! This module provides an implementation of the CryptoProvider trait
 //! using OpenSSL. It supports both standard OpenSSL and OpenSSL 3.5+
 //! with post-quantum cryptography capabilities.
+//!
+//! This implementation is only available when the "openssl" feature is enabled.
+
+#![cfg(feature = "openssl")]
 
 use std::path::Path;
 use std::sync::Arc;
 use log::{debug, info, warn};
 
-// Import OpenSSL types directly in the implementation
-#[cfg(feature = "openssl")]
+// Import OpenSSL types
 use openssl::pkey::PKey;
-#[cfg(feature = "openssl")]
 use openssl::ssl::{SslMethod, SslVerifyMode, SslContext as OpenSslContext};
-#[cfg(feature = "openssl")]
 use openssl::x509::X509 as OpenSslX509;
-#[cfg(feature = "openssl")]
 
 use crate::common::{ProxyError, Result, read_file};
 use super::{CryptoProvider, CryptoCapabilities, CertificateType, SslContext, X509};
@@ -42,7 +42,6 @@ impl OpenSSLProvider {
     }
 
     /// Determine the type of certificate (traditional or hybrid)
-    #[cfg(feature = "openssl")]
     fn determine_certificate_type(&self, cert: &OpenSslX509) -> CertificateType {
         // Get signature algorithm
         let signature_algorithm = cert.signature_algorithm().object().to_string();

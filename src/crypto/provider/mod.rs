@@ -5,10 +5,12 @@
 //! provides a unified interface for TLS operations.
 
 mod factory;
+#[cfg(feature = "openssl")]
 mod openssl;
 mod capabilities;
 pub mod environment;
 mod api;
+mod fallback;
 
 // Re-exports
 pub use factory::create_provider;

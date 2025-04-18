@@ -8,11 +8,14 @@ use once_cell::sync::OnceCell;
 
 use crate::common::Result;
 use super::{CryptoProvider, ProviderType};
-use super::openssl::OpenSSLProvider;
 use super::api;
 
-// Provider singleton for better performance
-static OPENSSL_PROVIDER: OnceCell<OpenSSLProvider> = OnceCell::new();
+// Provider singletons for better performance
+#[cfg(feature = "openssl")]
+static OPENSSL_PROVIDER: OnceCell<super::openssl::OpenSSLProvider> = OnceCell::new();
+
+#[cfg(not(feature = "openssl"))]
+static FALLBACK_PROVIDER: OnceCell<super::fallback::FallbackProvider> = OnceCell::new();
 
 // Initialization flag
 static INIT_CHECK: Once = Once::new();
@@ -32,20 +35,29 @@ pub fn create_provider(provider_type: ProviderType) -> Result<Box<dyn CryptoProv
 
     match provider_type {
         ProviderType::Standard | ProviderType::Oqs | ProviderType::Auto => {
-            // Get the OpenSSL provider
-            let provider = get_openssl_provider();
+            #[cfg(feature = "openssl")]
+            {
+                // Get the OpenSSL provider
+                let provider = get_openssl_provider();
+                return Ok(Box::new(provider.clone()));
+            }
 
-            // Return the provider
-            Ok(Box::new(provider.clone()))
+            #[cfg(not(feature = "openssl"))]
+            {
+                // Get the fallback provider
+                let provider = get_fallback_provider();
+                return Ok(Box::new(provider.clone()));
+            }
         }
     }
 }
 
+#[cfg(feature = "openssl")]
 /// Get the OpenSSL provider singleton
 ///
 /// This function returns a reference to the OpenSSL provider singleton.
 /// The provider is initialized on first access.
-fn get_openssl_provider() -> &'static OpenSSLProvider {
+fn get_openssl_provider() -> &'static super::openssl::OpenSSLProvider {
     // Initialize provider if needed
     initialize_provider();
 
@@ -53,31 +65,58 @@ fn get_openssl_provider() -> &'static OpenSSLProvider {
     OPENSSL_PROVIDER.get().expect("OpenSSL provider not initialized")
 }
 
-/// Initialize the provider
+#[cfg(not(feature = "openssl"))]
+/// Get the fallback provider singleton
 ///
-/// This function initializes the provider if not already initialized.
+/// This function returns a reference to the fallback provider singleton.
+/// The provider is initialized on first access.
+fn get_fallback_provider() -> &'static super::fallback::FallbackProvider {
+    // Initialize provider if needed
+    initialize_provider();
+
+    // Return the provider
+    FALLBACK_PROVIDER.get().expect("Fallback provider not initialized")
+}
+
+/// Initialize the providers
+///
+/// This function initializes the provider singletons if not already initialized.
 fn initialize_provider() {
     INIT_CHECK.call_once(|| {
-        // Create the OpenSSL provider
-        let provider = OpenSSLProvider::new();
+        #[cfg(feature = "openssl")]
+        {
+            // Create the OpenSSL provider
+            let provider = super::openssl::OpenSSLProvider::new();
 
-        // Log provider information
-        let capabilities = provider.capabilities();
-        if capabilities.supports_pqc {
-            log::info!("Using {} with post-quantum support", provider.name());
-        } else {
-            log::warn!("Using {} without post-quantum support", provider.name());
+            // Log provider information
+            let capabilities = provider.capabilities();
+            if capabilities.supports_pqc {
+                log::info!("Using {} with post-quantum support", provider.name());
+            } else {
+                log::warn!("Using {} without post-quantum support", provider.name());
+            }
+
+            // Store the provider
+            OPENSSL_PROVIDER.set(provider).ok();
         }
 
-        // Store the provider
-        OPENSSL_PROVIDER.set(provider).ok();
+        #[cfg(not(feature = "openssl"))]
+        {
+            // Create the fallback provider
+            let provider = super::fallback::FallbackProvider::new();
+            log::warn!("Using fallback provider: {}", provider.name());
+
+            // Store the provider
+            FALLBACK_PROVIDER.set(provider).ok();
+        }
     });
 }
 
 /// Check if post-quantum cryptography is available
 ///
-/// This function checks if post-quantum cryptography is available
-/// in the OpenSSL installation.
+/// This function checks if post-quantum cryptography is available.
+/// It directly checks the provider's capabilities to determine if PQC is supported,
+/// regardless of the specific implementation.
 ///
 /// # Returns
 ///
