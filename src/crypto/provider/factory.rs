@@ -103,7 +103,7 @@ fn initialize_provider() {
         #[cfg(not(feature = "openssl"))]
         {
             // Create the fallback provider
-            let provider = super::fallback::FallbackProvider::new();
+            let provider = super::fallback::FallbackProvider {};
             log::warn!("Using fallback provider: {}", provider.name());
 
             // Store the provider

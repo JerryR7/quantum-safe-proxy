@@ -8,7 +8,7 @@ use log::{info, warn};
 // Import our library
 use quantum_safe_proxy::{Proxy, create_tls_acceptor, VERSION, APP_NAME, reload_config};
 use quantum_safe_proxy::common::{Result, init_logger};
-use quantum_safe_proxy::config::{ProxyConfig};
+use quantum_safe_proxy::config;
 use quantum_safe_proxy::config::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
 use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
 use quantum_safe_proxy::crypto::provider::environment::initialize_environment;
@@ -18,44 +18,37 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
-#[cfg(unix)]
-use tokio::signal::unix::{signal, SignalKind};
-
 /// Quantum Safe Proxy: PQC-Enabled Sidecar with Hybrid Certificate Support
 #[derive(Parser, Debug)]
 #[clap(author, version = VERSION, about, long_about = None)]
 struct Args {
     /// Listen to the address
-    #[clap(short, long, default_value = "0.0.0.0:8443")]
+    #[clap(short, long, default_value = LISTEN_STR)]
     listen: String,
 
     /// Target service address
-    #[clap(short, long, default_value = "127.0.0.1:6000")]
+    #[clap(short, long, default_value = TARGET_STR)]
     target: String,
 
     /// Server certificate path
-    #[clap(long, default_value = "certs/hybrid/dilithium3/server.crt")]
+    #[clap(long, default_value = CERT_PATH_STR)]
     cert: String,
 
     /// Server private key path
-    #[clap(long, default_value = "certs/hybrid/dilithium3/server.key")]
+    #[clap(long, default_value = KEY_PATH_STR)]
     key: String,
 
     /// CA certificate path (for client certificate validation)
-    #[clap(long, default_value = "certs/hybrid/dilithium3/ca.crt")]
+    #[clap(long, default_value = CA_CERT_PATH_STR)]
     ca_cert: String,
 
     /// Log level
-    #[clap(long, default_value = "info")]
+    #[clap(long, default_value = LOG_LEVEL_STR)]
     log_level: String,
 
     /// Enable hybrid certificate mode
     #[clap(long)]
     hybrid_mode: bool,
-
-    /// Load configuration from environment variables
-    #[clap(long)]
-    from_env: bool,
 
     /// Load configuration from a file
     #[clap(long)]
@@ -90,116 +83,20 @@ async fn main() -> Result<()> {
           &env_info.openssl_version,
           if env_info.pqc_available { "available" } else { "not available" });
 
-    // Load configuration using the auto-load method
-    let mut config = ProxyConfig::auto_load(Some(&args.environment))?;
+    // Initialize configuration system
+    let config = config::initialize(std::env::args().collect(), args.config_file.as_deref())?;
 
-    // Override with command line arguments if provided
-    let mut cmd_config_applied = false;
-
-    // Check if any command line arguments were explicitly provided
-    let has_explicit_args = [
-        args.listen != LISTEN_STR,
-        args.target != TARGET_STR,
-        args.cert != CERT_PATH_STR,
-        args.key != KEY_PATH_STR,
-        args.ca_cert != CA_CERT_PATH_STR,
-        args.log_level != LOG_LEVEL_STR,
-        args.client_cert_mode != config.client_cert_mode.to_string(),
-        args.hybrid_mode
-    ].iter().any(|&condition| condition);
-
-    // Load from specific configuration file if specified
-    if let Some(config_file) = args.config_file.clone() {
-        if Path::new(&config_file).exists() {
-            info!("Loading configuration from specified file: {}", config_file);
-            match ProxyConfig::from_file(&config_file) {
-                Ok(file_config) => {
-                    config = config.merge(file_config);
-                },
-                Err(e) => {
-                    warn!("Failed to load specified configuration file: {}", e);
-                }
-            }
-        } else {
-            warn!("Specified configuration file not found: {}", config_file);
-        }
-    }
-
-    // Load from environment variables if explicitly requested
-    if args.from_env {
-        info!("Explicitly loading configuration from environment variables");
-        match ProxyConfig::from_env() {
-            Ok(env_config) => {
-                config = config.merge(env_config);
-            },
-            Err(e) => {
-                warn!("Failed to load configuration from environment variables: {}", e);
-            }
-        }
-    }
-
-    // Apply command line arguments if any were explicitly provided
-    if has_explicit_args {
-        info!("Applying command line arguments");
-        let cmd_config = ProxyConfig::from_args(
-            &args.listen,
-            &args.target,
-            &args.cert,
-            &args.key,
-            &args.ca_cert,
-            &args.log_level,
-            &args.client_cert_mode,
-        )?;
-
-        // Set hybrid mode from command line if specified
-        if args.hybrid_mode {
-            let mut hybrid_config = cmd_config.clone();
-            hybrid_config.hybrid_mode = true;
-            config = config.merge(hybrid_config);
-        } else {
-            config = config.merge(cmd_config);
-        }
-
-        cmd_config_applied = true;
-    }
-
-    // Log the configuration source
-    if cmd_config_applied {
-        info!("Configuration loaded with command line overrides");
-    } else if args.from_env {
-        info!("Configuration loaded from environment variables");
-    } else if args.config_file.is_some() {
-        info!("Configuration loaded from specified file");
-    } else {
-        info!("Configuration loaded from auto-detected sources");
-    }
-
-    // Validate the final configuration
-    config.validate()?;
-
-    // Check configuration for warnings
-    let warnings = config.check();
-    for warning in warnings {
-        warn!("{}", warning);
-    }
-
-    // Log configuration summary
-    info!("Configuration: listen={}, target={}, cert={:?}",
-          config.listen, config.target, config.cert_path);
-
-    // Try to get certificate subject
+    // Log certificate information
     match get_cert_subject(&config.cert_path, None) {
         Ok(subject) => info!("Certificate subject: {}", subject),
         Err(e) => warn!("Unable to get certificate subject: {}", e),
     }
-
-    // Try to get certificate fingerprint
     match get_cert_fingerprint(&config.cert_path, None) {
         Ok(fingerprint) => info!("Certificate fingerprint: {}", fingerprint),
         Err(e) => warn!("Unable to get certificate fingerprint: {}", e),
     }
 
-    // Create TLS acceptor with system-detected TLS settings
+    // Create TLS acceptor
     let tls_acceptor = create_tls_acceptor(
         &config.cert_path,
         &config.key_path,
@@ -214,37 +111,35 @@ async fn main() -> Result<()> {
         tls_acceptor,
     );
 
-    // Store configuration and proxy in shared state
-    let config = Arc::new(Mutex::new(config));
+    // Store proxy in shared state
     let proxy = Arc::new(Mutex::new(proxy));
 
-    // Create a channel for reload signals
-    let (reload_tx, mut reload_rx) = mpsc::channel::<()>(1);
-
-    // Clone for signal handler
+    // Create configuration reload channel
+    let (reload_tx, mut reload_rx) = mpsc::channel(1);
     let reload_tx_clone = reload_tx.clone();
+
+    // Add configuration change listener
+    config::add_listener(|event| {
+        info!("Configuration change detected: {:?}", event);
+    })?;
+
     let config_file = args.config_file.clone();
 
-    // Spawn signal handler for configuration reload
+    // Set up configuration reload handler for Unix platforms
     #[cfg(unix)]
     {
-        // Unix platforms: use SIGHUP signal
+        use tokio::signal::unix::{signal, SignalKind};
+
         let reload_tx = reload_tx_clone.clone();
         tokio::spawn(async move {
-            // Create a signal handler for SIGHUP
-            let mut sighup = match signal(SignalKind::hangup()) {
-                Ok(signal) => signal,
-                Err(e) => {
-                    warn!("Failed to create SIGHUP handler: {}", e);
-                    return;
-                }
-            };
+            let mut sig_hup = signal(SignalKind::hangup()).expect("Failed to create SIGHUP handler");
 
-            info!("Signal handler started, send SIGHUP to reload configuration");
+            info!("Configuration reload handler started (SIGHUP)");
+            info!("To reload configuration, send SIGHUP signal to the process");
 
-            // Wait for SIGHUP signals
-            while sighup.recv().await.is_some() {
-                info!("Received SIGHUP signal, triggering configuration reload");
+            while sig_hup.recv().await.is_some() {
+                info!("SIGHUP received, triggering configuration reload");
+
                 if reload_tx.send(()).await.is_err() {
                     warn!("Failed to send reload signal, channel closed");
                     break;
@@ -253,6 +148,7 @@ async fn main() -> Result<()> {
         });
     }
 
+    // Set up configuration reload handler for non-Unix platforms
     #[cfg(not(unix))]
     {
         // Windows and other platforms: use a timer-based approach
@@ -300,7 +196,6 @@ async fn main() -> Result<()> {
 
     // Clone for reload handler
     let proxy_clone = proxy.clone();
-    let config_clone = config.clone();
 
     // Spawn reload handler
     tokio::spawn(async move {
@@ -311,9 +206,8 @@ async fn main() -> Result<()> {
             let config_path = if let Some(ref path) = config_file {
                 path.clone()
             } else {
-                // If no config file was specified, use environment-specific config
-                let config_guard = config_clone.lock().unwrap();
-                format!("config.{}.json", config_guard.environment)
+                // If no config file was specified, use default config file
+                "config.json".to_string()
             };
 
             // Check if config file exists
@@ -331,22 +225,9 @@ async fn main() -> Result<()> {
                 }
             };
 
-            let config_guard = match config_clone.lock() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    warn!("Failed to acquire config lock: {}", e);
-                    continue;
-                }
-            };
-
-            match reload_config(&mut proxy_guard, &config_guard, Path::new(&config_path)) {
-                Ok(new_config) => {
-                    // Update the stored configuration
-                    drop(config_guard); // Release the lock before acquiring it again
-                    if let Ok(mut config_guard) = config_clone.lock() {
-                        *config_guard = new_config;
-                        info!("Configuration updated successfully");
-                    }
+            match reload_config(&mut proxy_guard, Path::new(&config_path)) {
+                Ok(_) => {
+                    info!("Configuration updated successfully");
                 },
                 Err(e) => {
                     warn!("Failed to reload configuration: {}", e);
@@ -355,15 +236,15 @@ async fn main() -> Result<()> {
         }
     });
 
-    #[cfg(unix)]
-    info!("Proxy service ready, press Ctrl+C to stop (send SIGHUP to reload configuration)");
+    // Get current configuration
+    let current_config = config::get_config()?;
 
-    #[cfg(not(unix))]
-    info!("Proxy service ready, press Ctrl+C to stop (configuration will be reloaded automatically when the file is modified)");
+    // Start the proxy server
+    info!("Listening on {}", current_config.listen);
+    info!("Forwarding to {}", current_config.target);
 
-    // Run proxy service
-    let proxy_guard = proxy.lock().unwrap();
-    proxy_guard.run().await?;
+    // Run the proxy
+    proxy.lock().unwrap().run().await?;
 
     Ok(())
 }

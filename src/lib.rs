@@ -75,7 +75,6 @@ pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
 /// # Parameters
 ///
 /// * `proxy` - Mutable reference to the proxy instance
-/// * `config` - Current configuration
 /// * `config_path` - Path to the configuration file
 ///
 /// # Returns
@@ -85,27 +84,28 @@ pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
 /// # Example
 ///
 /// ```no_run
-/// # use quantum_safe_proxy::{Proxy, config::ProxyConfig, reload_config};
+/// # use quantum_safe_proxy::{Proxy, reload_config};
 /// # use std::path::Path;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # let mut proxy = Proxy::new("127.0.0.1:8443".parse()?, "127.0.0.1:6000".parse()?, Default::default());
-/// # let mut config = ProxyConfig::default();
 /// // Reload configuration
-/// let new_config = reload_config(&mut proxy, &config, Path::new("config.json"))?;
+/// let new_config = reload_config(&mut proxy, Path::new("config.json"))?;
 /// # Ok(())
 /// # }
 /// ```
 pub fn reload_config(
     proxy: &mut Proxy,
-    config: &config::ProxyConfig,
     config_path: &std::path::Path,
 ) -> Result<config::ProxyConfig> {
     use log::{info};
 
     info!("Reloading configuration from {}", config_path.display());
 
-    // Reload configuration from file
-    let new_config = config.reload_from_file(config_path)?;
+    // Reload configuration from file using the singleton manager
+    config::reload_config(Some(config_path))?;
+
+    // Get the updated configuration
+    let new_config = config::get_config()?;
 
     // Create new TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(

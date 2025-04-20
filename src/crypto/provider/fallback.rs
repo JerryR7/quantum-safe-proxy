@@ -7,7 +7,7 @@ use std::path::Path;
 use std::fmt;
 
 use crate::common::{ProxyError, Result};
-use super::{CryptoProvider, CryptoCapabilities, CertificateType, SslContext, X509};
+use super::{CryptoProvider, CryptoCapabilities, SslContext, X509};
 
 /// Fallback cryptographic provider
 ///
@@ -16,12 +16,9 @@ use super::{CryptoProvider, CryptoCapabilities, CertificateType, SslContext, X50
 #[derive(Clone)]
 pub struct FallbackProvider;
 
-impl FallbackProvider {
-    /// Create a new fallback provider
-    pub fn new() -> Self {
-        Self {}
-    }
-}
+// Note: FallbackProvider is instantiated directly in factory.rs
+// No constructor is needed as it has no internal state
+impl FallbackProvider {}
 
 impl fmt::Debug for FallbackProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
