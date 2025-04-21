@@ -65,9 +65,7 @@ struct Args {
     #[clap(long, default_value = "30")]
     connection_timeout: u64,
 
-    /// Environment (development, testing, production)
-    #[clap(long, default_value = "production")]
-    environment: String,
+    // environment 參數已移除，不再支持環境特定配置文件
 }
 
 #[tokio::main]

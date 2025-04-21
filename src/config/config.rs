@@ -117,10 +117,7 @@ pub struct ProxyConfig {
     #[serde(default = "defaults::connection_timeout")]
     pub connection_timeout: u64,
 
-    /// Environment name (development, testing, production)
-    /// Used for loading environment-specific configuration files
-    #[serde(default = "defaults::environment")]
-    pub environment: String,
+    // environment 字段已移除，不再支持環境特定配置文件
 }
 
 impl Default for ProxyConfig {
@@ -136,7 +133,6 @@ impl Default for ProxyConfig {
             client_cert_mode: defaults::client_cert_mode(),
             buffer_size: defaults::buffer_size(),
             connection_timeout: defaults::connection_timeout(),
-            environment: defaults::environment(),
         }
     }
 }
@@ -153,12 +149,8 @@ impl ProxyConfig {
     ///
     /// This method tries to load configuration from the following sources in order:
     /// 1. Default configuration
-    /// 2. Configuration file (config.json or config.<environment>.json)
+    /// 2. Configuration file (config.json)
     /// 3. Environment variables
-    ///
-    /// # Parameters
-    ///
-    /// * `environment` - Optional environment name (development, testing, production)
     ///
     /// # Returns
     ///
@@ -170,36 +162,16 @@ impl ProxyConfig {
     /// # use quantum_safe_proxy::config::ProxyConfig;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// // Load configuration from the best available source
-    /// let config = ProxyConfig::auto_load(Some("development"))?;
+    /// let config = ProxyConfig::auto_load()?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn auto_load(environment: Option<&str>) -> Result<Self> {
+    pub fn auto_load() -> Result<Self> {
         use log::{info, debug};
 
         // Start with default configuration
         let mut config = Self::default();
         debug!("Starting with default configuration");
-
-        // Try to load from configuration file
-        let env_name = environment.unwrap_or(&config.environment);
-
-        // Check for environment-specific configuration file
-        let env_config_path = format!("config.{}.json", env_name);
-        if Path::new(&env_config_path).exists() {
-            info!("Loading environment-specific configuration from {}", env_config_path);
-            match Self::from_file(&env_config_path) {
-                Ok(env_config) => {
-                    config = config.merge(env_config);
-                    debug!("Merged environment-specific configuration");
-                },
-                Err(e) => {
-                    log::warn!("Failed to load environment configuration file: {}", e);
-                }
-            }
-        } else {
-            debug!("No environment-specific configuration file found at {}", env_config_path);
-        }
 
         // Check for default configuration file
         let default_config_path = defaults::DEFAULT_CONFIG_FILE;
@@ -317,9 +289,7 @@ impl ProxyConfig {
             }
         }
 
-        if let Some(env_name) = get_env("ENVIRONMENT") {
-            config.environment = env_name;
-        }
+        // environment 字段已移除，不再處理環境變量
 
         Ok(config)
     }
@@ -356,8 +326,7 @@ impl ProxyConfig {
     ///     "info",
     ///     "required",
     ///     8192,
-    ///     30,
-    ///     "production"  // environment
+    ///     30
     /// )?;
     /// # Ok(())
     /// # }
@@ -372,7 +341,7 @@ impl ProxyConfig {
         client_cert_mode: &str,
         buffer_size: usize,
         connection_timeout: u64,
-        environment: &str,
+        // environment 參數已移除
     ) -> Result<Self> {
         // Parse listen address
         let listen = crate::common::parse_socket_addr(listen)?;
@@ -393,7 +362,7 @@ impl ProxyConfig {
             client_cert_mode,
             buffer_size,
             connection_timeout,
-            environment: environment.to_string(),
+            // environment 字段已移除
         })
     }
 
@@ -421,7 +390,7 @@ impl ProxyConfig {
             client_cert_mode: other.client_cert_mode,
             buffer_size: other.buffer_size,
             connection_timeout: other.connection_timeout,
-            environment: other.environment.clone(),
+            // environment 字段已移除
         }
     }
 
@@ -546,16 +515,7 @@ impl ProxyConfig {
             },
         }
 
-        // Validate environment
-        match self.environment.to_lowercase().as_str() {
-            "development" | "dev" | "testing" | "test" | "production" | "prod" => {},
-            _ => {
-                return Err(ProxyError::Config(format!(
-                    "Invalid environment: {}. Valid values are: development, testing, production",
-                    self.environment
-                )));
-            },
-        }
+        // environment 字段已移除，不再驗證環境
 
         // Check if certificate file exists
         check_file_exists(&self.cert_path).map_err(|_| {
@@ -581,16 +541,7 @@ impl ProxyConfig {
             ))
         })?;
 
-        // Validate environment
-        match self.environment.to_lowercase().as_str() {
-            "development" | "dev" | "testing" | "test" | "production" | "prod" => {},
-            _ => {
-                return Err(ProxyError::Config(format!(
-                    "Invalid environment: {}. Valid values are: development, testing, production",
-                    self.environment
-                )));
-            },
-        }
+        // environment 字段已移除，不再驗證環境
 
         Ok(())
     }
@@ -720,7 +671,7 @@ mod tests {
         assert_eq!(config.ca_cert_path, defaults::ca_cert_path());
         assert_eq!(config.log_level, defaults::log_level());
         assert_eq!(config.client_cert_mode, defaults::client_cert_mode());
-        assert_eq!(config.environment, defaults::environment());
+        // environment 字段已移除，不再測試
     }
 
     #[test]
@@ -735,8 +686,7 @@ mod tests {
             "info",
             "optional",
             8192,                                  // buffer_size
-            30,                                   // connection_timeout
-            "production",                         // environment
+            30                                    // connection_timeout
         );
 
         assert!(config.is_ok(), "Should be able to create configuration");
@@ -772,7 +722,7 @@ mod tests {
             client_cert_mode: ClientCertMode::None,
             buffer_size: 4096,                      // 測試不同的緩衝區大小
             connection_timeout: 60,                 // 測試不同的連接逾時
-            environment: "development".to_string(),
+            // environment 字段已移除
         };
 
         // Merge configurations
@@ -786,7 +736,7 @@ mod tests {
         assert_eq!(merged.ca_cert_path, base_ca_cert_path); // Use cloned path
         assert_eq!(merged.log_level, override_config.log_level);
         assert_eq!(merged.client_cert_mode, override_config.client_cert_mode);
-        assert_eq!(merged.environment, override_config.environment);
+        // environment 字段已移除，不再測試
     }
 
     #[test]
@@ -798,15 +748,8 @@ mod tests {
         // Validation should fail
         assert!(config.validate().is_err());
 
-        // Fix log level but set invalid environment
+        // Fix log level
         config.log_level = "debug".to_string();
-        config.environment = "invalid".to_string();
-
-        // Validation should fail
-        assert!(config.validate().is_err());
-
-        // Fix environment
-        config.environment = "development".to_string();
 
         // Validation should still fail because certificate files don't exist in test environment
         // This is expected behavior

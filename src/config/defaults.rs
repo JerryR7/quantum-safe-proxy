@@ -90,10 +90,7 @@ pub fn connection_timeout() -> u64 {
     30
 }
 
-/// Default environment
-pub fn environment() -> String {
-    "production".to_string()
-}
+// environment 函數已移除，不再支持環境特定配置文件
 
 // Note: Command line argument names and environment variable names
 // are now handled directly in the config.rs file

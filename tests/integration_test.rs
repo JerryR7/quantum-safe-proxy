@@ -21,8 +21,7 @@ fn test_config_creation() {
         "info",
         "optional",
         8192,                                  // buffer_size
-        30,                                   // connection_timeout
-        "production",                         // environment
+        30                                    // connection_timeout
     );
 
     assert!(config.is_ok(), "Should be able to create configuration");
