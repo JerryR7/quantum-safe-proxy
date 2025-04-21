@@ -2,13 +2,126 @@
 //!
 //! This module provides functionality to detect the capabilities of the
 //! OpenSSL installation, including post-quantum cryptography support.
+//! It also provides utility functions for working with OpenSSL.
 
 use log::{debug, info};
 use once_cell::sync::OnceCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::api;
 use super::environment;
+
+/// Get OpenSSL version
+///
+/// # Returns
+///
+/// The OpenSSL version string
+pub fn get_openssl_version() -> String {
+    let env_info = environment::initialize_environment();
+    env_info.openssl_version.clone()
+}
+
+/// Check if OpenSSL 3.5+ is available
+///
+/// # Returns
+///
+/// `true` if OpenSSL 3.5+ is available, `false` otherwise
+pub fn is_openssl35_available() -> bool {
+    let version = get_openssl_version();
+    version.contains("3.5") || version.contains("3.6")
+}
+
+/// Check if post-quantum cryptography is available
+///
+/// # Returns
+///
+/// `true` if post-quantum cryptography is available, `false` otherwise
+pub fn is_pqc_available() -> bool {
+    let env_info = environment::initialize_environment();
+    env_info.pqc_available
+}
+
+/// Get supported post-quantum algorithms
+///
+/// # Returns
+///
+/// A tuple containing:
+/// - A vector of supported key exchange algorithms
+/// - A vector of supported signature algorithms
+pub fn get_supported_pq_algorithms() -> (Vec<String>, Vec<String>) {
+    let env_info = environment::initialize_environment();
+    (
+        env_info.key_exchange_algorithms.clone(),
+        env_info.signature_algorithms.clone(),
+    )
+}
+
+/// Get recommended cipher list
+///
+/// # Arguments
+///
+/// * `supports_pqc` - Whether post-quantum cryptography is supported
+///
+/// # Returns
+///
+/// The recommended cipher list
+pub fn get_recommended_cipher_list(supports_pqc: bool) -> String {
+    if supports_pqc {
+        "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256".to_string()
+    } else {
+        "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256".to_string()
+    }
+}
+
+/// Get recommended TLS 1.3 ciphersuites
+///
+/// # Arguments
+///
+/// * `supports_pqc` - Whether post-quantum cryptography is supported
+///
+/// # Returns
+///
+/// The recommended TLS 1.3 ciphersuites
+pub fn get_recommended_tls13_ciphersuites(supports_pqc: bool) -> String {
+    "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256".to_string()
+}
+
+/// Get recommended groups
+///
+/// # Arguments
+///
+/// * `supports_pqc` - Whether post-quantum cryptography is supported
+///
+/// # Returns
+///
+/// The recommended groups
+pub fn get_recommended_groups(supports_pqc: bool) -> String {
+    if supports_pqc {
+        "kyber768:p384_kyber768:x25519_kyber768:X25519:P-384:P-256".to_string()
+    } else {
+        "X25519:P-384:P-256".to_string()
+    }
+}
+
+/// Get supported signature algorithms
+///
+/// # Returns
+///
+/// The supported signature algorithms
+pub fn get_supported_signature_algorithms() -> Vec<String> {
+    let mut algorithms = vec![
+        "RSA-PSS+SHA256".to_string(),
+        "ECDSA+SHA256".to_string(),
+        "RSA+SHA256".to_string(),
+    ];
+
+    if is_pqc_available() {
+        algorithms.push("dilithium3".to_string());
+        algorithms.push("falcon512".to_string());
+        algorithms.push("p384_dilithium3".to_string());
+    }
+
+    algorithms
+}
 
 /// OpenSSL capabilities
 ///

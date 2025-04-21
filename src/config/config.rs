@@ -552,7 +552,7 @@ impl ProxyConfig {
             },
         }
 
-        // Check if the certificate file exists
+        // Check if certificate file exists
         check_file_exists(&self.cert_path).map_err(|_| {
             ProxyError::Config(format!(
                 "Certificate file does not exist or is invalid: {:?}",
@@ -560,15 +560,15 @@ impl ProxyConfig {
             ))
         })?;
 
-        // Check if the private key file exists
+        // Check if key file exists
         check_file_exists(&self.key_path).map_err(|_| {
             ProxyError::Config(format!(
-                "Private key file does not exist or is invalid: {:?}",
+                "Key file does not exist or is invalid: {:?}",
                 self.key_path
             ))
         })?;
 
-        // Check if the CA certificate file exists
+        // Check if CA certificate file exists
         check_file_exists(&self.ca_cert_path).map_err(|_| {
             ProxyError::Config(format!(
                 "CA certificate file does not exist or is invalid: {:?}",
@@ -776,14 +776,18 @@ mod tests {
         let mut config = ProxyConfig::default();
         config.log_level = "invalid".to_string();
 
-        // Validation should fail
+        // Validation should fail due to invalid log level
         assert!(config.validate().is_err());
 
         // Fix log level
         config.log_level = "debug".to_string();
 
-        // Validation should still fail because certificate files don't exist in the test environment
-        // This is expected behavior
+        // Set certificate paths to non-existent files
+        config.cert_path = PathBuf::from("non_existent_cert.crt");
+        config.key_path = PathBuf::from("non_existent_key.key");
+        config.ca_cert_path = PathBuf::from("non_existent_ca.crt");
+
+        // Validation should fail because certificate files don't exist
         assert!(config.validate().is_err());
     }
 

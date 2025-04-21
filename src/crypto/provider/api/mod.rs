@@ -1,81 +1,9 @@
-//! OpenSSL API strategy module
+//! OpenSSL API module
 //!
-//! This module provides strategies for interacting with OpenSSL,
-//! either through direct API calls or command-line tools.
-
-mod openssl_api;
-mod command_line;
-mod factory;
+//! This module provides functions for interacting with OpenSSL 3.5+
+//! with post-quantum cryptography support.
 
 use super::environment;
-
-pub use factory::get_api_strategy;
-use openssl_api::OpenSSLApiImpl;
-#[cfg(not(feature = "openssl"))]
-use command_line::CommandLineImpl;
-
-/// OpenSSL API strategy trait
-///
-/// This trait defines the interface for interacting with OpenSSL.
-pub trait OpenSSLApiStrategy: Send + Sync {
-    /// Check OpenSSL version
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing:
-    /// - A boolean indicating if OpenSSL 3.5+ is available
-    /// - The OpenSSL version string
-    fn check_version(&self) -> (bool, String);
-
-    /// Check if post-quantum cryptography is supported
-    ///
-    /// # Returns
-    ///
-    /// `true` if post-quantum cryptography is supported, `false` otherwise
-    fn check_pqc_support(&self) -> bool;
-
-    /// Get supported post-quantum algorithms
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing:
-    /// - A vector of supported key exchange algorithms
-    /// - A vector of supported signature algorithms
-    fn get_pq_algorithms(&self) -> (Vec<String>, Vec<String>);
-
-    /// Get recommended cipher list
-    ///
-    /// # Arguments
-    ///
-    /// * `supports_pqc` - Whether post-quantum cryptography is supported
-    ///
-    /// # Returns
-    ///
-    /// The recommended cipher list
-    fn get_recommended_ciphers(&self, supports_pqc: bool) -> String;
-
-    /// Get recommended TLS 1.3 ciphersuites
-    ///
-    /// # Arguments
-    ///
-    /// * `supports_pqc` - Whether post-quantum cryptography is supported
-    ///
-    /// # Returns
-    ///
-    /// The recommended TLS 1.3 ciphersuites
-    fn get_recommended_tls13_ciphersuites(&self, supports_pqc: bool) -> String;
-
-    /// Get recommended groups
-    ///
-    /// # Arguments
-    ///
-    /// * `supports_pqc` - Whether post-quantum cryptography is supported
-    ///
-    /// # Returns
-    ///
-    /// The recommended groups
-    fn get_recommended_groups(&self, supports_pqc: bool) -> String;
-}
 
 // No longer needed, using environment info instead
 
@@ -103,12 +31,12 @@ pub fn is_openssl35_available() -> bool {
 /// # Returns
 ///
 /// The OpenSSL version string
-pub fn get_openssl_version() -> &'static str {
+pub fn get_openssl_version() -> String {
     // Use the environment info to get OpenSSL version
     let env_info = environment::initialize_environment();
 
     // Return the OpenSSL version
-    &env_info.openssl_version
+    env_info.openssl_version.clone()
 }
 
 // No longer needed, using environment info instead

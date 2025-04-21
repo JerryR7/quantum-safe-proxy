@@ -15,11 +15,12 @@ mod fallback;
 // Re-exports
 pub use factory::create_provider;
 pub use environment::{check_environment, diagnose_environment, EnvironmentInfo, EnvironmentIssue, IssueSeverity};
-pub use api::get_api_strategy;
 pub use api::get_openssl_version;
 pub use api::get_supported_pq_algorithms;
 pub use api::is_openssl35_available;
 pub use api::is_pqc_available;
+pub use api::get_recommended_cipher_list;
+pub use api::get_recommended_groups;
 pub use factory::is_oqs_available;
 
 // Import OpenSSL types
