@@ -20,6 +20,9 @@ fn test_config_creation() {
         "certs/hybrid/dilithium3/ca.crt",
         "info",
         "optional",
+        8192,                                  // buffer_size
+        30,                                   // connection_timeout
+        "production",                         // environment
     );
 
     assert!(config.is_ok(), "Should be able to create configuration");

@@ -56,7 +56,8 @@ impl Proxy {
     /// # use quantum_safe_proxy::config::ProxyConfig;
     /// # fn main() {
     /// # let tls_acceptor = SslAcceptor::mozilla_modern(openssl::ssl::SslMethod::tls()).unwrap().build();
-    /// # let config = ProxyConfig::default();
+    /// # use std::sync::Arc;
+    /// # let config = Arc::new(ProxyConfig::default());
     /// let proxy = Proxy::new(
     ///     "127.0.0.1:8443".parse::<SocketAddr>().unwrap(),
     ///     "127.0.0.1:6000".parse::<SocketAddr>().unwrap(),
@@ -175,7 +176,7 @@ mod tests {
             "127.0.0.1:8443".parse::<SocketAddr>().unwrap(),
             "127.0.0.1:6000".parse::<SocketAddr>().unwrap(),
             acceptor,
-            config
+            Arc::new(config)  // 將 ProxyConfig 包裝在 Arc 中
         );
 
         assert_eq!(proxy.listen_addr.port(), 8443);

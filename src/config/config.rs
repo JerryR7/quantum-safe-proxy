@@ -356,7 +356,8 @@ impl ProxyConfig {
     ///     "info",
     ///     "required",
     ///     8192,
-    ///     30
+    ///     30,
+    ///     "production"  // environment
     /// )?;
     /// # Ok(())
     /// # }
@@ -717,7 +718,6 @@ mod tests {
         assert_eq!(config.cert_path, defaults::cert_path());
         assert_eq!(config.key_path, defaults::key_path());
         assert_eq!(config.ca_cert_path, defaults::ca_cert_path());
-        assert_eq!(config.hybrid_mode, defaults::hybrid_mode());
         assert_eq!(config.log_level, defaults::log_level());
         assert_eq!(config.client_cert_mode, defaults::client_cert_mode());
         assert_eq!(config.environment, defaults::environment());
@@ -734,6 +734,9 @@ mod tests {
             "certs/hybrid/dilithium3/ca.crt",
             "info",
             "optional",
+            8192,                                  // buffer_size
+            30,                                   // connection_timeout
+            "production",                         // environment
         );
 
         assert!(config.is_ok(), "Should be able to create configuration");
@@ -746,7 +749,6 @@ mod tests {
                 PathBuf::from("certs/hybrid/dilithium3/server.crt")
             );
             assert_eq!(config.log_level, "info");
-            assert!(config.hybrid_mode);
             assert_eq!(config.client_cert_mode, ClientCertMode::Optional);
         }
     }
@@ -766,9 +768,10 @@ mod tests {
             cert_path: PathBuf::from("certs/traditional/rsa/server.crt"),
             key_path: PathBuf::from("certs/traditional/rsa/server.key"),
             ca_cert_path: base_ca_cert_path.clone(), // Use cloned path
-            hybrid_mode: false,              // Override
             log_level: "debug".to_string(),
             client_cert_mode: ClientCertMode::None,
+            buffer_size: 4096,                      // 測試不同的緩衝區大小
+            connection_timeout: 60,                 // 測試不同的連接逾時
             environment: "development".to_string(),
         };
 
@@ -781,7 +784,6 @@ mod tests {
         assert_eq!(merged.cert_path, override_config.cert_path);
         assert_eq!(merged.key_path, override_config.key_path);
         assert_eq!(merged.ca_cert_path, base_ca_cert_path); // Use cloned path
-        assert_eq!(merged.hybrid_mode, override_config.hybrid_mode);
         assert_eq!(merged.log_level, override_config.log_level);
         assert_eq!(merged.client_cert_mode, override_config.client_cert_mode);
         assert_eq!(merged.environment, override_config.environment);
@@ -835,7 +837,6 @@ mod tests {
             assert_eq!(config.target.to_string(), "127.0.0.1:7000");
             assert_eq!(config.cert_path, PathBuf::from("test/cert.crt"));
             assert_eq!(config.key_path, PathBuf::from("test/key.key"));
-            assert_eq!(config.hybrid_mode, false);
             assert_eq!(config.log_level, "debug");
             assert_eq!(config.client_cert_mode, ClientCertMode::None);
         }

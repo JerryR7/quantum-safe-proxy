@@ -44,10 +44,14 @@ async fn main() -> Result<()> {
     )?;
 
     // Create proxy
+    // Create default config and wrap in Arc
+    let config = std::sync::Arc::new(quantum_safe_proxy::config::ProxyConfig::default());
+
     let proxy = Proxy::new(
         proxy_listen_addr,
         backend_addr,
         tls_acceptor,
+        config,  // 使用 Arc<ProxyConfig>
     );
 
     println!("Proxy service started at {}", proxy_listen_addr);

@@ -34,11 +34,15 @@
 //!     let listen_addr = parse_socket_addr("0.0.0.0:8443")?;
 //!     let target_addr = parse_socket_addr("127.0.0.1:6000")?;
 //!
+//!     // Create default config and wrap in Arc
+//!     let config = std::sync::Arc::new(quantum_safe_proxy::config::ProxyConfig::default());
+//!
 //!     // Create and start proxy
 //!     let proxy = Proxy::new(
 //!         listen_addr,
 //!         target_addr,
 //!         tls_acceptor,
+//!         config,  // Use Arc<ProxyConfig>
 //!     );
 //!
 //!     // Run proxy service
@@ -89,7 +93,13 @@ pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
 /// # use quantum_safe_proxy::{Proxy, reload_config};
 /// # use std::path::Path;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let mut proxy = Proxy::new("127.0.0.1:8443".parse()?, "127.0.0.1:6000".parse()?, Default::default());
+/// # use std::sync::Arc;
+/// # use quantum_safe_proxy::config::ProxyConfig;
+/// # use openssl::ssl::SslAcceptor;
+/// # let tls_acceptor = SslAcceptor::mozilla_intermediate_v5(openssl::ssl::SslMethod::tls()).unwrap().build();
+/// # let config = Arc::new(ProxyConfig::default());
+/// # use std::net::SocketAddr;
+/// # let mut proxy = Proxy::new("127.0.0.1:8443".parse::<SocketAddr>()?, "127.0.0.1:6000".parse::<SocketAddr>()?, tls_acceptor, config);
 /// // Reload configuration
 /// let new_config = reload_config(&mut proxy, Path::new("config.json"))?;
 /// # Ok(())

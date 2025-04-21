@@ -34,7 +34,8 @@ async fn main() -> Result<()> {
     println!("  Listen: {}", config.listen);
     println!("  Target: {}", config.target);
     println!("  Certificate: {:?}", config.cert_path);
-    println!("  Hybrid mode: {}", config.hybrid_mode);
+    println!("  Buffer size: {} bytes", config.buffer_size);
+    println!("  Connection timeout: {} seconds", config.connection_timeout);
 
     // Create TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(
@@ -49,6 +50,7 @@ async fn main() -> Result<()> {
         config.listen,
         config.target,
         tls_acceptor,
+        std::sync::Arc::new(config),  // 將 ProxyConfig 包裝在 Arc 中
     );
 
     println!("Proxy service is ready, press Ctrl+C to stop");
