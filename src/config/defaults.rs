@@ -70,11 +70,6 @@ pub fn ca_cert_path() -> PathBuf {
     PathBuf::from(CA_CERT_PATH_STR)
 }
 
-/// Default hybrid mode
-pub fn hybrid_mode() -> bool {
-    true
-}
-
 /// Default log level
 pub fn log_level() -> String {
     LOG_LEVEL_STR.to_string()
@@ -82,7 +77,17 @@ pub fn log_level() -> String {
 
 /// Default client certificate mode
 pub fn client_cert_mode() -> ClientCertMode {
-    ClientCertMode::Required
+    ClientCertMode::Optional
+}
+
+/// Default buffer size (8KB)
+pub fn buffer_size() -> usize {
+    8192
+}
+
+/// Default connection timeout in seconds
+pub fn connection_timeout() -> u64 {
+    30
 }
 
 /// Default environment

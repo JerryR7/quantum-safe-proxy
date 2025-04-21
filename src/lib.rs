@@ -1,5 +1,7 @@
 //! Quantum Safe Proxy: PQC-Enabled Sidecar with Hybrid Certificate Support
 //!
+//! This library uses Arc<ProxyConfig> for efficient configuration sharing and minimal cloning.
+//!
 //! This library implements a TCP proxy with support for Post-Quantum Cryptography (PQC)
 //! and hybrid X.509 certificates. It can be deployed as a sidecar to provide PQC protection
 //! for existing services.
@@ -57,9 +59,9 @@ pub mod tls;
 pub use proxy::Proxy;
 pub use tls::create_tls_acceptor;
 pub use common::{ProxyError, Result, parse_socket_addr};
+use std::sync::Arc;
 
-/// Buffer size constant (8KB)
-pub const BUFFER_SIZE: usize = 8192;
+// Buffer size moved to ProxyConfig
 
 /// Version information
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -96,7 +98,7 @@ pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
 pub fn reload_config(
     proxy: &mut Proxy,
     config_path: &std::path::Path,
-) -> Result<config::ProxyConfig> {
+) -> Result<Arc<config::ProxyConfig>> {
     use log::{info};
 
     info!("Reloading configuration from {}", config_path.display());
@@ -116,8 +118,10 @@ pub fn reload_config(
     )?;
 
     // Update proxy configuration
-    proxy.update_config(new_config.target, tls_acceptor);
+    // 傳遞 Arc<ProxyConfig> 的引用，完全避免克隆
+    proxy.update_config(new_config.target, tls_acceptor, &new_config);
 
     info!("Proxy configuration reloaded successfully");
+    // 返回 Arc<ProxyConfig>，不需要克隆 ProxyConfig
     Ok(new_config)
 }

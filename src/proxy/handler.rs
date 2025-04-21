@@ -6,8 +6,12 @@ use log::{info, error, debug};
 use openssl::ssl::SslAcceptor;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpStream;
+use tokio::time::timeout;
 use tokio_openssl::SslStream;
+
+use crate::config::{self, ProxyConfig};
 
 use crate::common::{ProxyError, Result};
 use super::forwarder::proxy_data;
@@ -19,6 +23,7 @@ use super::forwarder::proxy_data;
 /// * `client_stream` - Client TCP stream
 /// * `target_addr` - Target service address
 /// * `tls_acceptor` - TLS acceptor
+/// * `config` - Proxy configuration
 ///
 /// # Returns
 ///
@@ -27,6 +32,7 @@ pub async fn handle_connection(
     client_stream: TcpStream,
     target_addr: SocketAddr,
     tls_acceptor: Arc<SslAcceptor>,
+    config: &ProxyConfig,
 ) -> Result<()> {
     // Set up TLS connection
     let ssl = openssl::ssl::Ssl::new(tls_acceptor.context())
@@ -53,12 +59,20 @@ pub async fn handle_connection(
         info!("Client certificate subject: {}", subject_str);
     }
 
-    // Connect to target service
-    let target_stream = TcpStream::connect(target_addr).await
+    // Connect to target service with timeout
+    // 使用無鎖訪問方法取得連接逾時時間，提高效能
+    let connect_timeout = Duration::from_secs(config::get_connection_timeout());
+    let target_stream = timeout(connect_timeout, TcpStream::connect(target_addr))
+        .await
+        .map_err(|_| ProxyError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "Connection timed out")))?
         .map_err(ProxyError::Io)?;
 
     // Forward data between client and target service
-    proxy_data(stream, target_stream).await
+    // 使用無鎖訪問方法取得緩衝區大小，提高效能
+    let buffer_size = config::get_buffer_size();
+    let mut config_clone = config.clone();
+    config_clone.buffer_size = buffer_size; // 確保使用緩存的值
+    proxy_data(stream, target_stream, config_clone).await
 }
 
 #[cfg(test)]

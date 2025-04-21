@@ -46,17 +46,9 @@ struct Args {
     #[clap(long, default_value = LOG_LEVEL_STR)]
     log_level: String,
 
-    /// Enable hybrid certificate mode
-    #[clap(long)]
-    hybrid_mode: bool,
-
     /// Load configuration from a file
     #[clap(long)]
     config_file: Option<String>,
-
-    /// Environment (development, testing, production)
-    #[clap(long, default_value = "production")]
-    environment: String,
 
     /// Client certificate verification mode (required, optional, none)
     /// - required: Client must provide a valid certificate
@@ -64,6 +56,18 @@ struct Args {
     /// - none: No client certificate verification
     #[clap(long, default_value = "optional")]
     client_cert_mode: String,
+
+    /// Buffer size for data transfer in bytes (default: 8192)
+    #[clap(long, default_value = "8192")]
+    buffer_size: usize,
+
+    /// Connection timeout in seconds (default: 30)
+    #[clap(long, default_value = "30")]
+    connection_timeout: u64,
+
+    /// Environment (development, testing, production)
+    #[clap(long, default_value = "production")]
+    environment: String,
 }
 
 #[tokio::main]
@@ -109,6 +113,7 @@ async fn main() -> Result<()> {
         config.listen,
         config.target,
         tls_acceptor,
+        Arc::new(config),  // 將 ProxyConfig 包裝在 Arc 中
     );
 
     // Store proxy in shared state

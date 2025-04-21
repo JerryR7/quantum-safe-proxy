@@ -10,14 +10,14 @@ mod manager;
 
 // Re-export types
 pub use config::{ProxyConfig, ClientCertMode};
-pub use manager::{initialize, get_config, update_config, reload_config, add_listener, ConfigChangeEvent};
+pub use manager::{initialize, get_config, update_config, reload_config, add_listener, ConfigChangeEvent, get_buffer_size, get_connection_timeout};
 
 // Export constants needed externally
 pub use defaults::{ENV_PREFIX, DEFAULT_CONFIG_FILE, DEFAULT_CONFIG_DIR};
 pub use defaults::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
 
 use std::path::Path;
-use std::env;
+// use std::env; // 不再需要，因為我們優化了配置加載流程
 use log::{info, warn, debug};
 
 use crate::common::Result;
@@ -29,6 +29,8 @@ use crate::common::Result;
 /// 2. Configuration file
 /// 3. Environment variables
 /// 4. Command line arguments (highest priority)
+///
+/// Optimized for performance with reduced file system access and validation.
 ///
 /// # Arguments
 ///
@@ -45,66 +47,50 @@ pub fn load_config(_args: Vec<String>, config_file: Option<&str>) -> Result<Prox
     let mut config = ProxyConfig::default();
     debug!("Starting with default configuration");
 
-    // Load from configuration file if specified
+    // Optimized configuration file loading
+    // Only check the file system once for each potential path
     if let Some(path) = config_file {
-        if Path::new(path).exists() {
+        // Try specified configuration file first
+        let path_exists = Path::new(path).exists();
+        if path_exists {
             info!("Loading configuration from specified file: {}", path);
-            match ProxyConfig::from_file(path) {
-                Ok(file_config) => {
-                    config = config.merge(file_config);
-                    debug!("Merged configuration from file");
-                },
-                Err(e) => {
-                    warn!("Failed to load configuration from file: {}", e);
-                }
+            if let Ok(file_config) = ProxyConfig::from_file(path) {
+                config = config.merge(file_config);
+                debug!("Merged configuration from file");
+            } else {
+                warn!("Failed to load configuration from file: {}", path);
             }
         } else {
-            // Try environment-specific configuration file
-            let env = env::var(format!("{}_ENVIRONMENT", ENV_PREFIX))
-                .unwrap_or_else(|_| "development".to_string());
-            let env_config_file = format!("config.{}.json", env);
-
-            if Path::new(&env_config_file).exists() {
-                info!("Loading environment-specific configuration from {}", env_config_file);
-                match ProxyConfig::from_file(&env_config_file) {
-                    Ok(env_config) => {
-                        config = config.merge(env_config);
-                        debug!("Merged environment-specific configuration");
-                    },
-                    Err(e) => {
-                        warn!("Failed to load environment configuration file: {}", e);
-                    }
-                }
-            } else if Path::new(DEFAULT_CONFIG_FILE).exists() {
-                // Try default configuration file
+            // Try default configuration file if specified file doesn't exist
+            let default_exists = Path::new(DEFAULT_CONFIG_FILE).exists();
+            if default_exists {
                 info!("Loading configuration from {}", DEFAULT_CONFIG_FILE);
-                match ProxyConfig::from_file(DEFAULT_CONFIG_FILE) {
-                    Ok(file_config) => {
-                        config = config.merge(file_config);
-                        debug!("Merged default configuration file");
-                    },
-                    Err(e) => {
-                        warn!("Failed to load default configuration file: {}", e);
-                    }
+                if let Ok(file_config) = ProxyConfig::from_file(DEFAULT_CONFIG_FILE) {
+                    config = config.merge(file_config);
+                    debug!("Merged default configuration file");
+                } else {
+                    warn!("Failed to load default configuration file");
                 }
             }
         }
+    } else if Path::new(DEFAULT_CONFIG_FILE).exists() {
+        // No config file specified, try default
+        info!("Loading configuration from {}", DEFAULT_CONFIG_FILE);
+        if let Ok(file_config) = ProxyConfig::from_file(DEFAULT_CONFIG_FILE) {
+            config = config.merge(file_config);
+            debug!("Merged default configuration file");
+        } else {
+            warn!("Failed to load default configuration file");
+        }
     }
 
-    // Load from environment variables
-    match ProxyConfig::from_env() {
-        Ok(env_config) => {
-            // Only merge if any environment variables were actually set
-            if env_config != ProxyConfig::default() {
-                info!("Loading configuration from environment variables");
-                config = config.merge(env_config);
-                debug!("Merged environment variables configuration");
-            } else {
-                debug!("No configuration found in environment variables");
-            }
-        },
-        Err(e) => {
-            warn!("Failed to load configuration from environment variables: {}", e);
+    // Load from environment variables (optimized to avoid unnecessary processing)
+    if let Ok(env_config) = ProxyConfig::from_env() {
+        // Only merge if any environment variables were actually set
+        if env_config != ProxyConfig::default() {
+            info!("Loading configuration from environment variables");
+            config = config.merge(env_config);
+            debug!("Merged environment variables configuration");
         }
     }
 
@@ -114,16 +100,19 @@ pub fn load_config(_args: Vec<String>, config_file: Option<&str>) -> Result<Prox
     // Validate configuration
     config.validate()?;
 
-    // Log configuration
+    // Log configuration (only in debug mode to reduce overhead)
     info!("Configuration loaded successfully");
-    debug!("Listen address: {}", config.listen);
-    debug!("Target address: {}", config.target);
-    debug!("Certificate path: {:?}", config.cert_path);
-    debug!("Private key path: {:?}", config.key_path);
-    debug!("CA certificate path: {:?}", config.ca_cert_path);
-    debug!("Hybrid mode: {}", config.hybrid_mode);
-    debug!("Log level: {}", config.log_level);
-    debug!("Client certificate mode: {}", config.client_cert_mode);
+    if log::log_enabled!(log::Level::Debug) {
+        debug!("Listen address: {}", config.listen);
+        debug!("Target address: {}", config.target);
+        debug!("Certificate path: {:?}", config.cert_path);
+        debug!("Private key path: {:?}", config.key_path);
+        debug!("CA certificate path: {:?}", config.ca_cert_path);
+        debug!("Log level: {}", config.log_level);
+        debug!("Client certificate mode: {}", config.client_cert_mode);
+        debug!("Buffer size: {} bytes", config.buffer_size);
+        debug!("Connection timeout: {} seconds", config.connection_timeout);
+    }
 
     Ok(config)
 }

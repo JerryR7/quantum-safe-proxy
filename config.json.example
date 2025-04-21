@@ -4,8 +4,9 @@
   "cert_path": "certs/hybrid/dilithium3/server.crt",
   "key_path": "certs/hybrid/dilithium3/server.key",
   "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
-  "hybrid_mode": true,
   "log_level": "info",
   "client_cert_mode": "optional",
+  "buffer_size": 8192,
+  "connection_timeout": 30,
   "environment": "production"
 }

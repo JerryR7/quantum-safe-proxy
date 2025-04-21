@@ -2,14 +2,16 @@
 //!
 //! This module provides a singleton configuration manager that handles
 //! configuration loading, access, and hot reloading.
+//! Optimized for lightweight and high-performance operation.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, RwLock};
-use once_cell::sync::OnceCell;
+use std::sync::{Mutex, RwLock, Arc, atomic::{AtomicUsize, AtomicU64, Ordering}};
+use once_cell::sync::{OnceCell, Lazy};
 use log::info;
 
 use crate::common::{Result, ProxyError};
 use super::config::ProxyConfig;
+use super::defaults;
 
 /// Configuration change event type
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,10 +25,14 @@ pub enum ConfigChangeEvent {
 /// Configuration change listener
 pub type ConfigChangeListener = Box<dyn Fn(ConfigChangeEvent) + Send + Sync>;
 
+// Cached configuration values for high-performance access
+static BUFFER_SIZE: Lazy<AtomicUsize> = Lazy::new(|| AtomicUsize::new(defaults::buffer_size()));
+static CONNECTION_TIMEOUT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(defaults::connection_timeout()));
+
 /// Configuration manager singleton
 pub struct ConfigManager {
-    /// Current configuration
-    config: RwLock<ProxyConfig>,
+    /// Current configuration (wrapped in Arc to reduce clone cost)
+    config: RwLock<Arc<ProxyConfig>>,
     /// Configuration file path
     config_path: Mutex<Option<PathBuf>>,
     /// Configuration change listeners
@@ -53,8 +59,12 @@ impl ConfigManager {
     pub fn initialize(config: ProxyConfig, config_path: Option<impl AsRef<Path>>) -> Result<()> {
         let config_path = config_path.map(|p| p.as_ref().to_path_buf());
 
+        // Initialize cached values
+        BUFFER_SIZE.store(config.buffer_size, Ordering::Relaxed);
+        CONNECTION_TIMEOUT.store(config.connection_timeout, Ordering::Relaxed);
+
         let manager = ConfigManager {
-            config: RwLock::new(config),
+            config: RwLock::new(Arc::new(config)),
             config_path: Mutex::new(config_path),
             listeners: Mutex::new(Vec::new()),
         };
@@ -82,11 +92,22 @@ impl ConfigManager {
     /// # Returns
     ///
     /// The current configuration
-    pub fn get_config() -> Result<ProxyConfig> {
+    pub fn get_config() -> Result<Arc<ProxyConfig>> {
         let config = Self::instance().config.read()
             .map_err(|e| ProxyError::Config(format!("Failed to read configuration: {}", e)))?;
 
-        Ok(config.clone())
+        // Return Arc clone instead of full config clone for better performance
+        Ok(Arc::clone(&config))
+    }
+
+    /// Get buffer size without acquiring a lock (high performance)
+    pub fn get_buffer_size() -> usize {
+        BUFFER_SIZE.load(Ordering::Relaxed)
+    }
+
+    /// Get connection timeout without acquiring a lock (high performance)
+    pub fn get_connection_timeout() -> u64 {
+        CONNECTION_TIMEOUT.load(Ordering::Relaxed)
     }
 
     /// Update the configuration
@@ -104,12 +125,16 @@ impl ConfigManager {
         // Validate the new configuration
         config.validate()?;
 
+        // Update cached values for fast access
+        BUFFER_SIZE.store(config.buffer_size, Ordering::Relaxed);
+        CONNECTION_TIMEOUT.store(config.connection_timeout, Ordering::Relaxed);
+
         // Update the configuration
         {
             let mut current = Self::instance().config.write()
                 .map_err(|e| ProxyError::Config(format!("Failed to write configuration: {}", e)))?;
 
-            *current = config;
+            *current = Arc::new(config);
         }
 
         // Notify listeners
@@ -152,17 +177,21 @@ impl ConfigManager {
         let current_config = Self::get_config()?;
 
         // Merge the configurations
-        let merged_config = current_config.merge(new_config);
+        let merged_config = current_config.as_ref().merge(new_config);
 
         // Validate the merged configuration
         merged_config.validate()?;
+
+        // Update cached values for fast access
+        BUFFER_SIZE.store(merged_config.buffer_size, Ordering::Relaxed);
+        CONNECTION_TIMEOUT.store(merged_config.connection_timeout, Ordering::Relaxed);
 
         // Update the configuration
         {
             let mut config = Self::instance().config.write()
                 .map_err(|e| ProxyError::Config(format!("Failed to write configuration: {}", e)))?;
 
-            *config = merged_config;
+            *config = Arc::new(merged_config);
         }
 
         // Update the configuration file path
@@ -254,8 +283,18 @@ pub fn initialize(args: Vec<String>, config_file: Option<&str>) -> Result<ProxyC
 /// # Returns
 ///
 /// The current configuration
-pub fn get_config() -> Result<ProxyConfig> {
+pub fn get_config() -> Result<Arc<ProxyConfig>> {
     ConfigManager::get_config()
+}
+
+/// Get buffer size without acquiring a lock (high performance)
+pub fn get_buffer_size() -> usize {
+    ConfigManager::get_buffer_size()
+}
+
+/// Get connection timeout without acquiring a lock (high performance)
+pub fn get_connection_timeout() -> u64 {
+    ConfigManager::get_connection_timeout()
 }
 
 /// Update the configuration

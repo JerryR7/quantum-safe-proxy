@@ -7,7 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::common::Result;
-use crate::BUFFER_SIZE;
+use crate::config::ProxyConfig;
 
 /// Forward data between two streams
 ///
@@ -15,6 +15,7 @@ use crate::BUFFER_SIZE;
 ///
 /// * `tls_stream` - TLS stream
 /// * `target_stream` - Target TCP stream
+/// * `config` - Proxy configuration
 ///
 /// # Returns
 ///
@@ -22,6 +23,7 @@ use crate::BUFFER_SIZE;
 pub async fn proxy_data<S>(
     tls_stream: S,
     target_stream: TcpStream,
+    config: ProxyConfig,
 ) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -32,7 +34,7 @@ where
 
     // Data flow from client to target
     let client_to_target = tokio::spawn(async move {
-        let mut buffer = vec![0u8; BUFFER_SIZE];
+        let mut buffer = vec![0u8; config.buffer_size];
         let mut total_bytes = 0;
 
         loop {
@@ -53,7 +55,7 @@ where
 
     // Data flow from target to client
     let target_to_client = tokio::spawn(async move {
-        let mut buffer = vec![0u8; BUFFER_SIZE];
+        let mut buffer = vec![0u8; config.buffer_size];
         let mut total_bytes = 0;
 
         loop {

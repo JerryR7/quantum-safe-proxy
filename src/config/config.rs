@@ -96,12 +96,7 @@ pub struct ProxyConfig {
     #[serde(default = "defaults::ca_cert_path")]
     pub ca_cert_path: PathBuf,
 
-    /// Whether to enable hybrid certificate mode
-    /// When enabled, the proxy will detect and support hybrid PQC certificates
-    #[serde(default = "defaults::hybrid_mode")]
-    pub hybrid_mode: bool,
-
-    /// Log level (debug, info, warn, error)
+    /// Log level (error, warn, info, debug, trace)
     #[serde(default = "defaults::log_level")]
     pub log_level: String,
 
@@ -112,11 +107,20 @@ pub struct ProxyConfig {
     #[serde(default)]
     pub client_cert_mode: ClientCertMode,
 
+    /// Buffer size for data transfer (in bytes)
+    /// Larger buffers may improve throughput but increase memory usage
+    #[serde(default = "defaults::buffer_size")]
+    pub buffer_size: usize,
+
+    /// Connection timeout in seconds
+    /// How long to wait for connections to establish before giving up
+    #[serde(default = "defaults::connection_timeout")]
+    pub connection_timeout: u64,
+
     /// Environment name (development, testing, production)
+    /// Used for loading environment-specific configuration files
     #[serde(default = "defaults::environment")]
     pub environment: String,
-
-    // TLS 相關設定完全由系統檢測決定，不再在設定檔中提供
 }
 
 impl Default for ProxyConfig {
@@ -128,9 +132,10 @@ impl Default for ProxyConfig {
             cert_path: defaults::cert_path(),
             key_path: defaults::key_path(),
             ca_cert_path: defaults::ca_cert_path(),
-            hybrid_mode: defaults::hybrid_mode(),
             log_level: defaults::log_level(),
             client_cert_mode: defaults::client_cert_mode(),
+            buffer_size: defaults::buffer_size(),
+            connection_timeout: defaults::connection_timeout(),
             environment: defaults::environment(),
         }
     }
@@ -292,16 +297,24 @@ impl ProxyConfig {
             config.ca_cert_path = ca_cert.into();
         }
 
-        if let Some(hybrid_mode) = get_env("HYBRID_MODE") {
-            config.hybrid_mode = hybrid_mode.to_lowercase() == "true";
-        }
-
         if let Some(log_level) = get_env("LOG_LEVEL") {
             config.log_level = log_level;
         }
 
         if let Some(client_cert_mode) = get_env("CLIENT_CERT_MODE") {
             config.client_cert_mode = ClientCertMode::from_str(&client_cert_mode)?;
+        }
+
+        if let Some(buffer_size) = get_env("BUFFER_SIZE") {
+            if let Ok(size) = buffer_size.parse::<usize>() {
+                config.buffer_size = size;
+            }
+        }
+
+        if let Some(timeout) = get_env("CONNECTION_TIMEOUT") {
+            if let Ok(seconds) = timeout.parse::<u64>() {
+                config.connection_timeout = seconds;
+            }
         }
 
         if let Some(env_name) = get_env("ENVIRONMENT") {
@@ -322,6 +335,8 @@ impl ProxyConfig {
     /// * `ca_cert` - CA certificate path
     /// * `log_level` - Log level
     /// * `client_cert_mode` - Client certificate verification mode
+    /// * `buffer_size` - Buffer size for data transfer (in bytes)
+    /// * `connection_timeout` - Connection timeout in seconds
     ///
     /// # Returns
     ///
@@ -339,7 +354,9 @@ impl ProxyConfig {
     ///     "certs/hybrid/dilithium3/server.key",
     ///     "certs/hybrid/dilithium3/ca.crt",
     ///     "info",
-    ///     "required"
+    ///     "required",
+    ///     8192,
+    ///     30
     /// )?;
     /// # Ok(())
     /// # }
@@ -352,6 +369,9 @@ impl ProxyConfig {
         ca_cert: &str,
         log_level: &str,
         client_cert_mode: &str,
+        buffer_size: usize,
+        connection_timeout: u64,
+        environment: &str,
     ) -> Result<Self> {
         // Parse listen address
         let listen = crate::common::parse_socket_addr(listen)?;
@@ -368,10 +388,11 @@ impl ProxyConfig {
             cert_path: PathBuf::from(cert),
             key_path: PathBuf::from(key),
             ca_cert_path: PathBuf::from(ca_cert),
-            hybrid_mode: defaults::hybrid_mode(),
             log_level: log_level.to_string(),
             client_cert_mode,
-            environment: defaults::environment(),
+            buffer_size,
+            connection_timeout,
+            environment: environment.to_string(),
         })
     }
 
@@ -395,9 +416,10 @@ impl ProxyConfig {
             cert_path: other.cert_path.clone(),
             key_path: other.key_path.clone(),
             ca_cert_path: other.ca_cert_path.clone(),
-            hybrid_mode: other.hybrid_mode,
             log_level: other.log_level.clone(),
             client_cert_mode: other.client_cert_mode,
+            buffer_size: other.buffer_size,
+            connection_timeout: other.connection_timeout,
             environment: other.environment.clone(),
         }
     }
@@ -498,6 +520,42 @@ impl ProxyConfig {
     ///
     /// Returns `Ok(())` if configuration is valid, otherwise returns an error.
     pub fn validate(&self) -> Result<()> {
+        // Check if listen address is valid
+        if self.listen.port() == 0 {
+            return Err(ProxyError::Config(format!(
+                "Invalid listen port: 0 (random port not supported)"
+            )));
+        }
+
+        // Check if target address is valid
+        if self.target.port() == 0 {
+            return Err(ProxyError::Config(format!(
+                "Invalid target port: 0 (random port not supported)"
+            )));
+        }
+
+        // Validate log level
+        match self.log_level.to_lowercase().as_str() {
+            "debug" | "info" | "warn" | "error" => {},
+            _ => {
+                return Err(ProxyError::Config(format!(
+                    "Invalid log level: {}. Valid values are: debug, info, warn, error",
+                    self.log_level
+                )));
+            },
+        }
+
+        // Validate environment
+        match self.environment.to_lowercase().as_str() {
+            "development" | "dev" | "testing" | "test" | "production" | "prod" => {},
+            _ => {
+                return Err(ProxyError::Config(format!(
+                    "Invalid environment: {}. Valid values are: development, testing, production",
+                    self.environment
+                )));
+            },
+        }
+
         // Check if certificate file exists
         check_file_exists(&self.cert_path).map_err(|_| {
             ProxyError::Config(format!(
@@ -521,17 +579,6 @@ impl ProxyConfig {
                 self.ca_cert_path
             ))
         })?;
-
-        // Validate log level
-        match self.log_level.to_lowercase().as_str() {
-            "debug" | "info" | "warn" | "error" => {},
-            _ => {
-                return Err(ProxyError::Config(format!(
-                    "Invalid log level: {}. Valid values are: debug, info, warn, error",
-                    self.log_level
-                )));
-            },
-        }
 
         // Validate environment
         match self.environment.to_lowercase().as_str() {

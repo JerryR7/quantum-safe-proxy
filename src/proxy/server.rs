@@ -12,6 +12,7 @@ use tokio::net::TcpListener;
 
 use crate::common::{ProxyError, Result};
 use crate::common::types::ConnectionInfo;
+use crate::config::ProxyConfig;
 use std::time::SystemTime;
 
 use super::handler::handle_connection;
@@ -28,6 +29,8 @@ pub struct Proxy {
     target_addr: SocketAddr,
     /// TLS acceptor for handling secure connections
     tls_acceptor: Arc<SslAcceptor>,
+    /// Proxy configuration (wrapped in Arc for efficient sharing)
+    config: Arc<ProxyConfig>,
 }
 
 impl Proxy {
@@ -38,6 +41,7 @@ impl Proxy {
     /// * `listen_addr` - Listen address
     /// * `target_addr` - Target service address
     /// * `tls_acceptor` - TLS acceptor
+    /// * `config` - Proxy configuration
     ///
     /// # Returns
     ///
@@ -49,12 +53,15 @@ impl Proxy {
     /// # use std::net::SocketAddr;
     /// # use openssl::ssl::SslAcceptor;
     /// # use quantum_safe_proxy::proxy::Proxy;
+    /// # use quantum_safe_proxy::config::ProxyConfig;
     /// # fn main() {
     /// # let tls_acceptor = SslAcceptor::mozilla_modern(openssl::ssl::SslMethod::tls()).unwrap().build();
+    /// # let config = ProxyConfig::default();
     /// let proxy = Proxy::new(
     ///     "127.0.0.1:8443".parse::<SocketAddr>().unwrap(),
     ///     "127.0.0.1:6000".parse::<SocketAddr>().unwrap(),
-    ///     tls_acceptor
+    ///     tls_acceptor,
+    ///     config
     /// );
     /// # }
     /// ```
@@ -62,11 +69,13 @@ impl Proxy {
         listen_addr: impl Into<SocketAddr>,
         target_addr: impl Into<SocketAddr>,
         tls_acceptor: SslAcceptor,
+        config: Arc<ProxyConfig>,
     ) -> Self {
         Self {
             listen_addr: listen_addr.into(),
             target_addr: target_addr.into(),
             tls_acceptor: Arc::new(tls_acceptor),
+            config,
         }
     }
 
@@ -79,16 +88,18 @@ impl Proxy {
     ///
     /// * `target_addr` - New target service address
     /// * `tls_acceptor` - New TLS acceptor
+    /// * `config` - New proxy configuration
     ///
     /// # Returns
     ///
     /// Returns a reference to the updated proxy
-    pub fn update_config(&mut self, target_addr: SocketAddr, tls_acceptor: SslAcceptor) -> &Self {
+    pub fn update_config(&mut self, target_addr: SocketAddr, tls_acceptor: SslAcceptor, config: &Arc<ProxyConfig>) -> &Self {
         log::info!("Updating proxy configuration");
         log::info!("New target address: {}", target_addr);
 
         self.target_addr = target_addr;
         self.tls_acceptor = Arc::new(tls_acceptor);
+        self.config = Arc::clone(config); // 使用 Arc::clone 更明確地表達只是增加引用計數
 
         log::info!("Proxy configuration updated successfully");
         self
@@ -131,9 +142,10 @@ impl Proxy {
                     let target_addr = self.target_addr;
 
                     // Handle connection in a new task
+                    let config = self.config.clone();
                     tokio::spawn(async move {
                         debug!("Starting to handle connection: {} -> {}", conn_info.source, conn_info.target);
-                        if let Err(e) = handle_connection(client_stream, target_addr, tls_acceptor).await {
+                        if let Err(e) = handle_connection(client_stream, target_addr, tls_acceptor, &config).await {
                             error!("Error handling connection: {}", e);
                         }
                     });
@@ -150,6 +162,7 @@ impl Proxy {
 mod tests {
     use super::*;
     use openssl::ssl::{SslMethod, SslAcceptor};
+    use crate::config::ProxyConfig;
 
     #[test]
     fn test_proxy_new() {
@@ -157,10 +170,12 @@ mod tests {
         let acceptor = SslAcceptor::mozilla_modern(SslMethod::tls()).unwrap().build();
 
         // Test creating a proxy instance
+        let config = ProxyConfig::default();
         let proxy = Proxy::new(
             "127.0.0.1:8443".parse::<SocketAddr>().unwrap(),
             "127.0.0.1:6000".parse::<SocketAddr>().unwrap(),
-            acceptor
+            acceptor,
+            config
         );
 
         assert_eq!(proxy.listen_addr.port(), 8443);
