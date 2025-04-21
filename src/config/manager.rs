@@ -56,7 +56,7 @@ impl ConfigManager {
     /// # Returns
     ///
     /// `Ok(())` if initialization was successful, an error otherwise
-    pub fn initialize(config: ProxyConfig, config_path: Option<impl AsRef<Path>>) -> Result<()> {
+    pub fn initialize(config: ProxyConfig, config_path: Option<impl AsRef<Path>>) -> Result<ProxyConfig> {
         let config_path = config_path.map(|p| p.as_ref().to_path_buf());
 
         // Initialize cached values
@@ -64,7 +64,7 @@ impl ConfigManager {
         CONNECTION_TIMEOUT.store(config.connection_timeout, Ordering::Relaxed);
 
         let manager = ConfigManager {
-            config: RwLock::new(Arc::new(config)),
+            config: RwLock::new(Arc::new(config.clone())),
             config_path: Mutex::new(config_path),
             listeners: Mutex::new(Vec::new()),
         };
@@ -72,7 +72,8 @@ impl ConfigManager {
         CONFIG_MANAGER.set(manager)
             .map_err(|_| ProxyError::Config("Configuration manager already initialized".to_string()))?;
 
-        Ok(())
+        // Return the configuration so it can be modified by command line arguments
+        Ok(config)
     }
 
     /// Get the configuration manager instance
@@ -271,7 +272,8 @@ pub fn initialize(args: Vec<String>, config_file: Option<&str>) -> Result<ProxyC
     let config = super::load_config(args, config_file)?;
 
     // Initialize the configuration manager
-    ConfigManager::initialize(config.clone(), config_file)?;
+    // The initialize function now returns the config for further modification
+    let config = ConfigManager::initialize(config, config_file)?;
 
     Ok(config)
 }

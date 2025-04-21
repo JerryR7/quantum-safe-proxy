@@ -116,6 +116,12 @@ pub struct ProxyConfig {
     /// How long to wait for connections to establish before giving up
     #[serde(default = "defaults::connection_timeout")]
     pub connection_timeout: u64,
+
+    /// OpenSSL installation directory
+    /// If specified, this will be used to locate OpenSSL libraries and headers
+    /// This is useful when OpenSSL is installed in a non-standard location
+    #[serde(default = "defaults::openssl_dir")]
+    pub openssl_dir: Option<PathBuf>,
 }
 
 impl Default for ProxyConfig {
@@ -131,6 +137,7 @@ impl Default for ProxyConfig {
             client_cert_mode: defaults::client_cert_mode(),
             buffer_size: defaults::buffer_size(),
             connection_timeout: defaults::connection_timeout(),
+            openssl_dir: defaults::openssl_dir(),
         }
     }
 }
@@ -228,11 +235,12 @@ impl ProxyConfig {
             let full_name = format!("{}{}", ENV_PREFIX, name);
             env::var(&full_name).ok()
         };
-        
+
         let mut config = Self::default();
         let mut has_changes = false;
 
         macro_rules! update_config {
+            // For Result<T, E> parsers
             ($env_name:expr, $field:expr, $parser:expr) => {
                 if let Some(value) = get_env($env_name) {
                     if let Ok(parsed) = $parser(&value) {
@@ -241,6 +249,14 @@ impl ProxyConfig {
                     }
                 }
             };
+            // For Option<T> parsers (used for openssl_dir)
+            ($env_name:expr, $field:expr, option_fn:expr) => {
+                if let Some(value) = get_env($env_name) {
+                    $field = option_fn(&value);
+                    has_changes = true;
+                }
+            };
+            // For direct string conversion
             ($env_name:expr, $field:expr) => {
                 if let Some(value) = get_env($env_name) {
                     $field = value.into();
@@ -259,6 +275,11 @@ impl ProxyConfig {
         update_config!("CLIENT_CERT_MODE", config.client_cert_mode, |v: &str| ClientCertMode::from_str(v));
         update_config!("BUFFER_SIZE", config.buffer_size, |v: &str| v.parse::<usize>());
         update_config!("CONNECTION_TIMEOUT", config.connection_timeout, |v: &str| v.parse::<u64>());
+        // Use the option_fn variant for openssl_dir
+        if let Some(value) = get_env("OPENSSL_DIR") {
+            config.openssl_dir = Some(PathBuf::from(value));
+            has_changes = true;
+        }
 
         // Record whether there are changes for quick comparison in auto_load
         if !has_changes {
@@ -336,6 +357,7 @@ impl ProxyConfig {
             client_cert_mode,
             buffer_size,
             connection_timeout,
+            openssl_dir: None,  // Default to None for openssl_dir
         })
     }
 
@@ -391,6 +413,13 @@ impl ProxyConfig {
             client_cert_mode: other.client_cert_mode,
             buffer_size: other.buffer_size,
             connection_timeout: other.connection_timeout,
+
+            // For Option<PathBuf>, only override if Some
+            openssl_dir: if other.openssl_dir.is_some() {
+                other.openssl_dir.clone()
+            } else {
+                self.openssl_dir.clone()
+            },
         }
     }
 
@@ -522,7 +551,7 @@ impl ProxyConfig {
                 )));
             },
         }
-        
+
         // Check if the certificate file exists
         check_file_exists(&self.cert_path).map_err(|_| {
             ProxyError::Config(format!(
@@ -546,7 +575,7 @@ impl ProxyConfig {
                 self.ca_cert_path
             ))
         })?;
-        
+
         Ok(())
     }
 
@@ -725,6 +754,7 @@ mod tests {
             client_cert_mode: ClientCertMode::None,
             buffer_size: 4096,                      // Test different buffer size
             connection_timeout: 60,                 // Test different connection timeout
+            openssl_dir: None,                      // No OpenSSL directory specified
         };
 
         // Merge configurations
@@ -752,7 +782,7 @@ mod tests {
         // Fix log level
         config.log_level = "debug".to_string();
 
-        // Validation should still fail because certificate files don't exist in the test environment 
+        // Validation should still fail because certificate files don't exist in the test environment
         // This is expected behavior
         assert!(config.validate().is_err());
     }

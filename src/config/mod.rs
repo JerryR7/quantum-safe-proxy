@@ -16,8 +16,10 @@ pub use manager::{initialize, get_config, update_config, reload_config, add_list
 pub use defaults::{ENV_PREFIX, DEFAULT_CONFIG_FILE, DEFAULT_CONFIG_DIR};
 pub use defaults::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 // use std::env; // 不再需要，因為我們優化了配置加載流程
+
+use crate::common::parse_socket_addr;
 use log::{info, warn, debug};
 
 use crate::common::Result;
@@ -40,9 +42,7 @@ use crate::common::Result;
 /// # Returns
 ///
 /// The loaded configuration
-pub fn load_config(_args: Vec<String>, config_file: Option<&str>) -> Result<ProxyConfig> {
-    // Note: Command line arguments are currently handled by clap in main.rs
-    // The _args parameter is kept for API compatibility
+pub fn load_config(args: Vec<String>, config_file: Option<&str>) -> Result<ProxyConfig> {
     // Start with default configuration
     let mut config = ProxyConfig::default();
     debug!("Starting with default configuration");
@@ -50,7 +50,7 @@ pub fn load_config(_args: Vec<String>, config_file: Option<&str>) -> Result<Prox
     // Optimized configuration file loading
     // Only check the file system once for each potential path
     if let Some(path) = config_file {
-        // Try specified configuration file first
+        // Try specified configuration files first
         let path_exists = Path::new(path).exists();
         if path_exists {
             info!("Loading configuration from specified file: {}", path);
@@ -61,7 +61,7 @@ pub fn load_config(_args: Vec<String>, config_file: Option<&str>) -> Result<Prox
                 warn!("Failed to load configuration from file: {}", path);
             }
         } else {
-            // Try default configuration file if specified file doesn't exist
+            // Try default configuration files if the specified file doesn't exist
             let default_exists = Path::new(DEFAULT_CONFIG_FILE).exists();
             if default_exists {
                 info!("Loading configuration from {}", DEFAULT_CONFIG_FILE);
@@ -95,7 +95,12 @@ pub fn load_config(_args: Vec<String>, config_file: Option<&str>) -> Result<Prox
     }
 
     // Parse command line arguments
-    // This is handled in main.rs using clap
+    if args.len() > 1 {  // 第一個參數是程序名稱，忽略
+        info!("Applying configuration from command line arguments");
+        let cli_config = parse_command_line_args(&args)?;
+        config = config.merge(cli_config);
+        debug!("Merged command line arguments configuration");
+    }
 
     // Validate configuration
     config.validate()?;
@@ -118,3 +123,119 @@ pub fn load_config(_args: Vec<String>, config_file: Option<&str>) -> Result<Prox
 }
 
 // Note: The reload_config function is now provided by the manager module
+
+/// Parse command line arguments into a ProxyConfig
+///
+/// This function parses command line arguments and returns a ProxyConfig
+/// with the values from the command line arguments.
+///
+/// # Arguments
+///
+/// * `args` - Command line arguments
+///
+/// # Returns
+///
+/// A ProxyConfig with values from command line arguments
+fn parse_command_line_args(args: &[String]) -> Result<ProxyConfig> {
+    use crate::common::ProxyError;
+
+    // Create a default configuration
+    let mut config = ProxyConfig::default();
+
+    // Simple command line argument parsing
+    let mut i = 1;  // Skip program name
+    while i < args.len() {
+        match args[i].as_str() {
+            "--listen" => {
+                if i + 1 < args.len() {
+                    config.listen = parse_socket_addr(&args[i + 1])?;
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --listen".to_string()));
+                }
+            },
+            "--target" => {
+                if i + 1 < args.len() {
+                    config.target = parse_socket_addr(&args[i + 1])?;
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --target".to_string()));
+                }
+            },
+            "--cert" => {
+                if i + 1 < args.len() {
+                    config.cert_path = PathBuf::from(&args[i + 1]);
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --cert".to_string()));
+                }
+            },
+            "--key" => {
+                if i + 1 < args.len() {
+                    config.key_path = PathBuf::from(&args[i + 1]);
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --key".to_string()));
+                }
+            },
+            "--ca-cert" => {
+                if i + 1 < args.len() {
+                    config.ca_cert_path = PathBuf::from(&args[i + 1]);
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --ca-cert".to_string()));
+                }
+            },
+            "--log-level" => {
+                if i + 1 < args.len() {
+                    config.log_level = args[i + 1].clone();
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --log-level".to_string()));
+                }
+            },
+            "--client-cert-mode" => {
+                if i + 1 < args.len() {
+                    config.client_cert_mode = ClientCertMode::from_str(&args[i + 1])?;
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --client-cert-mode".to_string()));
+                }
+            },
+            "--buffer-size" => {
+                if i + 1 < args.len() {
+                    config.buffer_size = args[i + 1].parse().map_err(|_| {
+                        ProxyError::Config(format!("Invalid buffer size: {}", args[i + 1]))
+                    })?;
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --buffer-size".to_string()));
+                }
+            },
+            "--connection-timeout" => {
+                if i + 1 < args.len() {
+                    config.connection_timeout = args[i + 1].parse().map_err(|_| {
+                        ProxyError::Config(format!("Invalid connection timeout: {}", args[i + 1]))
+                    })?;
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --connection-timeout".to_string()));
+                }
+            },
+            "--openssl-dir" => {
+                if i + 1 < args.len() {
+                    config.openssl_dir = Some(PathBuf::from(&args[i + 1]));
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --openssl-dir".to_string()));
+                }
+            },
+            _ => {
+                // Skip unknown arguments
+                i += 1;
+            }
+        }
+    }
+
+    Ok(config)
+}

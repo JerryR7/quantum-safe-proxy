@@ -14,7 +14,7 @@ use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
 use quantum_safe_proxy::crypto::provider::environment::initialize_environment;
 
 // Import for file and environment operations
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
@@ -65,6 +65,11 @@ struct Args {
     #[clap(long, default_value = "30")]
     connection_timeout: u64,
 
+    /// OpenSSL installation directory
+    /// If specified, this will be used to locate OpenSSL libraries and headers
+    #[clap(long)]
+    openssl_dir: Option<PathBuf>,
+
     // environment 參數已移除，不再支持環境特定配置文件
 }
 
@@ -78,6 +83,12 @@ async fn main() -> Result<()> {
 
     info!("Starting {} v{}", APP_NAME, VERSION);
 
+    // Set OpenSSL directory if specified in command line arguments
+    if let Some(openssl_dir) = &args.openssl_dir {
+        info!("Setting OpenSSL directory to: {}", openssl_dir.display());
+        std::env::set_var("OPENSSL_DIR", openssl_dir.to_string_lossy().to_string());
+    }
+
     // Initialize environment
     // This ensures that environment checks are performed only once
     let env_info = initialize_environment();
@@ -87,6 +98,14 @@ async fn main() -> Result<()> {
 
     // Initialize configuration system
     let config = config::initialize(std::env::args().collect(), args.config_file.as_deref())?;
+
+    // Set OpenSSL directory from configuration if not already set from command line
+    if args.openssl_dir.is_none() {
+        if let Some(openssl_dir) = &config.openssl_dir {
+            info!("Setting OpenSSL directory from configuration: {}", openssl_dir.display());
+            std::env::set_var("OPENSSL_DIR", openssl_dir.to_string_lossy().to_string());
+        }
+    }
 
     // Log certificate information
     match get_cert_subject(&config.cert_path, None) {

@@ -32,7 +32,7 @@ if [ ! -d "/app/certs" ] || [ -z "$(ls -A /app/certs 2>/dev/null)" ]; then
 fi
 
 # Execute the command passed to the script
-if [ "$1" = "--listen" ] || [ "$1" = "--config" ] || [ "$1" = "--help" ] || [ "$1" = "--version" ]; then
+if [ "$1" = "--listen" ] || [ "$1" = "--config" ] || [ "$1" = "--help" ] || [ "$1" = "--version" ] || [ "$1" = "--target" ] || [ "$1" = "--cert" ]; then
     # If the first argument starts with --, prepend the binary name
     exec /usr/local/bin/quantum-safe-proxy "$@"
 else

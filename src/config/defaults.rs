@@ -21,20 +21,20 @@ pub const DEFAULT_CONFIG_DIR: &str = "config";
 
 // String constants for default values
 
-/// Default listen address as string
+/// Default listen to address as string
 pub const LISTEN_STR: &str = "0.0.0.0:8443";
 
-/// Default target address as string
+/// Default target address as a string
 pub const TARGET_STR: &str = "127.0.0.1:6000";
 
 /// Default certificate path as string
-pub const CERT_PATH_STR: &str = "certs/hybrid/dilithium3/server.crt";
+pub const CERT_PATH_STR: &str = "certs/hybrid/ml-dsa-87/server.crt";
 
 /// Default private key path as string
-pub const KEY_PATH_STR: &str = "certs/hybrid/dilithium3/server.key";
+pub const KEY_PATH_STR: &str = "certs/hybrid/ml-dsa-87/server.key";
 
 /// Default CA certificate path as string
-pub const CA_CERT_PATH_STR: &str = "certs/hybrid/dilithium3/ca.crt";
+pub const CA_CERT_PATH_STR: &str = "certs/hybrid/ml-dsa-87/ca.crt";
 
 /// Default log level as string
 pub const LOG_LEVEL_STR: &str = "info";
@@ -91,6 +91,14 @@ pub fn connection_timeout() -> u64 {
 }
 
 // environment 函數已移除，不再支持環境特定配置文件
+
+/// Default OpenSSL directory
+///
+/// By default, no specific OpenSSL directory is set, and the system will use
+/// the default OpenSSL installation.
+pub fn openssl_dir() -> Option<PathBuf> {
+    None
+}
 
 // Note: Command line argument names and environment variable names
 // are now handled directly in the config.rs file
