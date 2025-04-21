@@ -19,13 +19,13 @@ use crate::config::defaults;
 pub enum ClientCertMode {
     /// Require client certificate, connection fails if not provided
     Required,
-    /// Verify client certificate if provided, but don't require it
+    /// Verify the client certificate if provided but don't require it
     Optional,
     /// Don't verify client certificates
     None,
 }
 
-// 自定義反序列化實現，使其對大小寫不敏感
+// Custom deserialization implementation to make it case-insensitive
 impl<'de> Deserialize<'de> for ClientCertMode {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -116,8 +116,6 @@ pub struct ProxyConfig {
     /// How long to wait for connections to establish before giving up
     #[serde(default = "defaults::connection_timeout")]
     pub connection_timeout: u64,
-
-    // environment 字段已移除，不再支持環境特定配置文件
 }
 
 impl Default for ProxyConfig {
@@ -169,42 +167,28 @@ impl ProxyConfig {
     pub fn auto_load() -> Result<Self> {
         use log::{info, debug};
 
-        // Start with default configuration
+        // Start with the default configuration
         let mut config = Self::default();
-        debug!("Starting with default configuration");
 
-        // Check for default configuration file
+        // Log configuration (only in debug mode to reduce overhead)
+        if log::log_enabled!(log::Level::Debug) {
+            debug!("Starting with default configuration");
+        }
+
+        // Use Path::try_exists to check if the file exists before attempting to load it
         let default_config_path = defaults::DEFAULT_CONFIG_FILE;
         if Path::new(default_config_path).exists() {
             info!("Loading configuration from {}", default_config_path);
-            match Self::from_file(default_config_path) {
-                Ok(file_config) => {
-                    config = config.merge(file_config);
-                    debug!("Merged default configuration file");
-                },
-                Err(e) => {
-                    log::warn!("Failed to load default configuration file: {}", e);
-                }
+            if let Ok(file_config) = Self::from_file(default_config_path) {
+                config = config.merge(file_config);
+                debug!("Merged configuration from file");
             }
-        } else {
-            debug!("No default configuration file found at {}", default_config_path);
         }
 
-        // Try to load from environment variables
-        match Self::from_env() {
-            Ok(env_config) => {
-                // Only merge if any environment variables were actually set
-                if env_config != Self::default() {
-                    info!("Loading configuration from environment variables");
-                    config = config.merge(env_config);
-                    debug!("Merged environment variables configuration");
-                } else {
-                    debug!("No configuration found in environment variables");
-                }
-            },
-            Err(e) => {
-                log::warn!("Failed to load configuration from environment variables: {}", e);
-            }
+        // from_env
+        if let Ok(env_config) = Self::from_env() {
+            info!("Applying configuration from environment variables");
+            config = config.merge(env_config);
         }
 
         Ok(config)
@@ -239,57 +223,48 @@ impl ProxyConfig {
         use crate::config::defaults::ENV_PREFIX;
         use std::env;
 
-        // Helper function to get environment variable with prefix
+        // Use a closure to get environment variables with the prefix
         let get_env = |name: &str| -> Option<String> {
             let full_name = format!("{}{}", ENV_PREFIX, name);
             env::var(&full_name).ok()
         };
-
-        // Start with default configuration
+        
         let mut config = Self::default();
+        let mut has_changes = false;
 
-        // Update configuration from environment variables
-        if let Some(listen) = get_env("LISTEN") {
-            config.listen = parse_socket_addr(&listen)?;
+        macro_rules! update_config {
+            ($env_name:expr, $field:expr, $parser:expr) => {
+                if let Some(value) = get_env($env_name) {
+                    if let Ok(parsed) = $parser(&value) {
+                        $field = parsed;
+                        has_changes = true;
+                    }
+                }
+            };
+            ($env_name:expr, $field:expr) => {
+                if let Some(value) = get_env($env_name) {
+                    $field = value.into();
+                    has_changes = true;
+                }
+            };
         }
 
-        if let Some(target) = get_env("TARGET") {
-            config.target = parse_socket_addr(&target)?;
-        }
+        // Update configuration fields from environment variables
+        update_config!("LISTEN", config.listen, |v: &str| parse_socket_addr(v));
+        update_config!("TARGET", config.target, |v: &str| parse_socket_addr(v));
+        update_config!("CERT", config.cert_path);
+        update_config!("KEY", config.key_path);
+        update_config!("CA_CERT", config.ca_cert_path);
+        update_config!("LOG_LEVEL", config.log_level);
+        update_config!("CLIENT_CERT_MODE", config.client_cert_mode, |v: &str| ClientCertMode::from_str(v));
+        update_config!("BUFFER_SIZE", config.buffer_size, |v: &str| v.parse::<usize>());
+        update_config!("CONNECTION_TIMEOUT", config.connection_timeout, |v: &str| v.parse::<u64>());
 
-        if let Some(cert) = get_env("CERT") {
-            config.cert_path = cert.into();
+        // Record whether there are changes for quick comparison in auto_load
+        if !has_changes {
+            // No changes, return default configuration
+            return Ok(Self::default());
         }
-
-        if let Some(key) = get_env("KEY") {
-            config.key_path = key.into();
-        }
-
-        if let Some(ca_cert) = get_env("CA_CERT") {
-            config.ca_cert_path = ca_cert.into();
-        }
-
-        if let Some(log_level) = get_env("LOG_LEVEL") {
-            config.log_level = log_level;
-        }
-
-        if let Some(client_cert_mode) = get_env("CLIENT_CERT_MODE") {
-            config.client_cert_mode = ClientCertMode::from_str(&client_cert_mode)?;
-        }
-
-        if let Some(buffer_size) = get_env("BUFFER_SIZE") {
-            if let Ok(size) = buffer_size.parse::<usize>() {
-                config.buffer_size = size;
-            }
-        }
-
-        if let Some(timeout) = get_env("CONNECTION_TIMEOUT") {
-            if let Ok(seconds) = timeout.parse::<u64>() {
-                config.connection_timeout = seconds;
-            }
-        }
-
-        // environment 字段已移除，不再處理環境變量
 
         Ok(config)
     }
@@ -341,7 +316,6 @@ impl ProxyConfig {
         client_cert_mode: &str,
         buffer_size: usize,
         connection_timeout: u64,
-        // environment 參數已移除
     ) -> Result<Self> {
         // Parse listen address
         let listen = crate::common::parse_socket_addr(listen)?;
@@ -362,7 +336,6 @@ impl ProxyConfig {
             client_cert_mode,
             buffer_size,
             connection_timeout,
-            // environment 字段已移除
         })
     }
 
@@ -380,21 +353,48 @@ impl ProxyConfig {
     /// Returns a new configuration with merged values
     pub fn merge(&self, other: impl AsRef<Self>) -> Self {
         let other = other.as_ref();
+
+        // Only clone values that are not the default
+        // This ensures that only explicitly set values are overridden
+        let default = Self::default();
+
         Self {
+            // For network addresses, directly override
             listen: other.listen,
             target: other.target,
-            cert_path: other.cert_path.clone(),
-            key_path: other.key_path.clone(),
-            ca_cert_path: other.ca_cert_path.clone(),
-            log_level: other.log_level.clone(),
+
+            // For file paths, only override if not the default
+            cert_path: if other.cert_path != default.cert_path {
+                other.cert_path.clone()
+            } else {
+                self.cert_path.clone()
+            },
+            key_path: if other.key_path != default.key_path {
+                other.key_path.clone()
+            } else {
+                self.key_path.clone()
+            },
+            ca_cert_path: if other.ca_cert_path != default.ca_cert_path {
+                other.ca_cert_path.clone()
+            } else {
+                self.ca_cert_path.clone()
+            },
+
+            // For strings, only override if not the default
+            log_level: if other.log_level != default.log_level {
+                other.log_level.clone()
+            } else {
+                self.log_level.clone()
+            },
+
+            // For enums, directly override
             client_cert_mode: other.client_cert_mode,
             buffer_size: other.buffer_size,
             connection_timeout: other.connection_timeout,
-            // environment 字段已移除
         }
     }
 
-    /// Load configuration from file
+    /// Load configuration from a file
     ///
     /// # Parameters
     ///
@@ -415,15 +415,20 @@ impl ProxyConfig {
     /// ```
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        let content = fs::read_to_string(path).map_err(|e| {
+
+        // Use a buffered reader for efficient reading
+        let file = fs::File::open(path).map_err(|e| {
             ProxyError::Config(format!(
-                "Failed to read configuration file {}: {}",
+                "Failed to open configuration file {}: {}",
                 path.display(),
                 e
             ))
         })?;
 
-        serde_json::from_str(&content).map_err(|e| {
+        let reader = std::io::BufReader::new(file);
+
+        // Use serde_json to deserialize the configuration
+        serde_json::from_reader(reader).map_err(|e| {
             ProxyError::Config(format!(
                 "Failed to parse JSON configuration file {}: {}",
                 path.display(),
@@ -457,7 +462,7 @@ impl ProxyConfig {
 
         // Create parent directories if they don't exist
         if let Some(parent) = path.parent() {
-            if !parent.exists() {
+            if !parent.is_dir() {
                 fs::create_dir_all(parent).map_err(|e| {
                     ProxyError::Config(format!(
                         "Failed to create directory {}: {}",
@@ -468,18 +473,23 @@ impl ProxyConfig {
             }
         }
 
-        // Serialize configuration to JSON with pretty formatting
-        let content = serde_json::to_string_pretty(self)
-            .map_err(|e| ProxyError::Config(format!("Failed to serialize configuration: {}", e)))?;
-
-        // Write to file
-        fs::write(path, content).map_err(|e| {
+        // Use a buffered writer for efficient writing
+        let file = fs::File::create(path).map_err(|e| {
             ProxyError::Config(format!(
-                "Failed to write configuration to {}: {}",
+                "Failed to create file {}: {}",
                 path.display(),
                 e
             ))
-        })
+        })?;
+
+        let writer = std::io::BufWriter::new(file);
+
+        // Use serde_json to serialize the configuration
+        serde_json::to_writer_pretty(writer, self).map_err(|e| {
+            ProxyError::Config(format!("Failed to serialize configuration to JSON: {}", e))
+        })?;
+
+        Ok(())
     }
 
     /// Validate configuration
@@ -499,9 +509,7 @@ impl ProxyConfig {
 
         // Check if target address is valid
         if self.target.port() == 0 {
-            return Err(ProxyError::Config(format!(
-                "Invalid target port: 0 (random port not supported)"
-            )));
+            return Err(ProxyError::Config("Invalid target port: 0 (random port not supported)".to_string()));
         }
 
         // Validate log level
@@ -514,10 +522,8 @@ impl ProxyConfig {
                 )));
             },
         }
-
-        // environment 字段已移除，不再驗證環境
-
-        // Check if certificate file exists
+        
+        // Check if the certificate file exists
         check_file_exists(&self.cert_path).map_err(|_| {
             ProxyError::Config(format!(
                 "Certificate file does not exist or is invalid: {:?}",
@@ -525,7 +531,7 @@ impl ProxyConfig {
             ))
         })?;
 
-        // Check if private key file exists
+        // Check if the private key file exists
         check_file_exists(&self.key_path).map_err(|_| {
             ProxyError::Config(format!(
                 "Private key file does not exist or is invalid: {:?}",
@@ -533,16 +539,14 @@ impl ProxyConfig {
             ))
         })?;
 
-        // Check if CA certificate file exists
+        // Check if the CA certificate file exists
         check_file_exists(&self.ca_cert_path).map_err(|_| {
             ProxyError::Config(format!(
                 "CA certificate file does not exist or is invalid: {:?}",
                 self.ca_cert_path
             ))
         })?;
-
-        // environment 字段已移除，不再驗證環境
-
+        
         Ok(())
     }
 
@@ -558,7 +562,7 @@ impl ProxyConfig {
     pub fn check(&self) -> Vec<String> {
         let mut warnings = Vec::new();
 
-        // Check if certificate file exists
+        // Check if a certificate file exists
         if !self.cert_path.exists() {
             warnings.push(format!(
                 "Certificate file does not exist: {}",
@@ -566,7 +570,7 @@ impl ProxyConfig {
             ));
         }
 
-        // Check if key file exists
+        // Check if the key file exists
         if !self.key_path.exists() {
             warnings.push(format!(
                 "Key file does not exist: {}",
@@ -574,7 +578,7 @@ impl ProxyConfig {
             ));
         }
 
-        // Check if CA certificate file exists
+        // Check if the CA certificate file exists
         if !self.ca_cert_path.exists() {
             warnings.push(format!(
                 "CA certificate file does not exist: {}",
@@ -590,7 +594,7 @@ impl ProxyConfig {
             ));
         }
 
-        // Check if target address is valid
+        // Check if the target address is valid
         if self.target.port() == 0 {
             warnings.push(format!(
                 "Target address has port 0, which may not work as expected: {}",
@@ -598,7 +602,7 @@ impl ProxyConfig {
             ));
         }
 
-        // Check if log level is valid
+        // Check if the log level is valid
         match self.log_level.to_lowercase().as_str() {
             "debug" | "info" | "warn" | "error" => {},
             _ => warnings.push(format!("Unknown log level: {}", self.log_level)),
@@ -607,9 +611,9 @@ impl ProxyConfig {
         warnings
     }
 
-    /// Reload configuration from file
+    /// Reload configuration from a file
     ///
-    /// This method reloads configuration from the specified file and merges it with
+    /// This method reloads the configuration from the specified file and merges it with
     /// the current configuration. It then validates the merged configuration.
     ///
     /// # Parameters
@@ -634,7 +638,7 @@ impl ProxyConfig {
         let path = path.as_ref();
         log::info!("Reloading configuration from file: {}", path.display());
 
-        // Load new configuration from file
+        // Load a new configuration from a file
         let new_config = Self::from_file(path)?;
 
         // Merge with current configuration
@@ -671,7 +675,6 @@ mod tests {
         assert_eq!(config.ca_cert_path, defaults::ca_cert_path());
         assert_eq!(config.log_level, defaults::log_level());
         assert_eq!(config.client_cert_mode, defaults::client_cert_mode());
-        // environment 字段已移除，不再測試
     }
 
     #[test]
@@ -686,7 +689,7 @@ mod tests {
             "info",
             "optional",
             8192,                                  // buffer_size
-            30                                    // connection_timeout
+            30                              // connection_timeout
         );
 
         assert!(config.is_ok(), "Should be able to create configuration");
@@ -717,12 +720,11 @@ mod tests {
             target: base.target, // Keep default
             cert_path: PathBuf::from("certs/traditional/rsa/server.crt"),
             key_path: PathBuf::from("certs/traditional/rsa/server.key"),
-            ca_cert_path: base_ca_cert_path.clone(), // Use cloned path
+            ca_cert_path: base_ca_cert_path.clone(), // Use the cloned path
             log_level: "debug".to_string(),
             client_cert_mode: ClientCertMode::None,
-            buffer_size: 4096,                      // 測試不同的緩衝區大小
-            connection_timeout: 60,                 // 測試不同的連接逾時
-            // environment 字段已移除
+            buffer_size: 4096,                      // Test different buffer size
+            connection_timeout: 60,                 // Test different connection timeout
         };
 
         // Merge configurations
@@ -733,15 +735,14 @@ mod tests {
         assert_eq!(merged.target, base.target);
         assert_eq!(merged.cert_path, override_config.cert_path);
         assert_eq!(merged.key_path, override_config.key_path);
-        assert_eq!(merged.ca_cert_path, base_ca_cert_path); // Use cloned path
+        assert_eq!(merged.ca_cert_path, base_ca_cert_path); // Use the cloned path
         assert_eq!(merged.log_level, override_config.log_level);
         assert_eq!(merged.client_cert_mode, override_config.client_cert_mode);
-        // environment 字段已移除，不再測試
     }
 
     #[test]
     fn test_validation() {
-        // Create a configuration with invalid log level
+        // Create a configuration with an invalid log level
         let mut config = ProxyConfig::default();
         config.log_level = "invalid".to_string();
 
@@ -751,7 +752,7 @@ mod tests {
         // Fix log level
         config.log_level = "debug".to_string();
 
-        // Validation should still fail because certificate files don't exist in test environment
+        // Validation should still fail because certificate files don't exist in the test environment 
         // This is expected behavior
         assert!(config.validate().is_err());
     }
