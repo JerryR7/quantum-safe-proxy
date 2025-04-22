@@ -8,7 +8,7 @@ use once_cell::sync::OnceCell;
 
 use crate::common::Result;
 use super::{CryptoProvider, ProviderType};
-use super::api;
+use super::capabilities;
 
 // Provider singletons for better performance
 #[cfg(feature = "openssl")]
@@ -122,9 +122,9 @@ fn initialize_provider() {
 ///
 /// `true` if post-quantum cryptography is available, `false` otherwise
 pub fn is_pqc_available() -> bool {
-    // Use the API layer's is_pqc_available function
+    // Use the capabilities layer's is_pqc_available function
     // This ensures consistent results across the application
-    api::is_pqc_available()
+    capabilities::is_pqc_available()
 }
 
 /// Backward compatibility function for OQS availability
@@ -150,5 +150,5 @@ pub fn is_oqs_available() -> bool {
 /// `true` if OpenSSL 3.5+ is available, `false` otherwise
 #[allow(dead_code)]
 pub fn is_openssl35_available() -> bool {
-    api::is_openssl35_available()
+    capabilities::is_openssl35_available()
 }

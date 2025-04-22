@@ -1,4 +1,4 @@
-//! OpenSSL capabilities detection
+//! OpenSSL capabilities' detection
 //!
 //! This module provides functionality to detect the capabilities of the
 //! OpenSSL installation, including post-quantum cryptography support.
@@ -57,6 +57,9 @@ pub fn get_supported_pq_algorithms() -> (Vec<String>, Vec<String>) {
 
 /// Get recommended cipher list
 ///
+/// This function returns the recommended cipher list based on
+/// whether post-quantum cryptography is supported.
+///
 /// # Arguments
 ///
 /// * `supports_pqc` - Whether post-quantum cryptography is supported
@@ -65,14 +68,21 @@ pub fn get_supported_pq_algorithms() -> (Vec<String>, Vec<String>) {
 ///
 /// The recommended cipher list
 pub fn get_recommended_cipher_list(supports_pqc: bool) -> String {
+    // Default cipher list
+    const DEFAULT_CIPHER_LIST: &str = "HIGH:MEDIUM:!aNULL:!MD5:!RC4";
+
     if supports_pqc {
-        "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256".to_string()
+        // Add PQC ciphers if available
+        format!("{0}:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256", DEFAULT_CIPHER_LIST)
     } else {
-        "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-RSA-AES128-GCM-SHA256".to_string()
+        DEFAULT_CIPHER_LIST.to_string()
     }
 }
 
 /// Get recommended TLS 1.3 ciphersuites
+///
+/// This function returns the recommended TLS 1.3 ciphersuites based on
+/// whether post-quantum cryptography is supported.
 ///
 /// # Arguments
 ///
@@ -82,10 +92,21 @@ pub fn get_recommended_cipher_list(supports_pqc: bool) -> String {
 ///
 /// The recommended TLS 1.3 ciphersuites
 pub fn get_recommended_tls13_ciphersuites(supports_pqc: bool) -> String {
-    "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256".to_string()
+    // Default TLS 1.3 ciphersuites
+    const DEFAULT_TLS13_CIPHERSUITES: &str = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256";
+
+    if supports_pqc {
+        // Add PQC ciphersuites if available
+        format!("{0}:{1}", DEFAULT_TLS13_CIPHERSUITES, "TLS_MLDSA87_WITH_AES_256_GCM_SHA384")
+    } else {
+        DEFAULT_TLS13_CIPHERSUITES.to_string()
+    }
 }
 
 /// Get recommended groups
+///
+/// This function returns the recommended groups based on
+/// whether post-quantum cryptography is supported.
 ///
 /// # Arguments
 ///
@@ -95,10 +116,17 @@ pub fn get_recommended_tls13_ciphersuites(supports_pqc: bool) -> String {
 ///
 /// The recommended groups
 pub fn get_recommended_groups(supports_pqc: bool) -> String {
+    // Default groups
+    const DEFAULT_GROUPS: &str = "X25519:P-256:P-384:P-521";
+
+    // PQC groups
+    const PQC_GROUPS: &str = "X25519MLKEM768:P384MLDSA65:P256MLDSA44";
+
     if supports_pqc {
-        "kyber768:p384_kyber768:x25519_kyber768:X25519:P-384:P-256".to_string()
+        // Add PQC groups if available
+        format!("{0}:{1}", DEFAULT_GROUPS, PQC_GROUPS)
     } else {
-        "X25519:P-384:P-256".to_string()
+        DEFAULT_GROUPS.to_string()
     }
 }
 
@@ -232,9 +260,9 @@ impl OpenSSLCapabilities {
         }
 
         // Get recommended cipher list, ciphersuites, and groups
-        let recommended_cipher_list = api::get_recommended_cipher_list(supports_pqc);
-        let recommended_tls13_ciphersuites = api::get_recommended_tls13_ciphersuites(supports_pqc);
-        let recommended_groups = api::get_recommended_groups(supports_pqc);
+        let recommended_cipher_list = get_recommended_cipher_list(supports_pqc);
+        let recommended_tls13_ciphersuites = get_recommended_tls13_ciphersuites(supports_pqc);
+        let recommended_groups = get_recommended_groups(supports_pqc);
 
         // Create capabilities
         let capabilities = Self {
