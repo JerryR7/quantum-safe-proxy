@@ -61,10 +61,10 @@ graph LR
 | Component | Technology |
 |-----------|------------|
 | **Language** | Rust |
-| **TLS Library** | OpenSSL 3.5+ with built-in PQC support or OpenSSL with oqs-provider |
+| **TLS Library** | OpenSSL 3.5+ with built-in PQC support |
 | **Proxy Runtime** | tokio + tokio-openssl |
 | **Deployment** | Docker / Kubernetes / Systemd sidecar mode |
-| **Certificate Tools** | OpenSSL 3.5+ CLI or OQS OpenSSL CLI (hybrid CSR and certificates) |
+| **Certificate Tools** | OpenSSL 3.5+ CLI (hybrid CSR and certificates) |
 
 ## 5. Installation
 
@@ -187,13 +187,14 @@ The configuration file uses JSON format and supports the following options:
 |--------|-------------|--------|
 | `listen` | Listen address for the proxy server | `0.0.0.0:8443` |
 | `target` | Target service address to forward traffic to | `127.0.0.1:6000` |
-| `cert_path` | Server certificate path | `certs/hybrid/dilithium3/server.crt` |
-| `key_path` | Server private key path | `certs/hybrid/dilithium3/server.key` |
-| `ca_cert_path` | CA certificate path for client certificate validation | `certs/ca.crt` |
-| `hybrid_mode` | Whether to enable hybrid certificate mode | `true` |
+| `cert_path` | Server certificate path | `certs/hybrid/ml-dsa-87/server.crt` |
+| `key_path` | Server private key path | `certs/hybrid/ml-dsa-87/server.key` |
+| `ca_cert_path` | CA certificate path for client certificate validation | `certs/hybrid/ml-dsa-87/ca.crt` |
 | `client_cert_mode` | Client certificate verification mode: `required`, `optional`, or `none` | `optional` |
 | `log_level` | Log level: `debug`, `info`, `warn`, or `error` | `info` |
-| `environment` | Environment: `development`, `testing`, or `production` | `production` |
+| `buffer_size` | Buffer size for data transfer in bytes | `8192` |
+| `connection_timeout` | Connection timeout in seconds | `30` |
+| `openssl_dir` | Optional path to OpenSSL installation directory | `null` |
 
 Example configuration file:
 
@@ -201,13 +202,14 @@ Example configuration file:
 {
   "listen": "0.0.0.0:8443",
   "target": "127.0.0.1:6000",
-  "cert_path": "certs/hybrid/dilithium3/server.crt",
-  "key_path": "certs/hybrid/dilithium3/server.key",
-  "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
-  "hybrid_mode": true,
+  "cert_path": "certs/hybrid/ml-dsa-87/server.crt",
+  "key_path": "certs/hybrid/ml-dsa-87/server.key",
+  "ca_cert_path": "certs/hybrid/ml-dsa-87/ca.crt",
   "client_cert_mode": "optional",
   "log_level": "info",
-  "environment": "production"
+  "buffer_size": 8192,
+  "connection_timeout": 30,
+  "openssl_dir": "/opt/openssl-3.5.0"
 }
 ```
 
@@ -285,9 +287,9 @@ docker run -p 8443:8443 \
   quantum-safe-proxy:latest \
   --listen 0.0.0.0:8443 \
   --target 127.0.0.1:6000 \
-  --cert /app/certs/hybrid/dilithium3/server.crt \
-  --key /app/certs/hybrid/dilithium3/server.key \
-  --ca-cert /app/certs/hybrid/dilithium3/ca.crt \
+  --cert /app/certs/hybrid/ml-dsa-87/server.crt \
+  --key /app/certs/hybrid/ml-dsa-87/server.key \
+  --ca-cert /app/certs/hybrid/ml-dsa-87/ca.crt \
   --client-cert-mode optional
 
 # OpenSSL 3.5 image (with built-in post-quantum support)
@@ -301,16 +303,7 @@ docker run -p 8443:8443 \
   --ca-cert /app/certs/hybrid/ml-dsa-65/ca.crt \
   --client-cert-mode optional
 
-# OQS image (with legacy post-quantum support)
-docker run -p 8443:8443 \
-  -v $(pwd)/certs:/app/certs \
-  quantum-safe-proxy:oqs \
-  --listen 0.0.0.0:8443 \
-  --target 127.0.0.1:6000 \
-  --cert /app/certs/hybrid/dilithium3/server.crt \
-  --key /app/certs/hybrid/dilithium3/server.key \
-  --ca-cert /app/certs/hybrid/dilithium3/ca.crt \
-  --client-cert-mode optional
+
 ```
 
 #### 3. Using Docker Compose
@@ -320,9 +313,8 @@ Make sure your `docker-compose.yml` file uses the pre-built images:
 ```yaml
 services:
   quantum-safe-proxy:
-    # Choose one of the following images:
-    image: quantum-safe-proxy:openssl35  # Use OpenSSL 3.5 with built-in PQC
-    # image: quantum-safe-proxy:oqs      # Use legacy OQS provider
+    # Use OpenSSL 3.5 with built-in PQC
+    image: quantum-safe-proxy:openssl35
     ports:
       - "8443:8443"
     volumes:
@@ -347,7 +339,7 @@ When your code changes and you need to update the images:
 
 ```bash
 # Rebuild the image
-docker build -f docker/Dockerfile.oqs -t quantum-safe-proxy:oqs .
+docker build -f docker/Dockerfile.openssl35 -t quantum-safe-proxy:openssl35 .
 
 # Restart the services
 docker-compose down
@@ -370,26 +362,29 @@ We recommend building images manually and using only `image:` in docker-compose.
 |--------|-------------|---------|
 | `--listen` | Listen address | 0.0.0.0:8443 |
 | `--target` | Target service address | 127.0.0.1:6000 |
-| `--cert` | Server certificate path | certs/hybrid/dilithium3/server.crt |
-| `--key` | Server private key path | certs/hybrid/dilithium3/server.key |
-| `--ca-cert` | CA certificate path | certs/hybrid/dilithium3/ca.crt |
+| `--cert` | Server certificate path | certs/hybrid/ml-dsa-87/server.crt |
+| `--key` | Server private key path | certs/hybrid/ml-dsa-87/server.key |
+| `--ca-cert` | CA certificate path | certs/hybrid/ml-dsa-87/ca.crt |
 | `--log-level` | Log level (debug, info, warn, error) | info |
-| `--hybrid-mode` | Enable hybrid certificate mode | true |
 | `--client-cert-mode` | Client certificate verification mode (required, optional, none) | optional |
+| `--buffer-size` | Buffer size for data transfer in bytes | 8192 |
+| `--connection-timeout` | Connection timeout in seconds | 30 |
+| `--openssl-dir` | Path to OpenSSL installation directory | - |
 | `--from-env` | Load configuration from environment variables | - |
 | `--config-file` | Load configuration from specified file | - |
 
 ## 7. Hybrid Certificate Support
 
-Quantum Safe Proxy supports **hybrid X.509 certificates** using either OpenSSL 3.5+ with built-in PQC support or OpenSSL with the [OQS-provider](https://github.com/open-quantum-safe/oqs-provider). This allows the server to accept connections from both PQC-enabled and traditional clients.
+Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL 3.5+ with built-in PQC support. This allows the server to accept connections from both PQC-enabled and traditional clients.
 
 ### Supported Algorithms
 
-| Type | Algorithms (OpenSSL 3.5+) | Algorithms (OQS Provider) |
-|------|--------------------------|---------------------------|
-| **Key Exchange** | ML-KEM (formerly Kyber, NIST PQC standard) | Kyber (NIST PQC standard) |
-| **Signatures** | ML-DSA (formerly Dilithium, NIST PQC standard) | Dilithium (NIST PQC standard) |
-| **Classical Fallback** | ECDSA, RSA | ECDSA, RSA |
+| Type | Algorithms (OpenSSL 3.5+) |
+|------|---------------------------|
+| **Key Exchange** | ML-KEM-512, ML-KEM-768, ML-KEM-1024 (formerly Kyber, NIST PQC standard) |
+| **Signatures** | ML-DSA-44, ML-DSA-65, ML-DSA-87 (formerly Dilithium, NIST PQC standard) |
+| **Lattice-Based Signatures** | SLH-DSA-FALCON-512, SLH-DSA-FALCON-1024 |
+| **Classical Fallback** | ECDSA (P-256, P-384, P-521), RSA, Ed25519 |
 
 ### TLS Handshake Behavior
 
@@ -399,7 +394,7 @@ Quantum Safe Proxy supports **hybrid X.509 certificates** using either OpenSSL 3
 
 ### Installing Post-Quantum Cryptography Support
 
-#### Option 1: Using OpenSSL 3.5+ (Recommended)
+#### Using OpenSSL 3.5+
 
 OpenSSL 3.5+ includes built-in support for post-quantum cryptography algorithms standardized by NIST.
 
@@ -410,50 +405,31 @@ OpenSSL 3.5+ includes built-in support for post-quantum cryptography algorithms 
 # Verify the installation
 docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl version
 docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl list -kem-algorithms | grep -i ML-KEM
-```
-
-#### Option 2: Using OQS Provider (Legacy Support)
-
-```bash
-# Run the installation script
-./scripts/install-oqs-provider.sh
-
-# Source the environment variables
-source /opt/oqs/env.sh
-```
-
-#### Option 3: Using Legacy OQS OpenSSL (Deprecated)
-
-```bash
-# Run the installation script
-./scripts/install-oqs.sh
-
-# Source the environment variables
-source /opt/oqs-openssl/env.sh
+docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl list -signature-algorithms | grep -i ML-DSA
 ```
 
 ### Generating Hybrid Certificates
 
-#### Using OpenSSL 3.5+ (Recommended)
+#### Using OpenSSL 3.5+
 
 ```bash
 # Run the certificate generation script in the Docker container
 docker compose -f docker-compose.yml exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh
-
-# Or generate a specific certificate manually
-docker run --rm -v $(pwd)/certs:/app/certs quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl req -x509 -new -newkey ML-DSA-65 -keyout /app/certs/hybrid/ml-dsa-65/server.key -out /app/certs/hybrid/ml-dsa-65/server.crt -nodes -days 365 -subj "/CN=Hybrid ML-DSA-65/O=Quantum Safe Proxy/OU=Testing/C=TW"
 ```
 
-#### Using OQS Provider (Legacy)
+This script generates a complete set of certificates including:
+- Traditional certificates (RSA, ECDSA)
+- Hybrid certificates (ML-DSA-44/65/87 + ECDSA, ML-KEM-768 + X25519)
+- Pure post-quantum certificates (ML-DSA-44/65/87)
+
+#### Generating Specific Certificates Manually
 
 ```bash
-# Set environment variables
-export PATH="/opt/oqs/openssl/bin:$PATH"
-export LD_LIBRARY_PATH="/opt/oqs/openssl/lib64:/opt/oqs/liboqs/lib:$LD_LIBRARY_PATH"
+# Generate a hybrid ML-DSA-65 certificate
+docker run --rm -v $(pwd)/certs:/app/certs quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl req -x509 -new -newkey ML-DSA-65 -keyout /app/certs/hybrid/ml-dsa-65/server.key -out /app/certs/hybrid/ml-dsa-65/server.crt -nodes -days 365 -subj "/CN=Hybrid ML-DSA-65/O=Quantum Safe Proxy/OU=Testing/C=TW"
 
-# Generate hybrid certificate
-openssl req -x509 -new -newkey dilithium3 -keyout certs/hybrid/dilithium3/server.key -out certs/hybrid/dilithium3/server.crt \
-    -config scripts/openssl-hybrid.conf -nodes -days 365
+# Generate a pure post-quantum ML-DSA-87 certificate
+docker run --rm -v $(pwd)/certs:/app/certs quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl req -x509 -new -newkey ML-DSA-87 -keyout /app/certs/post-quantum/ml-dsa-87/server.key -out /app/certs/post-quantum/ml-dsa-87/server.crt -nodes -days 365 -subj "/CN=PQ ML-DSA-87/O=Quantum Safe Proxy/OU=Testing/C=TW"
 ```
 
 ### Example OpenSSL Configuration
@@ -496,6 +472,8 @@ Quantum Safe Proxy, built on **tokio-openssl**, performs mutual TLS with hybrid 
 ```
 quantum-safe-proxy/
 ├── src/
+│   ├── bin/                # Binary executables
+│   │   └── check-environment.rs # Environment checking tool
 │   ├── common/            # Shared utilities
 │   │   ├── error.rs       # Error handling
 │   │   ├── fs.rs          # File system utilities
@@ -505,6 +483,8 @@ quantum-safe-proxy/
 │   │   └── mod.rs         # Re-exports
 │   ├── config/            # Configuration handling
 │   │   ├── config.rs      # Configuration structures
+│   │   ├── defaults.rs    # Default configuration values
+│   │   ├── manager.rs     # Configuration management
 │   │   └── mod.rs         # Re-exports
 │   ├── proxy/             # Core proxy functionality
 │   │   ├── server.rs      # Proxy server implementation
@@ -512,13 +492,11 @@ quantum-safe-proxy/
 │   │   ├── forwarder.rs   # Data forwarding logic
 │   │   └── mod.rs         # Re-exports
 │   ├── crypto/            # Cryptographic operations
-│   │   ├── provider/       # Cryptographic providers
-│   │   │   ├── standard.rs # Standard OpenSSL provider
-│   │   │   ├── oqs.rs      # OQS-OpenSSL provider
-│   │   │   ├── factory.rs  # Provider factory
-│   │   │   ├── environment.rs # Environment detection
-│   │   │   └── mod.rs      # Provider trait and types
-│   │   └── mod.rs          # Re-exports
+│   │   ├── capabilities.rs # OpenSSL capabilities detection
+│   │   ├── environment.rs # Environment checks and diagnostics
+│   │   ├── loader.rs      # OpenSSL dynamic loader
+│   │   ├── openssl.rs     # OpenSSL 3.5+ implementation
+│   │   └── mod.rs         # Re-exports
 │   ├── tls/               # TLS and certificate handling
 │   │   ├── acceptor.rs    # TLS acceptor creation
 │   │   ├── cert.rs        # Certificate operations
@@ -534,14 +512,18 @@ quantum-safe-proxy/
 │   └── hybrid_certs.rs     # Hybrid certificate example
 ├── docker/                # Container configurations
 │   ├── Dockerfile          # Standard Docker image definition
-│   ├── Dockerfile.oqs      # Docker image with OQS-OpenSSL
+│   ├── Dockerfile.openssl35 # Docker image with OpenSSL 3.5
 │   └── docker-compose.yml  # Docker Compose configuration
 ├── scripts/               # Utility scripts
-│   └── install-oqs.sh      # OQS-OpenSSL installation script
+│   ├── build-openssl35.sh  # OpenSSL 3.5 build script
+│   └── generate-openssl35-certs.sh # Certificate generation script
 ├── kubernetes/            # Kubernetes deployment
 │   ├── deployment.yaml     # Kubernetes deployment
 │   └── service.yaml        # Kubernetes service
 ├── certs/                 # Certificate directory
+├── docs/                  # Documentation
+│   ├── guide.md           # Comprehensive guide
+│   └── README.md          # Documentation index
 └── config.json.example    # Example configuration file
 ```
 
@@ -644,11 +626,11 @@ sudo ldconfig
 - Auto-certificate rotation via REST API
 - Hybrid client metrics and handshake logs
 - WASM-based certificate authorization plugin
-- PQC-only mode with Kyber + Dilithium enforcement
+- PQC-only mode with ML-KEM + ML-DSA enforcement
 - Performance optimizations for high-throughput scenarios
-- Enhanced OQS integration with more PQC algorithms
+- Support for additional PQC algorithms as they become standardized
 - Certificate chain validation with hybrid certificates
-- Automatic OQS-OpenSSL detection and configuration
+- Automatic certificate type detection and configuration
 
 ## 13. Documentation
 

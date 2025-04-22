@@ -19,7 +19,7 @@ if [ ! -d "/app/certs" ] || [ -z "$(ls -A /app/certs 2>/dev/null)" ]; then
             /app/scripts/generate-openssl35-certs.sh
         else
             echo "Using OQS-OpenSSL to generate certificates"
-            /app/scripts/generate-certificates.sh
+            /app/scripts/generate-oqs-certs.sh
         fi
     else
         echo "Certificates not found. You can:"
@@ -27,7 +27,7 @@ if [ ! -d "/app/certs" ] || [ -z "$(ls -A /app/certs 2>/dev/null)" ]; then
         echo "  2. Set AUTO_GENERATE_CERTS=true to generate certificates automatically"
         echo "  3. Run the certificate generation script manually:"
         echo "     - For OpenSSL 3.5+: /app/scripts/generate-openssl35-certs.sh"
-        echo "     - For OQS-OpenSSL: /app/scripts/generate-certificates.sh"
+        echo "     - For OQS-OpenSSL: /app/scripts/generate-oqs-certs.sh"
     fi
 fi
 

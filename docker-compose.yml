@@ -6,7 +6,7 @@ services:
       - "8443:8443"
     volumes:
       - ./certs:/app/certs
-      - ./config:/app/config
+      - ./config.json:/app/config.json
       - ./scripts:/app/scripts
     environment:
       - RUST_LOG=debug
@@ -19,9 +19,10 @@ services:
     command: [
       "--listen", "0.0.0.0:8443",
       "--target", "backend:6000",
-      "--cert", "/app/certs/hybrid/ml-dsa-65/server.crt",
-      "--key", "/app/certs/hybrid/ml-dsa-65/server.key",
-      "--ca-cert", "/app/certs/hybrid/ml-dsa-65/ca.crt",
+      "--cert", "/app/certs/post-quantum/ml-dsa-44/server_hybrid.crt",
+      "--key", "/app/certs/post-quantum/ml-dsa-44/server.key",
+      "--ca-cert", "/app/certs/post-quantum/ml-dsa-44/ca.crt",
+      "--enable-legacy-algorithms", "true",
       "--log-level", "debug",
       "--client-cert-mode", "optional",
       "--buffer-size", "8192",
