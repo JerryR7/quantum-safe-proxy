@@ -9,7 +9,7 @@ use quantum_safe_proxy::common::{Result, init_logger};
 use quantum_safe_proxy::config;
 use quantum_safe_proxy::config::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
 use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
-use quantum_safe_proxy::crypto::check_environment;
+use quantum_safe_proxy::crypto::{check_environment, initialize_openssl};
 
 
 use std::path::{Path, PathBuf};
@@ -87,23 +87,31 @@ async fn main() -> Result<()> {
         std::env::set_var("OPENSSL_DIR", openssl_dir.to_string_lossy().to_string());
     }
 
-    // Check environment
-    // This ensures that environment checks are performed only once
+    // Initialize configuration system first
+    let config = config::initialize(std::env::args().collect(), args.config_file.as_deref())?;
+
+    // Initialize OpenSSL from the specified directory
+
+    // Try command line argument first
+    if let Some(openssl_dir) = &args.openssl_dir {
+        let success = initialize_openssl(openssl_dir);
+        if !success {
+            warn!("Failed to initialize OpenSSL from command line directory: {}", openssl_dir.display());
+        }
+    }
+    // Otherwise, try configuration
+    else if let Some(openssl_dir) = &config.openssl_dir {
+        let success = initialize_openssl(openssl_dir);
+        if !success {
+            warn!("Failed to initialize OpenSSL from configured directory: {}", openssl_dir.display());
+        }
+    }
+
+    // Now check environment after initializing OpenSSL
     let env_info = check_environment();
     info!("Environment initialized: OpenSSL {}, PQC {}",
           &env_info.openssl_version,
           if env_info.pqc_available { "available" } else { "not available" });
-
-    // Initialize configuration system
-    let config = config::initialize(std::env::args().collect(), args.config_file.as_deref())?;
-
-    // Set OpenSSL directory from configuration if not already set from command line
-    if args.openssl_dir.is_none() {
-        if let Some(openssl_dir) = &config.openssl_dir {
-            info!("Setting OpenSSL directory from configuration: {}", openssl_dir.display());
-            std::env::set_var("OPENSSL_DIR", openssl_dir.to_string_lossy().to_string());
-        }
-    }
 
     // Log certificate information
     match get_cert_subject(&config.cert_path) {

@@ -6,6 +6,7 @@
 mod openssl;
 mod capabilities;
 pub mod environment;
+pub mod loader;
 
 
 
@@ -19,6 +20,7 @@ pub use capabilities::{is_openssl35_available, is_pqc_available, get_openssl_ver
 pub use capabilities::{get_supported_pq_algorithms, get_supported_signature_algorithms};
 pub use capabilities::{get_recommended_cipher_list, get_recommended_tls13_ciphersuites, get_recommended_groups};
 pub use environment::{check_environment, diagnose_environment, EnvironmentInfo, EnvironmentIssue, IssueSeverity};
+pub use loader::initialize_openssl;
 
 // Global provider accessor
 pub fn get_provider() -> &'static CryptoProvider {

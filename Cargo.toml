@@ -2,6 +2,7 @@
 name = "quantum-safe-proxy"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 description = "PQC-Enabled Sidecar with Hybrid Certificate Support"
 authors = ["Jerry <vp780412@gmail.com>"]
 license = "MIT"
@@ -23,6 +24,7 @@ path = "src/bin/check-environment.rs"
 tokio = { version = "1.44", features = ["rt-multi-thread", "net", "sync", "time", "signal", "macros", "io-util"] }
 # OpenSSL 3.5+ support
 openssl = "0.10"
+openssl-sys = "0.9"
 tokio-openssl = "0.6"
 # Logging and CLI
 log = "0.4"

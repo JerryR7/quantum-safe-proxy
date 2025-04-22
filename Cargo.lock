@@ -897,6 +897,7 @@ dependencies = [
  "mockall",
  "once_cell",
  "openssl",
+ "openssl-sys",
  "serde",
  "serde_json",
  "serial_test",
