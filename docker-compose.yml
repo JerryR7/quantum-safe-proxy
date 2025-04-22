@@ -19,10 +19,9 @@ services:
     command: [
       "--listen", "0.0.0.0:8443",
       "--target", "backend:6000",
-      "--cert", "/app/certs/post-quantum/ml-dsa-44/server_hybrid.crt",
-      "--key", "/app/certs/post-quantum/ml-dsa-44/server.key",
-      "--ca-cert", "/app/certs/post-quantum/ml-dsa-44/ca.crt",
-      "--enable-legacy-algorithms", "true",
+      "--cert", "/app/certs/hybrid/ml-dsa-44/server_hybrid.crt",
+      "--key", "/app/certs/hybrid/ml-dsa-44/server.key",
+      "--ca-cert", "/app/certs/hybrid/ml-dsa-44/ca.crt",
       "--log-level", "debug",
       "--client-cert-mode", "optional",
       "--buffer-size", "8192",
