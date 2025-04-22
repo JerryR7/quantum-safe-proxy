@@ -68,24 +68,37 @@ graph LR
 
 ## 5. Installation
 
-### From Crates.io
+### System Requirements
+
+- Linux operating system (Ubuntu, Debian, etc.)
+- OpenSSL 3.5.0 (installed at `/opt/openssl-3.5.0/`)
+- Rust development environment (if compiling from source)
+
+### Option 1: From Crates.io
 
 ```bash
 cargo install quantum-safe-proxy
 ```
 
-### From Source
+### Option 2: From Source
 
 ```bash
 # Clone the repository
 git clone https://github.com/JerryR7/quantum-safe-proxy.git
 cd quantum-safe-proxy
 
-# Build
+# Build with default OpenSSL 3.5.0 path
 cargo build --release
+
+# Or specify a custom OpenSSL path
+OPENSSL_DIR=/path/to/openssl cargo build --release
 ```
 
-### Using Docker
+The project uses a `build.rs` script that automatically embeds the OpenSSL library path into the binary, so you don't need to set environment variables when running the program.
+
+### Option 3: Using Docker (Recommended)
+
+Using Docker is the simplest method, as it doesn't require installing OpenSSL 3.5.0 on your local machine:
 
 ```bash
 # Pull the image
@@ -93,6 +106,45 @@ docker pull jerryr7/quantum-safe-proxy:latest
 
 # Or build locally
 docker build -t quantum-safe-proxy .
+
+# Using docker-compose
+docker-compose up
+
+# Or directly using docker command
+docker build -t quantum-safe-proxy:openssl35 -f docker/Dockerfile.openssl35 .
+docker run -p 8443:8443 quantum-safe-proxy:openssl35
+```
+
+### Option 4: Manual OpenSSL 3.5.0 Installation
+
+If you need to install OpenSSL 3.5.0 on your local machine:
+
+```bash
+# Install build tools
+sudo apt-get update
+sudo apt-get install -y build-essential git
+
+# Download OpenSSL 3.5.0 source code
+mkdir -p ~/src
+cd ~/src
+git clone --depth 1 --branch openssl-3.5.0 https://github.com/openssl/openssl.git
+
+# Compile and install OpenSSL 3.5.0
+cd openssl
+./config --prefix=/opt/openssl-3.5.0 \
+         --openssldir=/opt/openssl-3.5.0/ssl \
+         --libdir=lib \
+         enable-shared \
+         -Wl,-rpath=/opt/openssl-3.5.0/lib
+make -j$(nproc)
+sudo make install
+
+# Create symbolic links if needed
+if [ -d /opt/openssl-3.5.0/lib64 ] && [ ! -d /opt/openssl-3.5.0/lib ]; then
+    sudo ln -s /opt/openssl-3.5.0/lib64 /opt/openssl-3.5.0/lib
+elif [ -d /opt/openssl-3.5.0/lib ] && [ ! -d /opt/openssl-3.5.0/lib64 ]; then
+    sudo ln -s /opt/openssl-3.5.0/lib /opt/openssl-3.5.0/lib64
+fi
 ```
 
 ## 6. Usage
@@ -534,7 +586,60 @@ cargo clippy
 | **Zero-Trust Security** | Enhance mTLS with quantum-resistant algorithms |
 | **Long-Term Data Protection** | Protect sensitive data against future quantum threats |
 
-## 11. Future Roadmap
+## 11. Troubleshooting
+
+### OpenSSL 3.5.0 Issues
+
+#### 1. OpenSSL 3.5.0 not found or cannot be loaded
+
+Verify that OpenSSL 3.5.0 is correctly installed:
+
+```bash
+/opt/openssl-3.5.0/bin/openssl version
+```
+
+#### 2. Post-quantum algorithms not found
+
+Check if post-quantum algorithms are supported:
+
+```bash
+/opt/openssl-3.5.0/bin/openssl list -kem-algorithms | grep -i ML-KEM
+/opt/openssl-3.5.0/bin/openssl list -signature-algorithms | grep -i ML-DSA
+```
+
+#### 3. Compilation error: cc tool not found
+
+Install necessary build tools:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y build-essential pkg-config libssl-dev
+```
+
+#### 4. Runtime error: ee key too small
+
+This indicates that the certificate's key is too small for OpenSSL's security requirements. Try using a different certificate:
+
+```json
+{
+  "cert_path": "certs/hybrid/ml-dsa-65/server.crt",
+  "key_path": "certs/hybrid/ml-dsa-65/server.key",
+  "ca_cert_path": "certs/hybrid/ml-dsa-65/ca.crt"
+}
+```
+
+#### 5. Dynamic linking errors
+
+If you're experiencing dynamic linking errors despite having OpenSSL 3.5.0 installed, you can manually set up the dynamic linker:
+
+```bash
+sudo mkdir -p /etc/ld.so.conf.d
+echo "/opt/openssl-3.5.0/lib" | sudo tee /etc/ld.so.conf.d/openssl35.conf
+echo "/opt/openssl-3.5.0/lib64" | sudo tee -a /etc/ld.so.conf.d/openssl35.conf
+sudo ldconfig
+```
+
+## 12. Future Roadmap
 
 - Auto-certificate rotation via REST API
 - Hybrid client metrics and handshake logs
@@ -545,7 +650,7 @@ cargo clippy
 - Certificate chain validation with hybrid certificates
 - Automatic OQS-OpenSSL detection and configuration
 
-## Documentation
+## 13. Documentation
 
 Detailed documentation is available in the `docs/` directory:
 
@@ -553,10 +658,10 @@ Detailed documentation is available in the `docs/` directory:
 
 See [docs/README.md](docs/README.md) for additional resources and information.
 
-## Contributing
+## 14. Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
 
-## License
+## 15. License
 
 This project is licensed under the [MIT License](LICENSE).
