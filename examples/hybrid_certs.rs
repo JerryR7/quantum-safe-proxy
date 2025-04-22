@@ -4,7 +4,7 @@
 //! It shows how to detect hybrid certificates and display their properties.
 
 use quantum_safe_proxy::{Result};
-use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint, CertProviderType};
+use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
 use std::path::Path;
 
 #[tokio::main]
@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
         println!("---------------------------");
 
         // Check if it's a hybrid certificate
-        match is_hybrid_cert(path, None) {
+        match is_hybrid_cert(path) {
             Ok(is_hybrid) => {
                 if is_hybrid {
                     println!("✅ This is a hybrid PQC certificate");
@@ -49,13 +49,13 @@ async fn main() -> Result<()> {
         }
 
         // Get certificate subject
-        match get_cert_subject(path, None) {
+        match get_cert_subject(path) {
             Ok(subject) => println!("Subject: {}", subject),
             Err(e) => println!("Error getting certificate subject: {}", e),
         }
 
         // Get certificate fingerprint
-        match get_cert_fingerprint(path, None) {
+        match get_cert_fingerprint(path) {
             Ok(fingerprint) => println!("Fingerprint: {}", fingerprint),
             Err(e) => println!("Error getting certificate fingerprint: {}", e),
         }

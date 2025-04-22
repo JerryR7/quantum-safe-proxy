@@ -1,24 +1,22 @@
-//! Quantum Safe Proxy Command Line Tool
-//!
-//! This binary is the command-line interface for Quantum Safe Proxy.
+//! Quantum Safe Proxy Command Line Interface
 
 use clap::Parser;
 use log::{info, warn};
 
-// Import our library
+
 use quantum_safe_proxy::{Proxy, create_tls_acceptor, VERSION, APP_NAME, reload_config};
 use quantum_safe_proxy::common::{Result, init_logger};
 use quantum_safe_proxy::config;
 use quantum_safe_proxy::config::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
 use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
-use quantum_safe_proxy::crypto::provider::environment::initialize_environment;
+use quantum_safe_proxy::crypto::check_environment;
 
-// Import for file and environment operations
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
-/// Quantum Safe Proxy: PQC-Enabled Sidecar with Hybrid Certificate Support
+/// Command line arguments
 #[derive(Parser, Debug)]
 #[clap(author, version = VERSION, about, long_about = None)]
 struct Args {
@@ -89,9 +87,9 @@ async fn main() -> Result<()> {
         std::env::set_var("OPENSSL_DIR", openssl_dir.to_string_lossy().to_string());
     }
 
-    // Initialize environment
+    // Check environment
     // This ensures that environment checks are performed only once
-    let env_info = initialize_environment();
+    let env_info = check_environment();
     info!("Environment initialized: OpenSSL {}, PQC {}",
           &env_info.openssl_version,
           if env_info.pqc_available { "available" } else { "not available" });
@@ -108,11 +106,11 @@ async fn main() -> Result<()> {
     }
 
     // Log certificate information
-    match get_cert_subject(&config.cert_path, None) {
+    match get_cert_subject(&config.cert_path) {
         Ok(subject) => info!("Certificate subject: {}", subject),
         Err(e) => warn!("Unable to get certificate subject: {}", e),
     }
-    match get_cert_fingerprint(&config.cert_path, None) {
+    match get_cert_fingerprint(&config.cert_path) {
         Ok(fingerprint) => info!("Certificate fingerprint: {}", fingerprint),
         Err(e) => warn!("Unable to get certificate fingerprint: {}", e),
     }

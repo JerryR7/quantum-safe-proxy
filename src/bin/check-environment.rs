@@ -1,52 +1,35 @@
-//! Environment check tool
-//!
-//! This tool checks the environment for OpenSSL with post-quantum cryptography support.
-//! It supports both OpenSSL 3.5+ with built-in PQC and older versions with OQS Provider.
+//! Tool to check OpenSSL environment for post-quantum cryptography support
 
 use std::process::exit;
-use quantum_safe_proxy::crypto::provider::{check_environment, diagnose_environment, IssueSeverity};
+use quantum_safe_proxy::crypto::{check_environment, diagnose_environment, IssueSeverity};
 
 fn main() {
-    // Initialize logger
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
 
     println!("=== Quantum Safe Proxy Environment Check ===\n");
 
-    // Check environment
     let env_info = check_environment();
 
-    // Print environment information
     println!("OpenSSL version: {}", env_info.openssl_version);
     println!("Post-quantum cryptography available: {}", if env_info.pqc_available { "Yes" } else { "No" });
 
-    // Print key exchange algorithms
-    if !env_info.key_exchange_algorithms.is_empty() {
-        println!("\nSupported post-quantum key exchange algorithms:");
-        for algo in &env_info.key_exchange_algorithms {
+    if !env_info.supported_pq_algorithms.is_empty() {
+        println!("\nSupported post-quantum algorithms:");
+        for algo in &env_info.supported_pq_algorithms {
             println!("  - {}", algo);
         }
     }
 
-    // Print signature algorithms
-    if !env_info.signature_algorithms.is_empty() {
-        println!("\nSupported post-quantum signature algorithms:");
-        for algo in &env_info.signature_algorithms {
-            println!("  - {}", algo);
-        }
-    }
-
-    // Print environment variables
-    if !env_info.env_vars.is_empty() {
+    if !env_info.environment_variables.is_empty() {
         println!("\nEnvironment variables:");
-        for (name, value) in &env_info.env_vars {
+        for (name, value) in &env_info.environment_variables {
             println!("  {}={}", name, value);
         }
     }
 
-    // Diagnose environment issues
-    let issues = diagnose_environment(&env_info);
+    let issues = diagnose_environment();
 
     if !issues.is_empty() {
         println!("\nEnvironment issues:");

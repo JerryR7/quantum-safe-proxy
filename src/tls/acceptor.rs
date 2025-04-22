@@ -1,6 +1,4 @@
-//! TLS acceptor module
-//!
-//! This module provides functionality for creating TLS acceptors.
+//! TLS acceptor creation with hybrid certificate support
 
 use log::{debug, info};
 use openssl::ssl::{SslAcceptor, SslFiletype, SslVerifyMode, SslMethod};
@@ -8,24 +6,9 @@ use std::path::Path;
 
 use crate::common::Result;
 use crate::config::ClientCertMode;
-use crate::crypto::provider::{ProviderType, create_provider};
+use crate::crypto::get_provider;
 
-/// Create a TLS acceptor with support for hybrid certificates
-///
-/// # Parameters
-///
-/// * `cert_path` - Server certificate path
-/// * `key_path` - Server private key path
-/// * `ca_cert_path` - CA certificate path, used for client certificate validation
-/// * `client_cert_mode` - Client certificate verification mode
-///
-/// # Returns
-///
-/// Returns a configured SSL acceptor
-///
-/// # Errors
-///
-/// Returns an error if the acceptor cannot be created or certificates cannot be set.
+/// Create TLS acceptor with hybrid certificate support
 ///
 /// # Example
 ///
@@ -49,9 +32,8 @@ pub fn create_tls_acceptor(
     ca_cert_path: &Path,
     client_cert_mode: &ClientCertMode,
 ) -> Result<SslAcceptor> {
-    // Create provider to detect environment capabilities
-    // Automatically select the best provider
-    let provider = create_provider(ProviderType::Auto)?;
+    // Get the global crypto provider
+    let provider = get_provider();
     let capabilities = provider.capabilities();
 
     // Log the provider and its capabilities
@@ -60,7 +42,7 @@ pub fn create_tls_acceptor(
           if capabilities.supports_pqc { "available" } else { "not available" });
     debug!("Provider supports PQC: {}", capabilities.supports_pqc);
 
-    // We can't directly set verification mode on the SslContext from our provider
+    // We can't directly set verification mode on the SslContext from our provider,
     // So we'll create a new SslAcceptor and configure it
 
     // Create a new SslAcceptor with the appropriate settings
