@@ -37,16 +37,16 @@ struct Args {
     key: String,
 
     /// Path to classic (RSA/ECDSA) cert PEM
-    #[clap(long, default_value = CERT_PATH_STR)]
-    classic_cert: String,
+    #[clap(long)]
+    classic_cert: Option<String>,
 
     /// Path to classic private key PEM
-    #[clap(long, default_value = KEY_PATH_STR)]
-    classic_key: String,
+    #[clap(long)]
+    classic_key: Option<String>,
 
     /// Always use SigAlgs strategy: auto-select cert by client signature_algorithms
     #[clap(long)]
-    use_sigalgs: bool,
+    use_sigalgs: Option<bool>,
 
     /// CA certificate path (for client certificate validation)
     #[clap(long, default_value = CA_CERT_PATH_STR)]
@@ -102,14 +102,48 @@ async fn main() -> Result<()> {
     // Initialize configuration system first
     let mut config = config::initialize(std::env::args().collect(), args.config_file.as_deref())?;
 
-    // Update config with new certificate paths from command line
-    config.classic_cert = PathBuf::from(&args.classic_cert);
-    config.classic_key = PathBuf::from(&args.classic_key);
-    config.use_sigalgs = args.use_sigalgs;
+    // Only update certificate paths from command line if they are explicitly specified
+    let default_cert = PathBuf::from(CERT_PATH_STR);
+    let default_key = PathBuf::from(KEY_PATH_STR);
+
+    // For classic_cert and classic_key, only override if explicitly specified
+    if let Some(classic_cert) = &args.classic_cert {
+        config.classic_cert = PathBuf::from(classic_cert);
+    }
+
+    if let Some(classic_key) = &args.classic_key {
+        config.classic_key = PathBuf::from(classic_key);
+    }
+
+    // Only override use_sigalgs if explicitly specified in command line
+    if let Some(use_sigalgs) = args.use_sigalgs {
+        config.use_sigalgs = use_sigalgs;
+    }
 
     // For backward compatibility, also update the legacy cert_path and key_path
-    config.cert_path = PathBuf::from(&args.cert);
-    config.key_path = PathBuf::from(&args.key);
+    // but only if they are different from the defaults
+    if PathBuf::from(&args.cert) != default_cert {
+        config.cert_path = PathBuf::from(&args.cert);
+    }
+
+    if PathBuf::from(&args.key) != default_key {
+        config.key_path = PathBuf::from(&args.key);
+    }
+
+    // Log the configuration details
+    log::info!("Configuration details:");
+    log::info!("  Listen address: {}", config.listen);
+    log::info!("  Target address: {}", config.target);
+    log::info!("  Certificate path: {:?}", config.cert_path);
+    log::info!("  Key path: {:?}", config.key_path);
+    log::info!("  CA certificate path: {:?}", config.ca_cert_path);
+    log::info!("  Classic certificate path: {:?}", config.classic_cert);
+    log::info!("  Classic key path: {:?}", config.classic_key);
+    log::info!("  Client certificate mode: {:?}", config.client_cert_mode);
+    log::info!("  Buffer size: {}", config.buffer_size);
+    log::info!("  Connection timeout: {}", config.connection_timeout);
+    log::info!("  OpenSSL directory: {:?}", config.openssl_dir);
+    log::info!("  Use SigAlgs strategy: {}", config.use_sigalgs);
 
     // Initialize OpenSSL from the specified directory
 

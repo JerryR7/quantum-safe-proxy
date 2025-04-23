@@ -150,9 +150,9 @@ impl Default for ProxyConfig {
             buffer_size: defaults::buffer_size(),
             connection_timeout: defaults::connection_timeout(),
             openssl_dir: defaults::openssl_dir(),
-            classic_cert: defaults::cert_path(),
-            classic_key: defaults::key_path(),
-            use_sigalgs: false,
+            classic_cert: defaults::classic_cert_path(),
+            classic_key: defaults::classic_key_path(),
+            use_sigalgs: defaults::use_sigalgs(),
         }
     }
 }
@@ -290,6 +290,9 @@ impl ProxyConfig {
         update_config!("CLIENT_CERT_MODE", config.client_cert_mode, |v: &str| ClientCertMode::from_str(v));
         update_config!("BUFFER_SIZE", config.buffer_size, |v: &str| v.parse::<usize>());
         update_config!("CONNECTION_TIMEOUT", config.connection_timeout, |v: &str| v.parse::<u64>());
+        update_config!("CLASSIC_CERT", config.classic_cert);
+        update_config!("CLASSIC_KEY", config.classic_key);
+        update_config!("USE_SIGALGS", config.use_sigalgs, |v: &str| v.parse::<bool>());
         // Use the option_fn variant for openssl_dir
         if let Some(value) = get_env("OPENSSL_DIR") {
             config.openssl_dir = Some(PathBuf::from(value));
@@ -378,9 +381,9 @@ impl ProxyConfig {
             buffer_size,
             connection_timeout,
             openssl_dir: None,  // Default to None for openssl_dir
-            classic_cert: cert_path.clone(),
-            classic_key: key_path.clone(),
-            use_sigalgs: false,
+            classic_cert: defaults::classic_cert_path(),
+            classic_key: defaults::classic_key_path(),
+            use_sigalgs: defaults::use_sigalgs(),
         })
     }
 
@@ -809,6 +812,9 @@ mod tests {
             buffer_size: 4096,                      // Test different buffer size
             connection_timeout: 60,                 // Test different connection timeout
             openssl_dir: None,                      // No OpenSSL directory specified
+            classic_cert: PathBuf::from("certs/traditional/rsa/server.crt"),
+            classic_key: PathBuf::from("certs/traditional/rsa/server.key"),
+            use_sigalgs: false,
         };
 
         // Merge configurations

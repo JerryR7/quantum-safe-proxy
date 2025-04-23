@@ -100,5 +100,20 @@ pub fn openssl_dir() -> Option<PathBuf> {
     None
 }
 
+/// Default classic certificate path
+pub fn classic_cert_path() -> PathBuf {
+    PathBuf::from("certs/traditional/rsa/server.crt")
+}
+
+/// Default classic private key path
+pub fn classic_key_path() -> PathBuf {
+    PathBuf::from("certs/traditional/rsa/server.key")
+}
+
+/// Default use_sigalgs value
+pub fn use_sigalgs() -> bool {
+    true
+}
+
 // Note: Command line argument names and environment variable names
 // are now handled directly in the config.rs file

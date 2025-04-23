@@ -25,7 +25,10 @@ services:
       "--log-level", "debug",
       "--client-cert-mode", "optional",
       "--buffer-size", "8192",
-      "--connection-timeout", "60"
+      "--connection-timeout", "60",
+      "--use-sigalgs", "true",
+      "--classic-cert", "/app/certs/traditional/rsa/server.crt",
+      "--classic-key", "/app/certs/traditional/rsa/server.key"
     ]
     networks:
       - proxy-network

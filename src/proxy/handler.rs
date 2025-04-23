@@ -44,12 +44,42 @@ pub async fn handle_connection(
     use std::pin::Pin;
     let mut stream = Pin::new(Box::new(stream));
 
-    if let Err(e) = stream.as_mut().accept().await {
-        error!("TLS handshake failed: {}", e);
-        return Err(ProxyError::TlsHandshake(e.to_string()));
-    }
+    match stream.as_mut().accept().await {
+        Ok(_) => {
+            debug!("TLS handshake successful");
 
-    debug!("TLS handshake successful");
+            // Log TLS connection details
+            let ssl = stream.as_ref().get_ref().ssl();
+            debug!("TLS version: {}", ssl.version_str());
+            debug!("TLS cipher: {}", ssl.current_cipher().map_or("None".to_string(), |c| c.name().to_string()));
+            let protocol = ssl.version_str();
+            debug!("TLS protocol: {}", protocol);
+
+            if let Some(servername) = ssl.servername(openssl::ssl::NameType::HOST_NAME) {
+                debug!("TLS SNI: {}", servername);
+            } else {
+                debug!("TLS SNI: None");
+            }
+
+            // Log TLS connection details
+            debug!("Client signature algorithms not available in this OpenSSL version");
+        },
+        Err(e) => {
+            // Get detailed error information
+            let ssl_error = stream.as_ref().get_ref().ssl().verify_result();
+            error!("TLS handshake failed: {}", e);
+            error!("TLS verify result: {}", ssl_error);
+
+            // Try to get more detailed OpenSSL error information
+            if let Some(err_str) = e.to_string().strip_prefix("error:") {
+                if let Some(code_str) = err_str.split(':').next() {
+                    error!("OpenSSL error code: {}", code_str);
+                }
+            }
+
+            return Err(ProxyError::TlsHandshake(e.to_string()));
+        }
+    }
 
     // Get client certificate information (if available)
     if let Some(cert) = stream.as_ref().get_ref().ssl().peer_certificate() {

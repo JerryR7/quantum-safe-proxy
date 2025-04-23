@@ -230,6 +230,34 @@ fn parse_command_line_args(args: &[String]) -> Result<ProxyConfig> {
                     return Err(ProxyError::Config("Missing value for --openssl-dir".to_string()));
                 }
             },
+            "--classic-cert" => {
+                if i + 1 < args.len() {
+                    config.classic_cert = PathBuf::from(&args[i + 1]);
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --classic-cert".to_string()));
+                }
+            },
+            "--classic-key" => {
+                if i + 1 < args.len() {
+                    config.classic_key = PathBuf::from(&args[i + 1]);
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --classic-key".to_string()));
+                }
+            },
+            "--use-sigalgs" => {
+                if i + 1 < args.len() {
+                    config.use_sigalgs = args[i + 1].parse().map_err(|_| {
+                        ProxyError::Config(format!("Invalid use_sigalgs value: {}", args[i + 1]))
+                    })?;
+                    i += 2;
+                } else {
+                    // If --use-sigalgs is specified without a value, assume true
+                    config.use_sigalgs = true;
+                    i += 1;
+                }
+            },
             _ => {
                 // Skip unknown arguments
                 i += 1;
