@@ -76,23 +76,23 @@ impl CertStrategy {
                     return Err(crate::common::ProxyError::Config(format!("Hybrid key file does not exist: {:?}", hybrid.1)));
                 }
 
-                // 由於我們無法直接在 client hello 階段檢測簽名演算法，我們改用一個替代方案
-                // 我們將在伺服器啟動時載入兩種證書，並在日誌中記錄使用了哪種證書
+                // Since we can't directly detect signature algorithms at the client hello stage, we use an alternative approach
+                // We load both certificate types at server startup and log which one is being used
                 info!("Loading both classic and hybrid certificates");
 
-                // 首先設置默認證書（經典證書）
+                // First set the default certificate (classic certificate)
                 debug!("Setting classic certificate file: {:?}", classic.0);
                 builder.set_certificate_file(&classic.0, SslFiletype::PEM)?;
                 debug!("Setting classic private key file: {:?}", classic.1);
                 builder.set_private_key_file(&classic.1, SslFiletype::PEM)?;
                 debug!("Classic certificate and key set successfully");
 
-                // 載入混合證書 (cert_path/key_path)
+                // Load hybrid certificate (cert_path/key_path)
                 debug!("Note: Hybrid certificate would be used in a real implementation: {:?}", hybrid.0);
                 debug!("Note: Hybrid key would be used in a real implementation: {:?}", hybrid.1);
-                // 注意：在實際部署中，您可能需要使用更高級的方法來動態選擇證書
-                // 例如，您可能需要實現一個自定義的 TLS 握手層，或使用其他方法來檢測客戶端的能力
-                // 在這裡，我們只是載入經典證書，並在日誌中記錄我們的意圖
+                // Note: In a real deployment, you might need to use more advanced methods to dynamically select certificates
+                // For example, you might need to implement a custom TLS handshake layer or use other methods to detect client capabilities
+                // Here, we just load the classic certificate and log our intentions
                 warn!("Using classic certificate by default. In a real deployment, you would need to implement a custom TLS handshake layer to dynamically select certificates based on client capabilities.");
             }
         }
@@ -114,12 +114,12 @@ mod tests {
         let hybrid  = ("h.crt".into(), "h.key".into());
         let strat   = CertStrategy::SigAlgs { classic: classic.clone(), hybrid: hybrid.clone() };
 
-        // 這個測試只是確認回調註冊不會崩潰
-        // 實際上，由於我們沒有真正的證書文件，apply 會失敗
-        // 但我們只是想確認代碼結構是正確的
+        // This test just confirms that callback registration doesn't crash
+        // In reality, since we don't have real certificate files, apply would fail
+        // But we just want to confirm that the code structure is correct
         let _ = strat.apply(&mut builder);
 
-        // 測試單一證書策略
+        // Test single certificate strategy
         let single_strat = CertStrategy::Single { cert: "c.crt".into(), key: "c.key".into() };
         let _ = single_strat.apply(&mut builder);
     }

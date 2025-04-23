@@ -1,56 +1,56 @@
-//! 網絡相關工具函數
+//! Network utility functions
 //!
-//! 這個模組提供了網絡相關的工具函數。
+//! This module provides utility functions for network operations.
 
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
 
 use super::error::{ProxyError, Result};
 
-/// 解析 socket 地址
+/// Parse a socket address
 ///
-/// # 參數
+/// # Arguments
 ///
-/// * `addr` - 要解析的地址字符串
+/// * `addr` - The address string to parse
 ///
-/// # 返回
+/// # Returns
 ///
-/// 返回解析後的 `SocketAddr`
+/// The parsed `SocketAddr`
 pub fn parse_socket_addr(addr: &str) -> Result<SocketAddr> {
-    // 嘗試直接解析
+    // Try direct parsing first
     if let Ok(socket_addr) = SocketAddr::from_str(addr) {
         return Ok(socket_addr);
     }
-    
-    // 嘗試使用 ToSocketAddrs 解析
+
+    // Try using ToSocketAddrs trait
     match addr.to_socket_addrs() {
         Ok(mut addrs) => {
             if let Some(addr) = addrs.next() {
                 Ok(addr)
             } else {
-                Err(ProxyError::Config(format!("無法解析地址: {}", addr)))
+                Err(ProxyError::Config(format!("Failed to parse address: {}", addr)))
             }
         }
-        Err(e) => Err(ProxyError::Config(format!("無法解析地址 {}: {}", addr, e))),
+        Err(e) => Err(ProxyError::Config(format!("Failed to parse address {}: {}", addr, e))),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_socket_addr() {
-        // 測試有效的地址
+        // Test valid address
         let addr = parse_socket_addr("127.0.0.1:8080");
-        assert!(addr.is_ok(), "應該能夠解析有效的地址");
-        
+        assert!(addr.is_ok(), "Should be able to parse a valid address");
+
         if let Ok(socket_addr) = addr {
             assert_eq!(socket_addr.port(), 8080);
         }
-        
-        // 測試無效的地址
+
+        // Test invalid address
         let addr = parse_socket_addr("invalid-address");
-        assert!(addr.is_err(), "應該無法解析無效的地址");
+        assert!(addr.is_err(), "Should fail to parse an invalid address");
     }
 }

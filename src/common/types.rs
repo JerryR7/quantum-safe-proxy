@@ -1,25 +1,25 @@
-//! 共享類型模組
+//! Shared types module
 //!
-//! 這個模組包含了應用程序中共享的數據類型和結構。
+//! This module contains shared data types and structures used throughout the application.
 
-/// 連接信息
+/// Connection information
 #[derive(Debug, Clone)]
 pub struct ConnectionInfo {
-    /// 來源地址
+    /// Source address
     pub source: String,
-    /// 目標地址
+    /// Target address
     pub target: String,
-    /// 連接時間戳
+    /// Connection timestamp
     pub timestamp: std::time::SystemTime,
 }
 
-/// 證書信息
+/// Certificate information
 #[derive(Debug, Clone)]
 pub struct CertificateInfo {
-    /// 證書主題
+    /// Certificate subject
     pub subject: String,
-    /// 證書指紋
+    /// Certificate fingerprint
     pub fingerprint: Option<String>,
-    /// 是否為混合證書
+    /// Whether the certificate is hybrid
     pub is_hybrid: bool,
 }

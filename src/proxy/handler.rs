@@ -90,7 +90,7 @@ pub async fn handle_connection(
     }
 
     // Connect to target service with timeout
-    // 使用無鎖訪問方法取得連接逾時時間，提高效能
+    // Use lock-free access method to get connection timeout for better performance
     let connect_timeout = Duration::from_secs(config::get_connection_timeout());
     let target_stream = timeout(connect_timeout, TcpStream::connect(target_addr))
         .await
@@ -98,10 +98,10 @@ pub async fn handle_connection(
         .map_err(ProxyError::Io)?;
 
     // Forward data between client and target service
-    // 使用無鎖訪問方法取得緩衝區大小，提高效能
+    // Use lock-free access method to get buffer size for better performance
     let buffer_size = config::get_buffer_size();
     let mut config_clone = config.clone();
-    config_clone.buffer_size = buffer_size; // 確保使用緩存的值
+    config_clone.buffer_size = buffer_size; // Ensure we use the cached value
     proxy_data(stream, target_stream, config_clone).await
 }
 

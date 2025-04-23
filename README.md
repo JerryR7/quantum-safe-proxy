@@ -61,7 +61,7 @@ graph LR
 | Component | Technology |
 |-----------|------------|
 | **Language** | Rust |
-| **TLS Library** | OpenSSL 3.5+ with built-in PQC support |
+| **TLS Library** | OpenSSL 3.5+ with built-in PQC support (also compatible with 3.6+, 3.7+) |
 | **Proxy Runtime** | tokio + tokio-openssl |
 | **Deployment** | Docker / Kubernetes / Systemd sidecar mode |
 | **Certificate Tools** | OpenSSL 3.5+ CLI (hybrid CSR and certificates) |
@@ -71,8 +71,9 @@ graph LR
 ### System Requirements
 
 - Linux operating system (Ubuntu, Debian, etc.)
-- OpenSSL 3.5.0 (installed at `/opt/openssl-3.5.0/`)
-- Rust development environment (if compiling from source)
+- OpenSSL 3.5.0 or newer (installed at `/opt/openssl35/` or specified via `OPENSSL_DIR`)
+- Rust 1.70.0 or newer (if compiling from source)
+- Docker 20.10.0 or newer (for containerized deployment)
 
 ### Option 1: From Crates.io
 
@@ -115,36 +116,49 @@ docker build -t quantum-safe-proxy:openssl35 -f docker/Dockerfile.openssl35 .
 docker run -p 8443:8443 quantum-safe-proxy:openssl35
 ```
 
-### Option 4: Manual OpenSSL 3.5.0 Installation
+### Option 4: Manual OpenSSL 3.5+ Installation
 
-If you need to install OpenSSL 3.5.0 on your local machine:
+If you need to install OpenSSL 3.5.0 or newer on your local machine:
 
 ```bash
 # Install build tools
 sudo apt-get update
 sudo apt-get install -y build-essential git
 
-# Download OpenSSL 3.5.0 source code
+# Download OpenSSL 3.5.0 source code (or newer version)
 mkdir -p ~/src
 cd ~/src
 git clone --depth 1 --branch openssl-3.5.0 https://github.com/openssl/openssl.git
+# For newer versions, use the appropriate branch name, e.g., openssl-3.7.0
 
-# Compile and install OpenSSL 3.5.0
+# Compile and install OpenSSL
 cd openssl
-./config --prefix=/opt/openssl-3.5.0 \
-         --openssldir=/opt/openssl-3.5.0/ssl \
+./config --prefix=/opt/openssl35 \
+         --openssldir=/opt/openssl35/ssl \
          --libdir=lib \
          enable-shared \
-         -Wl,-rpath=/opt/openssl-3.5.0/lib
+         -Wl,-rpath=/opt/openssl35/lib
 make -j$(nproc)
 sudo make install
 
 # Create symbolic links if needed
-if [ -d /opt/openssl-3.5.0/lib64 ] && [ ! -d /opt/openssl-3.5.0/lib ]; then
-    sudo ln -s /opt/openssl-3.5.0/lib64 /opt/openssl-3.5.0/lib
-elif [ -d /opt/openssl-3.5.0/lib ] && [ ! -d /opt/openssl-3.5.0/lib64 ]; then
-    sudo ln -s /opt/openssl-3.5.0/lib /opt/openssl-3.5.0/lib64
+if [ -d /opt/openssl35/lib64 ] && [ ! -d /opt/openssl35/lib ]; then
+    sudo ln -s /opt/openssl35/lib64 /opt/openssl35/lib
+elif [ -d /opt/openssl35/lib ] && [ ! -d /opt/openssl35/lib64 ]; then
+    sudo ln -s /opt/openssl35/lib /opt/openssl35/lib64
 fi
+
+# Verify the installation
+/opt/openssl35/bin/openssl version
+/opt/openssl35/bin/openssl list -kem-algorithms | grep -i ML-KEM
+/opt/openssl35/bin/openssl list -signature-algorithms | grep -i ML-DSA
+```
+
+Alternatively, you can use our provided script:
+
+```bash
+# Run the installation script
+./scripts/openssl35-install.sh
 ```
 
 ## 6. Usage
@@ -209,7 +223,7 @@ Example configuration file:
   "log_level": "info",
   "buffer_size": 8192,
   "connection_timeout": 30,
-  "openssl_dir": "/opt/openssl-3.5.0"
+  "openssl_dir": "/opt/openssl35"
 }
 ```
 
@@ -362,15 +376,17 @@ We recommend building images manually and using only `image:` in docker-compose.
 |--------|-------------|---------|
 | `--listen` | Listen address | 0.0.0.0:8443 |
 | `--target` | Target service address | 127.0.0.1:6000 |
-| `--cert` | Server certificate path | certs/hybrid/ml-dsa-87/server.crt |
-| `--key` | Server private key path | certs/hybrid/ml-dsa-87/server.key |
-| `--ca-cert` | CA certificate path | certs/hybrid/ml-dsa-87/ca.crt |
+| `--cert` | Server certificate path (legacy parameter) | certs/hybrid/ml-dsa-87/server.crt |
+| `--key` | Server private key path (legacy parameter) | certs/hybrid/ml-dsa-87/server.key |
+| `--classic-cert` | Path to classic (RSA/ECDSA) certificate | - |
+| `--classic-key` | Path to classic private key | - |
+| `--use-sigalgs` | Auto-select certificate by client signature_algorithms | false |
+| `--ca-cert` | CA certificate path for client certificate validation | certs/hybrid/ml-dsa-87/ca.crt |
 | `--log-level` | Log level (debug, info, warn, error) | info |
 | `--client-cert-mode` | Client certificate verification mode (required, optional, none) | optional |
 | `--buffer-size` | Buffer size for data transfer in bytes | 8192 |
 | `--connection-timeout` | Connection timeout in seconds | 30 |
 | `--openssl-dir` | Path to OpenSSL installation directory | - |
-| `--from-env` | Load configuration from environment variables | - |
 | `--config-file` | Load configuration from specified file | - |
 
 ## 7. Hybrid Certificate Support
@@ -379,12 +395,13 @@ Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL 3.5+ wit
 
 ### Supported Algorithms
 
-| Type | Algorithms (OpenSSL 3.5+) |
-|------|---------------------------|
-| **Key Exchange** | ML-KEM-512, ML-KEM-768, ML-KEM-1024 (formerly Kyber, NIST PQC standard) |
-| **Signatures** | ML-DSA-44, ML-DSA-65, ML-DSA-87 (formerly Dilithium, NIST PQC standard) |
-| **Lattice-Based Signatures** | SLH-DSA-FALCON-512, SLH-DSA-FALCON-1024 |
-| **Classical Fallback** | ECDSA (P-256, P-384, P-521), RSA, Ed25519 |
+| Type | Algorithms (OpenSSL 3.5+) | Description |
+|------|---------------------------|-------------|
+| **Key Exchange** | ML-KEM-512, ML-KEM-768, ML-KEM-1024 | NIST standardized post-quantum key encapsulation mechanisms (formerly Kyber) |
+| **Signatures** | ML-DSA-44, ML-DSA-65, ML-DSA-87 | NIST standardized post-quantum digital signature algorithms (formerly Dilithium) |
+| **Lattice-Based Signatures** | SLH-DSA-FALCON-512, SLH-DSA-FALCON-1024 | Stateless hash-based digital signature algorithms |
+| **Hybrid Groups** | X25519MLKEM768, P256MLKEM768, P384MLKEM1024 | Hybrid key exchange combining classical and post-quantum algorithms |
+| **Classical Fallback** | ECDSA (P-256, P-384, P-521), RSA, Ed25519 | Traditional algorithms for backward compatibility |
 
 ### TLS Handshake Behavior
 
@@ -570,24 +587,28 @@ cargo clippy
 
 ## 11. Troubleshooting
 
-### OpenSSL 3.5.0 Issues
+### OpenSSL 3.5+ Issues
 
-#### 1. OpenSSL 3.5.0 not found or cannot be loaded
+#### 1. OpenSSL 3.5+ not found or cannot be loaded
 
-Verify that OpenSSL 3.5.0 is correctly installed:
+Verify that OpenSSL 3.5.0 or newer is correctly installed:
 
 ```bash
-/opt/openssl-3.5.0/bin/openssl version
+/opt/openssl35/bin/openssl version
 ```
+
+If you're using a different installation path, adjust accordingly or use the `OPENSSL_DIR` environment variable.
 
 #### 2. Post-quantum algorithms not found
 
 Check if post-quantum algorithms are supported:
 
 ```bash
-/opt/openssl-3.5.0/bin/openssl list -kem-algorithms | grep -i ML-KEM
-/opt/openssl-3.5.0/bin/openssl list -signature-algorithms | grep -i ML-DSA
+/opt/openssl35/bin/openssl list -kem-algorithms | grep -i ML-KEM
+/opt/openssl35/bin/openssl list -signature-algorithms | grep -i ML-DSA
 ```
+
+If these commands don't show any results, your OpenSSL installation might not have been built with post-quantum support.
 
 #### 3. Compilation error: cc tool not found
 
@@ -612,14 +633,30 @@ This indicates that the certificate's key is too small for OpenSSL's security re
 
 #### 5. Dynamic linking errors
 
-If you're experiencing dynamic linking errors despite having OpenSSL 3.5.0 installed, you can manually set up the dynamic linker:
+If you're experiencing dynamic linking errors despite having OpenSSL 3.5+ installed, you can manually set up the dynamic linker:
 
 ```bash
 sudo mkdir -p /etc/ld.so.conf.d
-echo "/opt/openssl-3.5.0/lib" | sudo tee /etc/ld.so.conf.d/openssl35.conf
-echo "/opt/openssl-3.5.0/lib64" | sudo tee -a /etc/ld.so.conf.d/openssl35.conf
+echo "/opt/openssl35/lib" | sudo tee /etc/ld.so.conf.d/openssl35.conf
+echo "/opt/openssl35/lib64" | sudo tee -a /etc/ld.so.conf.d/openssl35.conf
 sudo ldconfig
 ```
+
+Alternatively, you can use the `LD_LIBRARY_PATH` environment variable:
+
+```bash
+export LD_LIBRARY_PATH=/opt/openssl35/lib:/opt/openssl35/lib64:$LD_LIBRARY_PATH
+```
+
+#### 6. Verifying OpenSSL installation
+
+To verify that your OpenSSL installation is correctly configured for post-quantum cryptography, run the built-in environment check tool:
+
+```bash
+quantum-safe-proxy check-environment
+```
+
+This will display detailed information about your OpenSSL installation, including version, supported algorithms, and any detected issues.
 
 ## 12. Future Roadmap
 
@@ -631,6 +668,9 @@ sudo ldconfig
 - Support for additional PQC algorithms as they become standardized
 - Certificate chain validation with hybrid certificates
 - Automatic certificate type detection and configuration
+- Support for OpenSSL 3.7+ and newer versions as they become available
+- Enhanced compatibility with various TLS clients and servers
+- Improved diagnostics and troubleshooting tools
 
 ## 13. Documentation
 

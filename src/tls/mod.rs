@@ -1,6 +1,6 @@
-//! TLS 處理模組
+//! TLS handling module
 //!
-//! 這個模組處理 TLS 連接和證書相關的功能。
+//! This module handles TLS connections and certificate-related functionality.
 
 mod acceptor;
 mod cert;

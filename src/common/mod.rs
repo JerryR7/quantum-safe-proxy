@@ -1,6 +1,6 @@
-//! 共享模組
+//! Common module
 //!
-//! 這個模組包含了應用程序中共享的類型、錯誤和工具函數。
+//! This module contains shared types, errors, and utility functions used throughout the application.
 
 pub mod error;
 pub mod types;
@@ -8,7 +8,7 @@ pub mod fs;
 pub mod log;
 pub mod net;
 
-// 重新導出常用的類型和函數
+// Re-export commonly used types and functions
 pub use error::{ProxyError, Result};
 pub use fs::{check_file_exists, read_file};
 pub use log::init_logger;

@@ -2,7 +2,7 @@
 set -e
 
 OPENSSL_VERSION=3.5.0
-INSTALL_DIR="/opt/openssl-${OPENSSL_VERSION}"
+INSTALL_DIR="/opt/openssl35"
 BUILD_DIR="/tmp/openssl-build-${OPENSSL_VERSION}"
 PKGCONFIG_DIR="${INSTALL_DIR}/lib/pkgconfig"
 

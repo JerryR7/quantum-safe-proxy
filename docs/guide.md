@@ -1,6 +1,8 @@
 # Quantum Safe Proxy Guide
 
-<!-- TOC -->
+## Table of Contents
+
+- [Introduction](#introduction)
 - [Installation](#installation)
   - [Prerequisites](#prerequisites)
   - [Installation Methods](#installation-methods)
@@ -14,10 +16,13 @@
   - [Configuration Hot Reload](#configuration-hot-reload)
   - [Environment-Specific Configuration](#environment-specific-configuration)
   - [Configuration Options](#configuration-options)
-- [Certificate Types](#certificate-types)
-  - [1. Traditional Certificates](#1-traditional-certificates)
-  - [2. Hybrid Certificates](#2-hybrid-certificates)
-  - [3. Pure Post-Quantum Certificates](#3-pure-post-quantum-certificates)
+- [Post-Quantum Cryptography](#post-quantum-cryptography)
+  - [OpenSSL 3.5+ Support](#openssl-35-support)
+  - [Certificate Types](#certificate-types)
+    - [Traditional Certificates](#traditional-certificates)
+    - [Hybrid Certificates](#hybrid-certificates)
+    - [Pure Post-Quantum Certificates](#pure-post-quantum-certificates)
+  - [Supported Algorithms](#supported-algorithms)
 - [Utility Scripts](#utility-scripts)
   - [Certificate Generation Scripts](#certificate-generation-scripts)
   - [OpenSSL Installation Scripts](#openssl-installation-scripts)
@@ -26,13 +31,20 @@
 - [Working with Certificates](#working-with-certificates)
   - [Installing OpenSSL with Post-Quantum Support](#installing-openssl-with-post-quantum-support)
   - [Generating Certificates](#generating-certificates)
+  - [Certificate Directory Structure](#certificate-directory-structure)
   - [Testing Different Certificate Types](#testing-different-certificate-types)
   - [Verifying Certificate Types](#verifying-certificate-types)
 - [Performance and Compatibility](#performance-and-compatibility)
   - [Performance Considerations](#performance-considerations)
   - [Compatibility Notes](#compatibility-notes)
+- [Migrating from OQS to OpenSSL 3.5+](#migrating-from-oqs-to-openssl-35)
 - [Troubleshooting](#troubleshooting)
-<!-- /TOC -->
+  - [Common Issues](#common-issues)
+  - [Diagnostic Tools](#diagnostic-tools)
+
+## Introduction
+
+Quantum Safe Proxy is a TLS proxy designed to provide post-quantum cryptographic protection for existing services. It sits between clients and your backend services, handling TLS connections with post-quantum algorithms while allowing your existing services to remain unchanged.
 
 This comprehensive guide covers everything you need to know about installing, configuring, and using the Quantum Safe Proxy, including working with different types of certificates and cryptography.
 
@@ -49,7 +61,7 @@ Before installing Quantum Safe Proxy, ensure you have the following prerequisite
 - **For native installation**:
   - Rust 1.70.0 or later
   - Cargo package manager
-  - OpenSSL development libraries
+  - OpenSSL 3.5.0 or newer with development libraries
   - C compiler (gcc, clang, or MSVC)
 
 ### Installation Methods
@@ -371,57 +383,67 @@ The proxy will automatically look for a `config.{environment}.json` file and loa
 |--------|-------------|--------------|
 | `listen` | Listen address for the proxy server | `0.0.0.0:8443` |
 | `target` | Target service address to forward traffic to | `127.0.0.1:6000` |
-| `cert_path` | Server certificate path | `certs/hybrid/dilithium3/server.crt` |
-| `key_path` | Server private key path | `certs/hybrid/dilithium3/server.key` |
-| `ca_cert_path` | CA certificate path for client certificate validation | `certs/hybrid/dilithium3/ca.crt` |
-| `hybrid_mode` | Whether to enable hybrid certificate mode | `true` |
+| `cert_path` | Server certificate path (legacy parameter) | `certs/hybrid/ml-dsa-87/server.crt` |
+| `key_path` | Server private key path (legacy parameter) | `certs/hybrid/ml-dsa-87/server.key` |
+| `classic_cert` | Path to classic (RSA/ECDSA) certificate | - |
+| `classic_key` | Path to classic private key | - |
+| `use_sigalgs` | Auto-select certificate by client signature_algorithms | `false` |
+| `ca_cert_path` | CA certificate path for client certificate validation | `certs/hybrid/ml-dsa-87/ca.crt` |
 | `log_level` | Log level (debug, info, warn, error) | `info` |
-| `client_cert_mode` | Client certificate verification mode (required, optional, none) | `required` |
-| `environment` | Environment name (development, testing, production) | `production` |
+| `client_cert_mode` | Client certificate verification mode (required, optional, none) | `optional` |
+| `buffer_size` | Buffer size for data transfer in bytes | `8192` |
+| `connection_timeout` | Connection timeout in seconds | `30` |
+| `openssl_dir` | Path to OpenSSL installation directory | - |
 
-## Certificate Types
+## Post-Quantum Cryptography
+
+### OpenSSL 3.5+ Support
+
+Quantum Safe Proxy uses OpenSSL 3.5+ which includes built-in support for post-quantum cryptography. This provides several advantages:
+
+- **Standardized algorithms**: Uses NIST-standardized algorithms like ML-KEM and ML-DSA
+- **Better integration**: Native integration with OpenSSL's API and tools
+- **Improved performance**: Optimized implementations of post-quantum algorithms
+- **Regular updates**: Benefits from OpenSSL's security updates and improvements
+
+### Certificate Types
 
 The Quantum Safe Proxy supports three categories of certificates:
 
-### 1. Traditional Certificates
+#### Traditional Certificates
 
 These use classical cryptographic algorithms that are widely supported but vulnerable to quantum attacks:
 
 - **RSA**: The most common certificate type, uses integer factorization
 - **ECDSA**: Uses elliptic curve cryptography, more efficient than RSA
+- **Ed25519**: Edwards-curve Digital Signature Algorithm, offering better performance than ECDSA
 
-### 2. Hybrid Certificates
+#### Hybrid Certificates
 
 These combine traditional and post-quantum algorithms for maximum security and compatibility:
-
-#### OpenSSL 3.5+ Terminology (NIST Standardized Names)
 
 - **ML-DSA-44 + ECDSA**: Combines NIST security level 2 post-quantum with traditional ECDSA (formerly Dilithium2)
 - **ML-DSA-65 + ECDSA**: Uses medium security level post-quantum algorithm (formerly Dilithium3)
 - **ML-DSA-87 + ECDSA**: Uses higher security level post-quantum algorithm (formerly Dilithium5)
 - **ML-KEM-768 + X25519**: Combines post-quantum key exchange with traditional elliptic curve
 
-#### OQS Provider Terminology (Legacy)
-
-- **Dilithium2/3 + ECDSA**: Combines NIST security level 2 post-quantum with traditional ECDSA
-- **Dilithium5 + ECDSA**: Uses higher security level post-quantum algorithm
-- **Falcon-1024 + ECDSA**: Uses an alternative lattice-based post-quantum algorithm
-
-### 3. Pure Post-Quantum Certificates
+#### Pure Post-Quantum Certificates
 
 These use only post-quantum algorithms, providing maximum quantum resistance:
-
-#### OpenSSL 3.5+ Terminology (NIST Standardized Names)
 
 - **ML-DSA-44**: NIST security level 2 post-quantum algorithm (formerly Dilithium2)
 - **ML-DSA-65**: NIST security level 3 post-quantum algorithm (formerly Dilithium3)
 - **ML-DSA-87**: NIST security level 5 post-quantum algorithm (formerly Dilithium5)
 
-#### OQS Provider Terminology (Legacy)
+### Supported Algorithms
 
-- **Dilithium2/3**: NIST security level 2 post-quantum algorithm
-- **Dilithium5**: NIST security level 3 post-quantum algorithm
-- **Falcon-1024**: Alternative lattice-based post-quantum algorithm
+| Type | Algorithms (OpenSSL 3.5+) | Description |
+|------|---------------------------|-------------|
+| **Key Exchange** | ML-KEM-512, ML-KEM-768, ML-KEM-1024 | NIST standardized post-quantum key encapsulation mechanisms (formerly Kyber) |
+| **Signatures** | ML-DSA-44, ML-DSA-65, ML-DSA-87 | NIST standardized post-quantum digital signature algorithms (formerly Dilithium) |
+| **Lattice-Based Signatures** | SLH-DSA-FALCON-512, SLH-DSA-FALCON-1024 | Stateless hash-based digital signature algorithms |
+| **Hybrid Groups** | X25519MLKEM768, P256MLKEM768, P384MLKEM1024 | Hybrid key exchange combining classical and post-quantum algorithms |
+| **Classical Fallback** | ECDSA (P-256, P-384, P-521), RSA, Ed25519 | Traditional algorithms for backward compatibility |
 
 ## Utility Scripts
 
@@ -432,7 +454,7 @@ The project includes several utility scripts to help with certificate generation
 | Script | Description | Usage |
 |--------|-------------|-------|
 | `generate-openssl35-certs.sh` | **Recommended certificate generation script** that creates a complete set of certificates using OpenSSL 3.5+ with built-in PQC support. Generates ML-DSA and ML-KEM certificates. | Run inside Docker container:<br>`docker compose exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh` |
-| `generate_certificates.sh` | **Legacy certificate generation script** that creates certificates using OQS provider. Generates Dilithium and Falcon certificates. | Run inside Docker container:<br>`docker compose exec quantum-safe-proxy /scripts/generate_certificates.sh` |
+| `generate-oqs-certs.sh` | **Legacy certificate generation script** that creates certificates using OQS provider. Generates Dilithium and Falcon certificates. | Run inside Docker container:<br>`docker compose exec quantum-safe-proxy /app/scripts/generate-oqs-certs.sh` |
 | `generate-test-certs.sh` | **Simplified certificate generation script** for development and testing. Creates a smaller set of certificates. | Run on host system:<br>`./scripts/generate-test-certs.sh` |
 
 ### OpenSSL Installation Scripts
@@ -440,6 +462,8 @@ The project includes several utility scripts to help with certificate generation
 | Script | Description | Usage |
 |--------|-------------|-------|
 | `build-openssl35.sh` | **RECOMMENDED** script for building Docker image with OpenSSL 3.5+ that has built-in post-quantum cryptography support. | `./scripts/build-openssl35.sh` |
+| `openssl35-install.sh` | Installation script for OpenSSL 3.5+ on the host system. | `./scripts/openssl35-install.sh` |
+| `build-proxy-with-openssl35.sh` | Builds the Quantum Safe Proxy Docker image with OpenSSL 3.5+ and verifies the installation. | `./scripts/build-proxy-with-openssl35.sh` |
 | `install-oqs-provider.sh` | Installation script for OpenSSL 3.x with OQS Provider. Uses modern OpenSSL architecture with pluggable providers. | `./scripts/install-oqs-provider.sh [OPTIONS]` |
 | `install-oqs.sh` | **LEGACY** installation script for OpenSSL 1.1.1 with OQS patches. Provided for backward compatibility only. | `./scripts/install-oqs.sh [OPTIONS]` |
 
@@ -482,7 +506,7 @@ To use post-quantum cryptography features, you need OpenSSL with PQC support. Th
 
 #### Option 1: OpenSSL 3.5+ with Built-in PQC (Recommended)
 
-For new projects, we recommend using OpenSSL 3.5+ which has built-in support for post-quantum cryptography:
+For new projects, we recommend using OpenSSL 3.5+ (or newer versions like 3.6+, 3.7+) which has built-in support for post-quantum cryptography:
 
 ```bash
 # Build the Docker image with OpenSSL 3.5+
@@ -491,9 +515,21 @@ For new projects, we recommend using OpenSSL 3.5+ which has built-in support for
 # Verify the installation
 docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl version
 docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl list -kem-algorithms | grep -i ML-KEM
+docker run --rm quantum-safe-proxy:openssl35 /opt/openssl35/bin/openssl list -signature-algorithms | grep -i ML-DSA
 ```
 
 This will build a Docker image with OpenSSL 3.5+ installed at `/opt/openssl35`.
+
+Alternatively, you can install OpenSSL 3.5+ directly on your system using the provided script:
+
+```bash
+# Run the installation script
+./scripts/openssl35-install.sh
+
+# Verify the installation
+/opt/openssl35/bin/openssl version
+/opt/openssl35/bin/openssl list -kem-algorithms | grep -i ML-KEM
+```
 
 #### Option 2: OpenSSL 3.x with OQS Provider
 
@@ -762,21 +798,59 @@ Look for messages like:
 
 ## Troubleshooting
 
-If you encounter issues:
+### Common Issues
 
-- **OpenSSL errors**: Ensure you have the correct version of OpenSSL installed and environment variables set
-- **Compilation errors**: Make sure you have the required development libraries installed
-- **Docker errors**: Check that Docker and Docker Compose are properly installed and running
-- **Certificate errors**: Verify that certificates are generated correctly and paths are set properly
+#### OpenSSL Installation Issues
+
+If you encounter issues with OpenSSL:
+
+```bash
+# Verify OpenSSL installation
+/opt/openssl35/bin/openssl version
+
+# Check for post-quantum algorithms
+/opt/openssl35/bin/openssl list -kem-algorithms | grep -i ML-KEM
+/opt/openssl35/bin/openssl list -signature-algorithms | grep -i ML-DSA
+```
+
+#### Certificate Issues
+
+If you encounter certificate-related issues:
+
+```bash
+# Verify certificate paths
+ls -la /app/certs/hybrid/ml-dsa-65/
+
+# Check certificate details
+/opt/openssl35/bin/openssl x509 -in /app/certs/hybrid/ml-dsa-65/server.crt -text -noout
+```
+
+#### Docker Issues
+
+- **Image build failures**: Check Docker daemon logs and ensure you have sufficient disk space
+- **Container startup failures**: Verify that ports are not already in use and volumes are properly mounted
+- **Permission issues**: Ensure that certificate files have proper permissions
+
+#### Network Issues
+
+- **Connection refused**: Verify that the proxy is running and listening on the correct port
+- **Handshake failures**: Check that the client supports the certificate type being used
+- **Timeout errors**: Increase the connection timeout setting
+
+### Diagnostic Tools
+
+The proxy includes built-in diagnostic tools:
+
+```bash
+# Check environment
+quantum-safe-proxy check-environment
+
+# Run with increased logging
+quantum-safe-proxy --log-level debug [other options]
+```
 
 For more detailed troubleshooting, check the logs:
 
 ```bash
 docker compose logs quantum-safe-proxy
-```
-
-Or run with increased log level:
-
-```bash
-quantum-safe-proxy --log-level debug [other options]
 ```

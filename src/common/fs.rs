@@ -1,51 +1,51 @@
-//! 文件系統相關工具函數
+//! Filesystem utility functions
 //!
-//! 這個模組提供了文件系統相關的工具函數。
+//! This module provides utility functions for filesystem operations.
 
 use std::path::Path;
 use std::fs;
 
 use super::error::{ProxyError, Result};
 
-/// 檢查文件是否存在
+/// Check if a file exists
 ///
-/// # 參數
+/// # Arguments
 ///
-/// * `path` - 文件路徑
+/// * `path` - File path
 ///
-/// # 返回
+/// # Returns
 ///
-/// 如果文件存在，返回 `Ok(())`，否則返回錯誤。
+/// Returns `Ok(())` if the file exists, otherwise returns an error.
 pub fn check_file_exists(path: &Path) -> Result<()> {
     if !path.exists() {
         return Err(ProxyError::Config(format!(
-            "文件不存在: {:?}",
+            "File does not exist: {:?}",
             path
         )));
     }
-    
+
     if !path.is_file() {
         return Err(ProxyError::Config(format!(
-            "路徑不是文件: {:?}",
+            "Path is not a file: {:?}",
             path
         )));
     }
-    
+
     Ok(())
 }
 
-/// 讀取文件內容
+/// Read file content
 ///
-/// # 參數
+/// # Arguments
 ///
-/// * `path` - 文件路徑
+/// * `path` - File path
 ///
-/// # 返回
+/// # Returns
 ///
-/// 返回文件內容的字節數組。
+/// Returns the file content as a byte vector.
 pub fn read_file(path: &Path) -> Result<Vec<u8>> {
     check_file_exists(path)?;
-    
+
     fs::read(path).map_err(|e| ProxyError::Io(e))
 }
 
@@ -53,34 +53,34 @@ pub fn read_file(path: &Path) -> Result<Vec<u8>> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    
+
     #[test]
     fn test_check_file_exists() {
-        // 測試存在的文件
+        // Test existing file
         let path = PathBuf::from("Cargo.toml");
         let result = check_file_exists(&path);
-        assert!(result.is_ok(), "應該能夠檢查存在的文件");
-        
-        // 測試不存在的文件
+        assert!(result.is_ok(), "Should be able to check an existing file");
+
+        // Test non-existent file
         let path = PathBuf::from("non_existent_file.txt");
         let result = check_file_exists(&path);
-        assert!(result.is_err(), "應該無法檢查不存在的文件");
+        assert!(result.is_err(), "Should fail when checking a non-existent file");
     }
-    
+
     #[test]
     fn test_read_file() {
-        // 測試讀取存在的文件
+        // Test reading an existing file
         let path = PathBuf::from("Cargo.toml");
         let result = read_file(&path);
-        assert!(result.is_ok(), "應該能夠讀取存在的文件");
-        
+        assert!(result.is_ok(), "Should be able to read an existing file");
+
         if let Ok(content) = result {
-            assert!(!content.is_empty(), "文件內容不應為空");
+            assert!(!content.is_empty(), "File content should not be empty");
         }
-        
-        // 測試讀取不存在的文件
+
+        // Test reading a non-existent file
         let path = PathBuf::from("non_existent_file.txt");
         let result = read_file(&path);
-        assert!(result.is_err(), "應該無法讀取不存在的文件");
+        assert!(result.is_err(), "Should fail when reading a non-existent file");
     }
 }
