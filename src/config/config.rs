@@ -122,6 +122,18 @@ pub struct ProxyConfig {
     /// This is useful when OpenSSL is installed in a non-standard location
     #[serde(default = "defaults::openssl_dir")]
     pub openssl_dir: Option<PathBuf>,
+
+    /// Path to classic (RSA/ECDSA) cert PEM
+    #[serde(default = "defaults::cert_path")]
+    pub classic_cert: PathBuf,
+
+    /// Path to classic private key PEM
+    #[serde(default = "defaults::key_path")]
+    pub classic_key: PathBuf,
+
+    /// Always use SigAlgs strategy: auto-select cert by client signature_algorithms
+    #[serde(default)]
+    pub use_sigalgs: bool,
 }
 
 impl Default for ProxyConfig {
@@ -138,6 +150,9 @@ impl Default for ProxyConfig {
             buffer_size: defaults::buffer_size(),
             connection_timeout: defaults::connection_timeout(),
             openssl_dir: defaults::openssl_dir(),
+            classic_cert: defaults::cert_path(),
+            classic_key: defaults::key_path(),
+            use_sigalgs: false,
         }
     }
 }
@@ -347,17 +362,25 @@ impl ProxyConfig {
         // Parse client certificate mode
         let client_cert_mode = ClientCertMode::from_str(client_cert_mode)?;
 
+        // Convert paths to PathBuf
+        let cert_path = PathBuf::from(cert);
+        let key_path = PathBuf::from(key);
+        let ca_cert_path = PathBuf::from(ca_cert);
+
         Ok(Self {
             listen,
             target,
-            cert_path: PathBuf::from(cert),
-            key_path: PathBuf::from(key),
-            ca_cert_path: PathBuf::from(ca_cert),
+            cert_path: cert_path.clone(),
+            key_path: key_path.clone(),
+            ca_cert_path,
             log_level: log_level.to_string(),
             client_cert_mode,
             buffer_size,
             connection_timeout,
             openssl_dir: None,  // Default to None for openssl_dir
+            classic_cert: cert_path.clone(),
+            classic_key: key_path.clone(),
+            use_sigalgs: false,
         })
     }
 
@@ -420,6 +443,21 @@ impl ProxyConfig {
             } else {
                 self.openssl_dir.clone()
             },
+
+            // For new certificate paths, only override if not the default
+            classic_cert: if other.classic_cert != default.classic_cert {
+                other.classic_cert.clone()
+            } else {
+                self.classic_cert.clone()
+            },
+            classic_key: if other.classic_key != default.classic_key {
+                other.classic_key.clone()
+            } else {
+                self.classic_key.clone()
+            },
+
+            // For boolean flags, directly override
+            use_sigalgs: other.use_sigalgs,
         }
     }
 
@@ -684,6 +722,22 @@ impl ProxyConfig {
 
         log::info!("Configuration reloaded successfully");
         Ok(merged_config)
+    }
+
+    /// Build the SigAlgs strategy if requested, else default to single classic.
+    pub fn build_cert_strategy(&self) -> Result<crate::tls::strategy::CertStrategy> {
+        use crate::tls::strategy::CertStrategy;
+        if self.use_sigalgs {
+            Ok(CertStrategy::SigAlgs {
+                classic: (self.classic_cert.clone(), self.classic_key.clone()),
+                hybrid: (self.cert_path.clone(), self.key_path.clone()),
+            })
+        } else {
+            Ok(CertStrategy::Single {
+                cert: self.cert_path.clone(),
+                key: self.key_path.clone(),
+            })
+        }
     }
 }
 

@@ -18,16 +18,22 @@
 //! ```no_run
 //! use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
 //! use quantum_safe_proxy::config::ClientCertMode;
+//! use quantum_safe_proxy::tls::strategy::CertStrategy;
 //! use std::path::Path;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
+//!     // Create certificate strategy
+//!     let strategy = CertStrategy::Single {
+//!         cert: Path::new("certs/hybrid/dilithium3/server.crt").to_path_buf(),
+//!         key: Path::new("certs/hybrid/dilithium3/server.key").to_path_buf(),
+//!     };
+//!
 //!     // Create TLS acceptor with system-detected TLS settings
 //!     let tls_acceptor = create_tls_acceptor(
-//!         Path::new("certs/hybrid/dilithium3/server.crt"),
-//!         Path::new("certs/hybrid/dilithium3/server.key"),
 //!         Path::new("certs/hybrid/dilithium3/ca.crt"),
 //!         &ClientCertMode::Required,
+//!         strategy,
 //!     )?;
 //!
 //!     // Parse addresses
@@ -119,12 +125,14 @@ pub fn reload_config(
     // Get the updated configuration
     let new_config = config::get_config()?;
 
+    // Build certificate strategy
+    let strategy = new_config.build_cert_strategy()?;
+
     // Create new TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(
-        &new_config.cert_path,
-        &new_config.key_path,
         &new_config.ca_cert_path,
         &new_config.client_cert_mode,
+        strategy,
     )?;
 
     // Update proxy configuration

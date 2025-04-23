@@ -3,7 +3,7 @@
 use log::{debug, warn};
 use openssl::ssl::{SslContext, SslMethod};
 use std::collections::HashSet;
-use std::ffi::CStr;
+
 
 // 全局静態變量用于快取 OpenSSL 版本信息
 use std::sync::Once;
@@ -158,7 +158,7 @@ pub fn list_supported_kems() -> Vec<String> {
 
     // 嘗試建立 SSL 環境
     match SslContext::builder(SslMethod::tls_client()) {
-        Ok(ctx) => {
+        Ok(_ctx) => {
             // 在這裡我們使用 OpenSSL 3.5+ 的特性來檢測 KEM 支援
             // 實際上，我們應該使用 SSL_CTX_get1_supported_kems 等 API
             // 但由於 Rust OpenSSL 綁定可能尚未提供這些 API，我們使用替代方法
@@ -238,7 +238,7 @@ pub fn get_recommended_cipher_list(supports_pqc: bool) -> String {
 }
 
 /// Get recommended TLS 1.3 ciphersuites based on PQC support
-pub fn get_recommended_tls13_ciphersuites(supports_pqc: bool) -> String {
+pub fn get_recommended_tls13_ciphersuites(_supports_pqc: bool) -> String {
     // Default TLS 1.3 ciphersuites
     // 注意：TLS 1.3 中 ciphersuites 只指定對稱加密和 AEAD，不包含簽章演算法
     const DEFAULT_TLS13_CIPHERSUITES: &str = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256";

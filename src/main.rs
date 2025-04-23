@@ -28,13 +28,25 @@ struct Args {
     #[clap(short, long, default_value = TARGET_STR)]
     target: String,
 
-    /// Server certificate path
+    /// Server certificate path (legacy parameter, use classic-cert instead)
     #[clap(long, default_value = CERT_PATH_STR)]
     cert: String,
 
-    /// Server private key path
+    /// Server private key path (legacy parameter, use classic-key instead)
     #[clap(long, default_value = KEY_PATH_STR)]
     key: String,
+
+    /// Path to classic (RSA/ECDSA) cert PEM
+    #[clap(long, default_value = CERT_PATH_STR)]
+    classic_cert: String,
+
+    /// Path to classic private key PEM
+    #[clap(long, default_value = KEY_PATH_STR)]
+    classic_key: String,
+
+    /// Always use SigAlgs strategy: auto-select cert by client signature_algorithms
+    #[clap(long)]
+    use_sigalgs: bool,
 
     /// CA certificate path (for client certificate validation)
     #[clap(long, default_value = CA_CERT_PATH_STR)]
@@ -88,7 +100,16 @@ async fn main() -> Result<()> {
     }
 
     // Initialize configuration system first
-    let config = config::initialize(std::env::args().collect(), args.config_file.as_deref())?;
+    let mut config = config::initialize(std::env::args().collect(), args.config_file.as_deref())?;
+
+    // Update config with new certificate paths from command line
+    config.classic_cert = PathBuf::from(&args.classic_cert);
+    config.classic_key = PathBuf::from(&args.classic_key);
+    config.use_sigalgs = args.use_sigalgs;
+
+    // For backward compatibility, also update the legacy cert_path and key_path
+    config.cert_path = PathBuf::from(&args.cert);
+    config.key_path = PathBuf::from(&args.key);
 
     // Initialize OpenSSL from the specified directory
 
@@ -123,12 +144,14 @@ async fn main() -> Result<()> {
         Err(e) => warn!("Unable to get certificate fingerprint: {}", e),
     }
 
-    // Create TLS acceptor
+    // Build certificate strategy
+    let strategy = config.build_cert_strategy()?;
+
+    // Create TLS acceptor with the certificate strategy
     let tls_acceptor = create_tls_acceptor(
-        &config.cert_path,
-        &config.key_path,
         &config.ca_cert_path,
         &config.client_cert_mode,
+        strategy,
     )?;
 
     // Create proxy instance
