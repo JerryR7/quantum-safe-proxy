@@ -4,19 +4,34 @@ use log::{debug, warn};
 use openssl::ssl::{SslContext, SslMethod};
 use std::collections::HashSet;
 
+// 全局静態變量用于快取 OpenSSL 版本信息
+use std::sync::Once;
+static OPENSSL_VERSION_INIT: Once = Once::new();
+static mut OPENSSL_VERSION_RESULT: bool = false;
+static mut OPENSSL_VERSION_INFO: Option<(i64, u8, u8)> = None;
+
 /// Check if OpenSSL 3.5+ is available (required for PQC support)
 pub fn is_openssl35_available() -> bool {
-    // 使用 openssl crate 的 API 直接獲取版本號
-    let version_number = openssl::version::number();
+    // 只在第一次調用時計算結果
+    OPENSSL_VERSION_INIT.call_once(|| {
+        // 使用 openssl crate 的 API 直接獲取版本號
+        let version_number = openssl::version::number();
 
-    // 版本號格式: 0xMNNFFPPS (M=major, NN=minor, FF=fix, PP=patch, S=status)
-    let major = (version_number >> 28) & 0xFF;
-    let minor = (version_number >> 20) & 0xFF;
+        // 版本號格式: 0xMNNFFPPS (M=major, NN=minor, FF=fix, PP=patch, S=status)
+        let major = (version_number >> 28) & 0xFF;
+        let minor = (version_number >> 20) & 0xFF;
 
-    debug!("OpenSSL version number: 0x{:08X}, major: {}, minor: {}", version_number, major, minor);
+        debug!("OpenSSL version number: 0x{:08X}, major: {}, minor: {}", version_number, major, minor);
 
-    // 檢查是否為 OpenSSL 3.5 或更高版本
-    major == 3 && minor >= 5
+        // 存儲結果
+        unsafe {
+            OPENSSL_VERSION_RESULT = major == 3 && minor >= 5;
+            OPENSSL_VERSION_INFO = Some((version_number, major as u8, minor as u8));
+        }
+    });
+
+    // 返回快取結果
+    unsafe { OPENSSL_VERSION_RESULT }
 }
 
 /// Check if post-quantum cryptography is available in the current OpenSSL installation
@@ -32,9 +47,31 @@ pub fn is_pqc_available() -> bool {
 
 /// Get OpenSSL version string
 pub fn get_openssl_version() -> String {
-    // Try to get version from OpenSSL
+    // 確保先調用 is_openssl35_available 來初始化快取
+    is_openssl35_available();
+
+    // 直接使用 OpenSSL API 獲取版本字串
     let version = ::openssl::version::version();
     return version.to_string();
+}
+
+/// Get OpenSSL version information
+pub fn get_openssl_version_info() -> (i64, u8, u8) {
+    // 確保先調用 is_openssl35_available 來初始化快取
+    is_openssl35_available();
+
+    // 返回快取的版本信息
+    unsafe {
+        if let Some(info) = OPENSSL_VERSION_INFO {
+            return info;
+        } else {
+            // 如果快取未初始化，直接計算
+            let version_number = openssl::version::number();
+            let major = (version_number >> 28) & 0xFF;
+            let minor = (version_number >> 20) & 0xFF;
+            return (version_number, major as u8, minor as u8);
+        }
+    }
 }
 
 /// Get list of supported post-quantum algorithms

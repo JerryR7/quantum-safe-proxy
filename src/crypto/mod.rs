@@ -16,7 +16,7 @@ pub use ::openssl::x509::X509;
 
 // Public exports
 pub use openssl::OpenSSLProvider as CryptoProvider;
-pub use capabilities::{is_openssl35_available, is_pqc_available, get_openssl_version};
+pub use capabilities::{is_openssl35_available, is_pqc_available, get_openssl_version, get_openssl_version_info};
 pub use capabilities::{get_supported_pq_algorithms, get_supported_signature_algorithms};
 pub use capabilities::{get_recommended_cipher_list, get_recommended_tls13_ciphersuites, get_recommended_groups};
 pub use environment::{check_environment, diagnose_environment, EnvironmentInfo, EnvironmentIssue, IssueSeverity};

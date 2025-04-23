@@ -3,7 +3,7 @@
 
 use std::env;
 
-use super::capabilities::is_openssl35_available;
+use super::capabilities::{is_openssl35_available, get_openssl_version};
 
 /// Environment issue severity levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,10 +59,8 @@ pub fn check_environment() -> EnvironmentInfo {
     let provider = super::get_provider();
     let capabilities = provider.capabilities();
 
-    // Get OpenSSL version
-    let openssl_version = capabilities.openssl_version.clone();
-
-    // Check if OpenSSL 3.5+ is available
+    // 使用快取的版本信息
+    let openssl_version = get_openssl_version();
     let openssl35_available = is_openssl35_available();
 
     // Check if post-quantum cryptography is available
