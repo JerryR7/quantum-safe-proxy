@@ -68,7 +68,8 @@ pub mod tls;
 // Re-export commonly used structures and functions for convenience
 pub use proxy::Proxy;
 pub use tls::create_tls_acceptor;
-pub use common::{ProxyError, Result, parse_socket_addr};
+pub use common::{ProxyError, Result};
+pub use config::parse_socket_addr;
 use std::sync::Arc;
 
 // Buffer size moved to ProxyConfig

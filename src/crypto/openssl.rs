@@ -2,17 +2,36 @@
 
 use std::path::Path;
 use std::sync::OnceLock;
+use std::fs;
 use log::{debug, info, warn};
-
 
 use openssl::pkey::PKey;
 use openssl::ssl::{SslMethod, SslVerifyMode, SslContext as OpenSslContext};
 use openssl::x509::X509 as OpenSslX509;
 
-use crate::common::{ProxyError, Result, read_file};
+use crate::common::{ProxyError, Result};
 use super::{CryptoCapabilities, CertificateType, SslContext, X509};
 use super::capabilities::{is_pqc_available, get_openssl_version, get_supported_pq_algorithms};
 use super::capabilities::{get_recommended_cipher_list, get_recommended_tls13_ciphersuites, get_recommended_groups};
+
+/// Check if a file exists
+pub(crate) fn check_file_exists(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Err(ProxyError::FileNotFound(format!("{:?}", path)));
+    }
+
+    if !path.is_file() {
+        return Err(ProxyError::Config(format!("Path is not a file: {:?}", path)));
+    }
+
+    Ok(())
+}
+
+/// Read file content
+pub(crate) fn read_file(path: &Path) -> Result<Vec<u8>> {
+    check_file_exists(path)?;
+    fs::read(path).map_err(ProxyError::Io)
+}
 
 /// OpenSSL 3.5+ provider with post-quantum cryptography capabilities
 #[derive(Debug, Clone)]

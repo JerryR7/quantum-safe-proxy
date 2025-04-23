@@ -7,12 +7,46 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 
-use crate::common::{ProxyError, Result, check_file_exists};
+use crate::common::{ProxyError, Result};
 use crate::config::defaults;
+
+/// Check if a file exists
+fn check_file_exists(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Err(ProxyError::FileNotFound(format!("{:?}", path)));
+    }
+
+    if !path.is_file() {
+        return Err(ProxyError::Config(format!("Path is not a file: {:?}", path)));
+    }
+
+    Ok(())
+}
+
+/// Parse a socket address
+pub fn parse_socket_addr(addr: &str) -> Result<SocketAddr> {
+    // Try direct parsing first
+    if let Ok(socket_addr) = SocketAddr::from_str(addr) {
+        return Ok(socket_addr);
+    }
+
+    // Try using ToSocketAddrs trait
+    match addr.to_socket_addrs() {
+        Ok(mut addrs) => {
+            if let Some(addr) = addrs.next() {
+                Ok(addr)
+            } else {
+                Err(ProxyError::Network(format!("Failed to parse address: {}", addr)))
+            }
+        }
+        Err(e) => Err(ProxyError::Network(format!("Failed to parse address {}: {}", addr, e))),
+    }
+}
 
 /// Client certificate verification mode
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -241,7 +275,6 @@ impl ProxyConfig {
     /// # }
     /// ```
     pub fn from_env() -> Result<Self> {
-        use crate::common::parse_socket_addr;
         use crate::config::defaults::ENV_PREFIX;
         use std::env;
 
@@ -357,10 +390,10 @@ impl ProxyConfig {
         connection_timeout: u64,
     ) -> Result<Self> {
         // Parse listen address
-        let listen = crate::common::parse_socket_addr(listen)?;
+        let listen = parse_socket_addr(listen)?;
 
         // Parse target address
-        let target = crate::common::parse_socket_addr(target)?;
+        let target = parse_socket_addr(target)?;
 
         // Parse client certificate mode
         let client_cert_mode = ClientCertMode::from_str(client_cert_mode)?;

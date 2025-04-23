@@ -9,8 +9,8 @@ mod defaults;
 mod manager;
 
 // Re-export types
-pub use config::{ProxyConfig, ClientCertMode};
-pub use manager::{initialize, get_config, update_config, reload_config, add_listener, ConfigChangeEvent, get_buffer_size, get_connection_timeout};
+pub use config::{ProxyConfig, ClientCertMode, parse_socket_addr};
+pub use manager::{initialize, get_config, update_config, reload_config, add_listener, ConfigChangeEvent, get_buffer_size, get_connection_timeout, is_client_cert_required, is_sigalgs_enabled};
 
 // Export constants needed externally
 pub use defaults::{ENV_PREFIX, DEFAULT_CONFIG_FILE, DEFAULT_CONFIG_DIR};
@@ -19,7 +19,6 @@ pub use defaults::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_
 use std::path::{Path, PathBuf};
 // use std::env; // 不再需要，因為我們優化了配置加載流程
 
-use crate::common::parse_socket_addr;
 use log::{info, warn, debug};
 
 use crate::common::Result;
@@ -148,7 +147,7 @@ fn parse_command_line_args(args: &[String]) -> Result<ProxyConfig> {
         match args[i].as_str() {
             "--listen" => {
                 if i + 1 < args.len() {
-                    config.listen = parse_socket_addr(&args[i + 1])?;
+                    config.listen = self::parse_socket_addr(&args[i + 1])?;
                     i += 2;
                 } else {
                     return Err(ProxyError::Config("Missing value for --listen".to_string()));
@@ -156,7 +155,7 @@ fn parse_command_line_args(args: &[String]) -> Result<ProxyConfig> {
             },
             "--target" => {
                 if i + 1 < args.len() {
-                    config.target = parse_socket_addr(&args[i + 1])?;
+                    config.target = self::parse_socket_addr(&args[i + 1])?;
                     i += 2;
                 } else {
                     return Err(ProxyError::Config("Missing value for --target".to_string()));

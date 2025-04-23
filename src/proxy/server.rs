@@ -9,11 +9,22 @@ use openssl::ssl::SslAcceptor;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::task::JoinSet;
 
 use crate::common::{ProxyError, Result};
-use crate::common::types::ConnectionInfo;
 use crate::config::ProxyConfig;
 use std::time::SystemTime;
+
+/// Connection information
+#[derive(Debug, Clone)]
+pub struct ConnectionInfo {
+    /// Source address
+    pub source: String,
+    /// Target address
+    pub target: String,
+    /// Connection timestamp
+    pub timestamp: SystemTime,
+}
 
 use super::handler::handle_connection;
 
@@ -125,8 +136,18 @@ impl Proxy {
 
         info!("Proxy service started, listening on {}", self.listen_addr);
 
+        // Create a JoinSet to manage tasks efficiently
+        let mut tasks = JoinSet::new();
+
         // Accept connections
         loop {
+            // Check for completed tasks and log any errors
+            while let Some(result) = tasks.try_join_next() {
+                if let Err(e) = result {
+                    error!("Task error: {}", e);
+                }
+            }
+
             match listener.accept().await {
                 Ok((client_stream, client_addr)) => {
                     info!("Accepted connection from {}", client_addr);
@@ -139,16 +160,14 @@ impl Proxy {
                     };
 
                     // Clone necessary data for use in the new task
-                    let tls_acceptor = self.tls_acceptor.clone();
+                    let tls_acceptor = Arc::clone(&self.tls_acceptor);
                     let target_addr = self.target_addr;
+                    let config = Arc::clone(&self.config);
 
-                    // Handle connection in a new task
-                    let config = self.config.clone();
-                    tokio::spawn(async move {
+                    // Add connection handling task to JoinSet
+                    tasks.spawn(async move {
                         debug!("Starting to handle connection: {} -> {}", conn_info.source, conn_info.target);
-                        if let Err(e) = handle_connection(client_stream, target_addr, tls_acceptor, &config).await {
-                            error!("Error handling connection: {}", e);
-                        }
+                        handle_connection(client_stream, target_addr, tls_acceptor, &config).await
                     });
                 }
                 Err(e) => {

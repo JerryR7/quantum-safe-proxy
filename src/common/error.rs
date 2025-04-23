@@ -28,6 +28,30 @@ pub enum ProxyError {
     #[error("Certificate error: {0}")]
     Certificate(String),
 
+    /// File not found error
+    #[error("File not found: {0}")]
+    FileNotFound(String),
+
+    /// Permission denied error
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
+
+    /// Network error
+    #[error("Network error: {0}")]
+    Network(String),
+
+    /// Connection timeout error
+    #[error("Connection timeout after {0} seconds")]
+    ConnectionTimeout(u64),
+
+    /// Buffer pool error
+    #[error("Buffer pool error: {0}")]
+    BufferPool(String),
+
+    /// Task join error
+    #[error("Task join error: {0}")]
+    TaskJoin(#[from] tokio::task::JoinError),
+
     /// Other error
     #[error("Other error: {0}")]
     Other(String),

@@ -3,6 +3,7 @@
 //! This example demonstrates how to create a simple proxy using Quantum Safe Proxy.
 
 use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
+use quantum_safe_proxy::tls::strategy::CertStrategy;
 use std::path::Path;
 
 #[tokio::main]
@@ -11,12 +12,17 @@ async fn main() -> Result<()> {
 
     println!("啟動簡單代理示例...");
 
+    // Create certificate strategy
+    let strategy = CertStrategy::Single {
+        cert: Path::new("certs/hybrid/dilithium3/server.crt").to_path_buf(),
+        key: Path::new("certs/hybrid/dilithium3/server.key").to_path_buf(),
+    };
+
     // Create TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(
-        Path::new("certs/hybrid/dilithium3/server.crt"),
-        Path::new("certs/hybrid/dilithium3/server.key"),
         Path::new("certs/hybrid/dilithium3/ca.crt"),
         &quantum_safe_proxy::config::ClientCertMode::Optional,
+        strategy,
     )?;
 
     // Create and start proxy

@@ -35,12 +35,14 @@ async fn main() -> Result<()> {
     println!("  Buffer size: {} bytes", config.buffer_size);
     println!("  Connection timeout: {} seconds", config.connection_timeout);
 
+    // Build certificate strategy
+    let strategy = config.build_cert_strategy()?;
+
     // Create TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(
-        &config.cert_path,
-        &config.key_path,
         &config.ca_cert_path,
         &config.client_cert_mode,
+        strategy,
     )?;
 
     // Create and start proxy

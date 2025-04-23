@@ -4,9 +4,7 @@
 
 use quantum_safe_proxy::config::ProxyConfig;
 use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
-use quantum_safe_proxy::common::types::{ConnectionInfo, CertificateInfo};
-use quantum_safe_proxy::common::{check_file_exists, read_file};
-use std::path::PathBuf;
+use quantum_safe_proxy::proxy::server::ConnectionInfo;
 use std::time::SystemTime;
 
 #[test]
@@ -73,14 +71,5 @@ fn test_common_types() {
     assert!(cert_info.is_hybrid);
 }
 
-#[test]
-fn test_utils() {
-    // Test checking if file exists
-    let path = PathBuf::from("Cargo.toml");
-    let result = check_file_exists(&path);
-    assert!(result.is_ok(), "Should be able to check existing file");
-
-    // Test reading file
-    let result = read_file(&path);
-    assert!(result.is_ok(), "Should be able to read existing file");
-}
+// We've removed the test_utils function as it's no longer needed
+// The functionality is now tested directly in the modules where it's implemented

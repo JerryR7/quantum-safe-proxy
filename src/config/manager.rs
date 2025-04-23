@@ -5,7 +5,7 @@
 //! Optimized for lightweight and high-performance operation.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, RwLock, Arc, atomic::{AtomicUsize, AtomicU64, Ordering}};
+use std::sync::{Mutex, RwLock, Arc, atomic::{AtomicBool, AtomicUsize, AtomicU64, Ordering}};
 use once_cell::sync::{OnceCell, Lazy};
 use log::info;
 
@@ -28,6 +28,8 @@ pub type ConfigChangeListener = Box<dyn Fn(ConfigChangeEvent) + Send + Sync>;
 // Cached configuration values for high-performance access
 static BUFFER_SIZE: Lazy<AtomicUsize> = Lazy::new(|| AtomicUsize::new(defaults::buffer_size()));
 static CONNECTION_TIMEOUT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(defaults::connection_timeout()));
+static CLIENT_CERT_REQUIRED: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(defaults::client_cert_mode() == super::config::ClientCertMode::Required));
+static USE_SIGALGS: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(defaults::use_sigalgs()));
 
 /// Configuration manager singleton
 pub struct ConfigManager {
@@ -111,6 +113,16 @@ impl ConfigManager {
         CONNECTION_TIMEOUT.load(Ordering::Relaxed)
     }
 
+    /// Check if client certificate is required without acquiring a lock (high performance)
+    pub fn is_client_cert_required() -> bool {
+        CLIENT_CERT_REQUIRED.load(Ordering::Relaxed)
+    }
+
+    /// Check if signature algorithms selection is enabled without acquiring a lock (high performance)
+    pub fn is_sigalgs_enabled() -> bool {
+        USE_SIGALGS.load(Ordering::Relaxed)
+    }
+
     /// Update the configuration
     ///
     /// This function updates the current configuration and notifies all listeners.
@@ -129,6 +141,8 @@ impl ConfigManager {
         // Update cached values for fast access
         BUFFER_SIZE.store(config.buffer_size, Ordering::Relaxed);
         CONNECTION_TIMEOUT.store(config.connection_timeout, Ordering::Relaxed);
+        CLIENT_CERT_REQUIRED.store(config.client_cert_mode == super::config::ClientCertMode::Required, Ordering::Relaxed);
+        USE_SIGALGS.store(config.use_sigalgs, Ordering::Relaxed);
 
         // Update the configuration
         {
@@ -186,6 +200,8 @@ impl ConfigManager {
         // Update cached values for fast access
         BUFFER_SIZE.store(merged_config.buffer_size, Ordering::Relaxed);
         CONNECTION_TIMEOUT.store(merged_config.connection_timeout, Ordering::Relaxed);
+        CLIENT_CERT_REQUIRED.store(merged_config.client_cert_mode == super::config::ClientCertMode::Required, Ordering::Relaxed);
+        USE_SIGALGS.store(merged_config.use_sigalgs, Ordering::Relaxed);
 
         // Update the configuration
         {
@@ -297,6 +313,16 @@ pub fn get_buffer_size() -> usize {
 /// Get connection timeout without acquiring a lock (high performance)
 pub fn get_connection_timeout() -> u64 {
     ConfigManager::get_connection_timeout()
+}
+
+/// Check if client certificate is required without acquiring a lock (high performance)
+pub fn is_client_cert_required() -> bool {
+    ConfigManager::is_client_cert_required()
+}
+
+/// Check if signature algorithms selection is enabled without acquiring a lock (high performance)
+pub fn is_sigalgs_enabled() -> bool {
+    ConfigManager::is_sigalgs_enabled()
 }
 
 /// Update the configuration
