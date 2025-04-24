@@ -3,7 +3,7 @@
 //! This module provides functionality to dynamically load OpenSSL libraries
 //! from a specified directory.
 
-use std::{env, path::Path};
+use std::path::Path;
 use log::{info, warn, error};
 
 /// Initialize OpenSSL from a specific directory

@@ -23,6 +23,7 @@ pub struct ConnectionInfo {
     /// Target address
     pub target: String,
     /// Connection timestamp
+    #[allow(dead_code)]
     pub timestamp: SystemTime,
 }
 

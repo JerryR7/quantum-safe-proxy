@@ -116,6 +116,10 @@ pub fn load_config(args: Vec<String>, config_file: Option<&str>) -> Result<Proxy
         debug!("Client certificate mode: {}", config.client_cert_mode);
         debug!("Buffer size: {} bytes", config.buffer_size);
         debug!("Connection timeout: {} seconds", config.connection_timeout);
+        debug!("Classic certificate path: {:?}", config.classic_cert);
+        debug!("Classic key path: {:?}", config.classic_key);
+        debug!("OpenSSL directory: {:?}", config.openssl_dir);
+        debug!("Use SigAlgs strategy: {}", config.use_sigalgs);
     }
 
     Ok(config)

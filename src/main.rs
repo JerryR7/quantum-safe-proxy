@@ -89,6 +89,8 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Initialize logger
+    // Use RUST_LOG environment variable to control log levels
+    // Example: RUST_LOG=quantum_safe_proxy::config=debug,quantum_safe_proxy=warn
     init_logger(&args.log_level);
 
     info!("Starting {} v{}", APP_NAME, VERSION);
@@ -130,20 +132,7 @@ async fn main() -> Result<()> {
         config.key_path = PathBuf::from(&args.key);
     }
 
-    // Log the configuration details
-    log::info!("Configuration details:");
-    log::info!("  Listen address: {}", config.listen);
-    log::info!("  Target address: {}", config.target);
-    log::info!("  Certificate path: {:?}", config.cert_path);
-    log::info!("  Key path: {:?}", config.key_path);
-    log::info!("  CA certificate path: {:?}", config.ca_cert_path);
-    log::info!("  Classic certificate path: {:?}", config.classic_cert);
-    log::info!("  Classic key path: {:?}", config.classic_key);
-    log::info!("  Client certificate mode: {:?}", config.client_cert_mode);
-    log::info!("  Buffer size: {}", config.buffer_size);
-    log::info!("  Connection timeout: {}", config.connection_timeout);
-    log::info!("  OpenSSL directory: {:?}", config.openssl_dir);
-    log::info!("  Use SigAlgs strategy: {}", config.use_sigalgs);
+    // Configuration details are already logged in config module
 
     // Initialize OpenSSL from the specified directory
 
