@@ -1,12 +1,15 @@
 {
   "listen": "0.0.0.0:8443",
   "target": "127.0.0.1:6000",
-  "cert_path": "certs/hybrid/dilithium3/server.crt",
-  "key_path": "certs/hybrid/dilithium3/server.key",
-  "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
+  "cert_path": "certs/hybrid/ml-dsa-65/server.crt",
+  "key_path": "certs/hybrid/ml-dsa-65/server.key",
+  "ca_cert_path": "certs/hybrid/ml-dsa-65/ca.crt",
   "log_level": "info",
   "client_cert_mode": "optional",
   "buffer_size": 8192,
   "connection_timeout": 30,
-  "environment": "production"
+  "classic_cert": "certs/traditional/rsa/server.crt",
+  "classic_key": "certs/traditional/rsa/server.key",
+  "use_sigalgs": false,
+  "openssl_dir": "/opt/openssl35"
 }

@@ -13,7 +13,7 @@ This directory contains documentation for the Quantum Safe Proxy project.
 | Component | Technology |
 |-----------|------------|
 | **Language** | Rust |
-| **TLS Library** | OpenSSL 3.5+ with built-in PQC support (also compatible with 3.6+, 3.7+) |
+| **TLS Library** | OpenSSL 3.5+ with built-in PQC support |
 | **Proxy Runtime** | tokio + tokio-openssl |
 | **Deployment** | Docker / Kubernetes / Systemd sidecar mode |
 | **Certificate Tools** | OpenSSL 3.5+ CLI (hybrid CSR and certificates) |
@@ -27,6 +27,18 @@ This directory contains documentation for the Quantum Safe Proxy project.
 | **Lattice-Based Signatures** | SLH-DSA-FALCON-512, SLH-DSA-FALCON-1024 | Stateless hash-based digital signature algorithms |
 | **Hybrid Groups** | X25519MLKEM768, P256MLKEM768, P384MLKEM1024 | Hybrid key exchange combining classical and post-quantum algorithms |
 | **Classical Fallback** | ECDSA (P-256, P-384, P-521), RSA, Ed25519 | Traditional algorithms for backward compatibility |
+
+## Security Features
+
+- **Hybrid Certificate Support**: Combines traditional and post-quantum algorithms for maximum security
+- **TLS Protocol Enforcement**: Automatically detects and rejects non-TLS connections with TCP RST
+- **Client Certificate Verification**: Supports required, optional, and none verification modes
+- **Secure Default Configuration**: Uses secure defaults for TLS settings
+- **Connection Timeout**: Configurable connection timeout to prevent resource exhaustion
+
+### Non-TLS Connection Protection
+
+The proxy implements a robust protection mechanism against non-TLS connections. For detailed information, see the [Security Considerations](guide.md#non-tls-connection-protection) section in the comprehensive guide.
 
 ## Planned Documentation
 

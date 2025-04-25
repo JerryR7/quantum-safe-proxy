@@ -18,7 +18,7 @@
 
 ## 2. Architecture
 
-### Architecture Diagram
+### High-Level Architecture
 
 ```mermaid
 graph LR
@@ -35,6 +35,45 @@ graph LR
     PROXY -->|Plain TCP （loopback）| SERVICE
 ```
 
+### System Components
+
+```mermaid
+graph TD
+    Client[Client] <-->|TLS Connection| QSP[Quantum Safe Proxy]
+    QSP <-->|Forward Traffic| Backend[Backend Service]
+
+    subgraph "Quantum Safe Proxy"
+        TLS[TLS Module] --> Handler[Connection Handler]
+        Handler --> Forwarder[Data Forwarder]
+        Config[Config Manager] --> TLS
+        Config --> Handler
+        Crypto[Crypto Module] --> TLS
+        BufferPool[Buffer Pool] --> Forwarder
+    end
+
+    subgraph "Security Detection"
+        QSP --> NonTLS[Non-TLS Detection]
+        NonTLS -->|Reject| RST[TCP RST]
+    end
+```
+
+### Data Flow
+
+```mermaid
+flowchart TD
+    Client[Client] -->|Encrypted Data| Acceptor[TLS Acceptor]
+    Acceptor -->|Decrypted Data| Handler[Connection Handler]
+    Handler -->|Raw Data| Forwarder[Data Forwarder]
+    Forwarder -->|Raw Data| Backend[Backend Service]
+
+    Backend -->|Response Data| Forwarder
+    Forwarder -->|Response Data| Handler
+    Handler -->|Encrypted Data| Acceptor
+    Acceptor -->|Encrypted Data| Client
+
+    BufferPool[Buffer Pool] <-->|Provide/Recycle Buffers| Forwarder
+```
+
 ### How It Works
 
 1. **Client Connection**: Clients connect to the proxy using TLS with hybrid certificates
@@ -48,20 +87,75 @@ graph LR
 - **Hybrid Certificate Support**: Seamlessly works with hybrid X.509 certificates (Kyber + ECDSA)
 - **Quantum-Safe Algorithms**: Support for post-quantum algorithms like Kyber and Dilithium
 - **Transparent PQC Integration**: Handles both PQC and traditional clients
-- **Automatic Provider Detection**: Automatically detects and uses OQS-OpenSSL when available
+- **Automatic Provider Detection**: Automatically detects and uses OpenSSL 3.5+ with built-in PQC support
 - **Environment Diagnostics**: Provides tools to check and diagnose the cryptographic environment
-- **Docker Integration**: Pre-built Docker images with OQS-OpenSSL included
+- **Docker Integration**: Pre-built Docker images with OpenSSL 3.5+ included
 - **Efficient TCP Proxying**: High-performance data forwarding with Tokio async runtime
 - **Complete mTLS Support**: Client and server certificate validation
+- **Non-TLS Protection**: Automatically detects and rejects non-TLS connections with TCP RST
 - **Flexible Configuration**: Command-line arguments, environment variables, and config files
 - **Containerized Deployment**: Docker, docker-compose, and Kubernetes support
+
+### Security Features
+
+```mermaid
+mindmap
+  root((Quantum Safe Proxy))
+    Security Features
+      Hybrid Certificate Support
+        ECDSA + ML-DSA
+        RSA + ML-DSA
+        X25519 + ML-KEM
+      Non-TLS Connection Protection
+        Detect Non-TLS Connections
+        Immediate TCP RST
+        Detailed Logging
+      Client Certificate Verification
+        Required Mode
+        Optional Mode
+        None Mode
+      Secure Default Configuration
+        TLS 1.2/1.3
+        Strong Cipher Suites
+        Forward Secrecy
+```
+
+### TLS Handshake Flow
+
+```mermaid
+sequenceDiagram
+    participant Client as Client
+    participant QSP as Quantum Safe Proxy
+    participant Backend as Backend Service
+
+    Client->>QSP: Initial Connection
+    QSP->>QSP: Detect if TLS Connection
+
+    alt Non-TLS Connection
+        QSP-->>Client: Send TCP RST
+    else TLS Connection
+        QSP->>Client: Offer Supported Cipher Suites (Including Hybrid)
+
+        alt PQC-Capable Client
+            Client->>QSP: Select Hybrid Key Exchange (X25519MLKEM768)
+            QSP->>Client: Use Hybrid Certificate (ECDSA + ML-DSA)
+        else Traditional Client
+            Client->>QSP: Select Traditional Key Exchange (ECDHE)
+            QSP->>Client: Use Hybrid Certificate (Traditional Part)
+        end
+
+        QSP->>Backend: Establish Connection
+        Backend->>QSP: Response
+        QSP->>Client: Forward Response
+    end
+```
 
 ## 4. Technology Stack
 
 | Component | Technology |
 |-----------|------------|
 | **Language** | Rust |
-| **TLS Library** | OpenSSL 3.5+ with built-in PQC support (also compatible with 3.6+, 3.7+) |
+| **TLS Library** | OpenSSL 3.5+ with built-in PQC support |
 | **Proxy Runtime** | tokio + tokio-openssl |
 | **Deployment** | Docker / Kubernetes / Systemd sidecar mode |
 | **Certificate Tools** | OpenSSL 3.5+ CLI (hybrid CSR and certificates) |
@@ -71,7 +165,7 @@ graph LR
 ### System Requirements
 
 - Linux operating system (Ubuntu, Debian, etc.)
-- OpenSSL 3.5.0 or newer (installed at `/opt/openssl35/` or specified via `OPENSSL_DIR`)
+- OpenSSL 3.5.0 or newer with built-in PQC support (installed at `/opt/openssl35/` or specified via `OPENSSL_DIR`)
 - Rust 1.70.0 or newer (if compiling from source)
 - Docker 20.10.0 or newer (for containerized deployment)
 
@@ -207,6 +301,32 @@ The configuration file uses JSON format and supports the following options:
 | `client_cert_mode` | Client certificate verification mode: `required`, `optional`, or `none` | `optional` |
 | `log_level` | Log level: `debug`, `info`, `warn`, or `error` | `info` |
 | `buffer_size` | Buffer size for data transfer in bytes | `8192` |
+
+### Configuration Priority
+
+The proxy uses a clear priority system for configuration options:
+
+```mermaid
+graph LR
+    CMD[Command-line Arguments] -->|Highest Priority| Config[Final Configuration]
+    ENV[Environment Variables] -->|Second Priority| Config
+    File[Configuration File] -->|Third Priority| Config
+    Default[Default Values] -->|Lowest Priority| Config
+
+    subgraph "Certificate Strategy"
+        Config --> CertStrat[Certificate Strategy]
+        CertStrat --> Classic[Traditional Certificates]
+        CertStrat --> Hybrid[Hybrid Certificates]
+        CertStrat --> PQC[Pure PQC Certificates]
+    end
+
+    subgraph "Client Verification"
+        Config --> ClientMode[Client Certificate Mode]
+        ClientMode --> Required[Required]
+        ClientMode --> Optional[Optional]
+        ClientMode --> None[None]
+    end
+```
 | `connection_timeout` | Connection timeout in seconds | `30` |
 | `openssl_dir` | Optional path to OpenSSL installation directory | `null` |
 
@@ -389,9 +509,28 @@ We recommend building images manually and using only `image:` in docker-compose.
 | `--openssl-dir` | Path to OpenSSL installation directory | - |
 | `--config-file` | Load configuration from specified file | - |
 
-## 7. Hybrid Certificate Support
+
+## 7. Security Features
+
+### 7.1 Hybrid Certificate Support
 
 Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL 3.5+ with built-in PQC support. This allows the server to accept connections from both PQC-enabled and traditional clients.
+
+### 7.2 Non-TLS Connection Protection
+
+The proxy automatically detects and rejects non-TLS connections by:
+
+1. Examining the first bytes of incoming connections to identify TLS handshake patterns
+2. Immediately closing invalid connections with TCP RST packets
+3. Logging detailed information about rejected connections
+
+This protection mechanism:
+- Prevents protocol downgrade attacks
+- Blocks plaintext data exfiltration attempts
+- Reduces resource consumption from invalid connections
+- Provides immediate feedback to clients (connection reset)
+
+You can test this feature using the included test scripts. For detailed instructions, see the [Security Considerations](docs/guide.md#non-tls-connection-protection) section in the comprehensive guide.
 
 ### Supported Algorithms
 
@@ -407,6 +546,8 @@ Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL 3.5+ wit
 
 - During TLS handshake, the server advertises hybrid capabilities
 - Clients with PQC support negotiate using quantum-resistant algorithms
+- Legacy clients fall back to classical algorithms
+- Non-TLS connections are detected and immediately closed with TCP RST
 - Legacy clients fall back to classical algorithms
 
 ### Installing Post-Quantum Cryptography Support
@@ -671,12 +812,16 @@ This will display detailed information about your OpenSSL installation, includin
 - Support for OpenSSL 3.7+ and newer versions as they become available
 - Enhanced compatibility with various TLS clients and servers
 - Improved diagnostics and troubleshooting tools
+- Advanced protocol detection for non-TLS connections
+- Configurable connection rejection policies
+- Detailed metrics for rejected connections
 
 ## 13. Documentation
 
 Detailed documentation is available in the `docs/` directory:
 
-- [Comprehensive Guide](docs/guide.md): Complete guide covering installation, certificates, cryptography, utility scripts, and troubleshooting
+- [Comprehensive Guide](docs/guide.md): Complete guide covering installation, certificates, cryptography, security features, utility scripts, and troubleshooting
+- [Security Features](docs/guide.md#security-considerations): Details on TLS configuration and non-TLS connection protection
 
 See [docs/README.md](docs/README.md) for additional resources and information.
 

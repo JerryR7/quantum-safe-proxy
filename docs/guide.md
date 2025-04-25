@@ -18,6 +18,9 @@
   - [Configuration Options](#configuration-options)
 - [Post-Quantum Cryptography](#post-quantum-cryptography)
   - [OpenSSL 3.5+ Support](#openssl-35-support)
+- [Security Considerations](#security-considerations)
+  - [TLS Configuration](#tls-configuration)
+  - [Non-TLS Connection Protection](#non-tls-connection-protection)
   - [Certificate Types](#certificate-types)
     - [Traditional Certificates](#traditional-certificates)
     - [Hybrid Certificates](#hybrid-certificates)
@@ -214,7 +217,7 @@ To verify that Quantum Safe Proxy is installed correctly:
 # Check the version
 quantum-safe-proxy --version
 
-# Check if OpenSSL with OQS is available
+# Check if OpenSSL 3.5+ with PQC support is available
 quantum-safe-proxy check-environment
 ```
 
@@ -242,6 +245,11 @@ You can configure the proxy using any of the following methods:
      --log-level debug
    ```
 
+   To check the OpenSSL environment and exit:
+   ```bash
+   quantum-safe-proxy check-environment
+   ```
+
 2. **Environment Variables**:
    ```bash
    export QUANTUM_SAFE_PROXY_LISTEN="0.0.0.0:8443"
@@ -251,6 +259,9 @@ You can configure the proxy using any of the following methods:
    export QUANTUM_SAFE_PROXY_CA_CERT="certs/hybrid/dilithium3/ca.crt"
    export QUANTUM_SAFE_PROXY_LOG_LEVEL="debug"
    export QUANTUM_SAFE_PROXY_CLIENT_CERT_MODE="optional"
+
+   # To check the OpenSSL environment and exit
+   export QUANTUM_SAFE_PROXY_CHECK_ENVIRONMENT="true"
 
    quantum-safe-proxy --from-env
    ```
@@ -262,18 +273,25 @@ You can configure the proxy using any of the following methods:
    {
      "listen": "0.0.0.0:8443",
      "target": "127.0.0.1:6000",
-     "cert_path": "certs/hybrid/dilithium3/server.crt",
-     "key_path": "certs/hybrid/dilithium3/server.key",
-     "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
+     "cert_path": "certs/hybrid/ml-dsa-65/server.crt",
+     "key_path": "certs/hybrid/ml-dsa-65/server.key",
+     "ca_cert_path": "certs/hybrid/ml-dsa-65/ca.crt",
      "log_level": "debug",
-     "hybrid_mode": true,
      "client_cert_mode": "optional",
-     "environment": "production"
+     "buffer_size": 8192,
+     "connection_timeout": 30,
+     "classic_cert": "certs/traditional/rsa/server.crt",
+     "classic_key": "certs/traditional/rsa/server.key",
+     "use_sigalgs": false,
+     "openssl_dir": "/opt/openssl35"
    }
    EOF
 
    # Run with the configuration file
    quantum-safe-proxy --config-file config.json
+
+   # To check the OpenSSL environment, use the built-in command
+   quantum-safe-proxy --check-environment
    ```
 
 ### Configuration Priority
@@ -395,6 +413,7 @@ The proxy will automatically look for a `config.{environment}.json` file and loa
 | `connection_timeout` | Connection timeout in seconds | `30` |
 | `openssl_dir` | Path to OpenSSL installation directory | - |
 
+
 ## Post-Quantum Cryptography
 
 ### OpenSSL 3.5+ Support
@@ -455,15 +474,15 @@ The project includes several utility scripts to help with certificate generation
 |--------|-------------|-------|
 | `generate-openssl35-certs.sh` | **Recommended certificate generation script** that creates a complete set of certificates using OpenSSL 3.5+ with built-in PQC support. Generates ML-DSA and ML-KEM certificates. | Run inside Docker container:<br>`docker compose exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh` |
 | `generate-oqs-certs.sh` | **Legacy certificate generation script** that creates certificates using OQS provider. Generates Dilithium and Falcon certificates. | Run inside Docker container:<br>`docker compose exec quantum-safe-proxy /app/scripts/generate-oqs-certs.sh` |
-| `generate-test-certs.sh` | **Simplified certificate generation script** for development and testing. Creates a smaller set of certificates. | Run on host system:<br>`./scripts/generate-test-certs.sh` |
+| `generate-openssl35-certs.sh` | **Simplified certificate generation script** for development and testing. Creates a complete set of certificates. | Run inside Docker container:<br>`docker compose exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh` |
 
 ### OpenSSL Installation Scripts
 
 | Script | Description | Usage |
 |--------|-------------|-------|
-| `build-openssl35.sh` | **RECOMMENDED** script for building Docker image with OpenSSL 3.5+ that has built-in post-quantum cryptography support. | `./scripts/build-openssl35.sh` |
+| `build-proxy-with-openssl35.sh` | **RECOMMENDED** script for building Docker image with OpenSSL 3.5+ that has built-in post-quantum cryptography support. | `./scripts/build-proxy-with-openssl35.sh` |
 | `openssl35-install.sh` | Installation script for OpenSSL 3.5+ on the host system. | `./scripts/openssl35-install.sh` |
-| `build-proxy-with-openssl35.sh` | Builds the Quantum Safe Proxy Docker image with OpenSSL 3.5+ and verifies the installation. | `./scripts/build-proxy-with-openssl35.sh` |
+
 | `install-oqs-provider.sh` | Installation script for OpenSSL 3.x with OQS Provider. Uses modern OpenSSL architecture with pluggable providers. | `./scripts/install-oqs-provider.sh [OPTIONS]` |
 | `install-oqs.sh` | **LEGACY** installation script for OpenSSL 1.1.1 with OQS patches. Provided for backward compatibility only. | `./scripts/install-oqs.sh [OPTIONS]` |
 
@@ -491,10 +510,10 @@ These configuration files serve different purposes but contain similar settings:
 
 - For **production environments**:
   - Use `generate-openssl35-certs.sh` to create certificates with OpenSSL 3.5+ (recommended)
-  - Use `generate_certificates.sh` for legacy OQS provider certificates
-- For **development and testing**, use `generate-test-certs.sh` for a simpler setup.
+  - Use `generate-oqs-certs.sh` for legacy OQS provider certificates
+- For **development and testing**, use `generate-openssl35-certs.sh` for a complete setup.
 - For **installing OpenSSL with post-quantum support**:
-  - New projects should use `build-openssl35.sh` to build a Docker image with OpenSSL 3.5+ (recommended)
+  - New projects should use `build-proxy-with-openssl35.sh` to build a Docker image with OpenSSL 3.5+ (recommended)
   - Alternative approach: use `install-oqs-provider.sh` for OpenSSL 3.x with OQS provider
   - Legacy systems can use `install-oqs.sh` (OpenSSL 1.1.1)
 
@@ -506,7 +525,7 @@ To use post-quantum cryptography features, you need OpenSSL with PQC support. Th
 
 #### Option 1: OpenSSL 3.5+ with Built-in PQC (Recommended)
 
-For new projects, we recommend using OpenSSL 3.5+ (or newer versions like 3.6+, 3.7+) which has built-in support for post-quantum cryptography:
+For new projects, we recommend using OpenSSL 3.5+ which has built-in support for post-quantum cryptography:
 
 ```bash
 # Build the Docker image with OpenSSL 3.5+
@@ -586,16 +605,16 @@ To generate certificates using the OQS Provider:
 docker compose exec quantum-safe-proxy /scripts/generate_certificates.sh
 ```
 
-#### Simple Test Certificates (For Development)
+#### Test Certificates (For Development)
 
-For quick development and testing, you can use the simplified certificate generation script:
+For development and testing, you can use the certificate generation script inside the Docker container:
 
 ```bash
-# Make sure OpenSSL with OQS Provider is installed on your host system
-./scripts/generate-test-certs.sh
+# Run the script inside the Docker container
+docker compose exec quantum-safe-proxy /app/scripts/generate-openssl35-certs.sh
 ```
 
-This simplified script generates only three certificates (CA, server, client) using Kyber768 + ECDSA hybrid algorithms.
+This script generates a complete set of certificates for all supported algorithms in OpenSSL 3.5+, including traditional, hybrid, and pure post-quantum certificates.
 
 This will create certificates in the following directory structure:
 
@@ -657,15 +676,15 @@ command: >
   --client-cert-mode optional
 ```
 
-#### Hybrid Dilithium5/ML-DSA-87 Certificates
+#### Hybrid ML-DSA-87 Certificates (Recommended)
 
 ```yaml
 command: >
   --listen 0.0.0.0:8443
   --target backend:6000
-  --cert /app/certs/hybrid/ml-dsa-87/server.crt  # or dilithium5/server.crt for OQS provider
-  --key /app/certs/hybrid/ml-dsa-87/server.key   # or dilithium5/server.key for OQS provider
-  --ca-cert /app/certs/hybrid/ml-dsa-87/ca.crt   # or dilithium5/ca.crt for OQS provider
+  --cert /app/certs/hybrid/ml-dsa-87/server.crt
+  --key /app/certs/hybrid/ml-dsa-87/server.key
+  --ca-cert /app/certs/hybrid/ml-dsa-87/ca.crt
   --client-cert-mode optional
 ```
 
@@ -680,6 +699,26 @@ command: >
   --ca-cert /app/certs/post-quantum/ml-dsa-65/ca.crt
   --client-cert-mode optional
 ```
+
+#### Hybrid Key Exchange Groups
+
+To specify which hybrid key exchange groups to use, you can add the following to your OpenSSL configuration:
+
+```yaml
+command: >
+  --listen 0.0.0.0:8443
+  --target backend:6000
+  --cert /app/certs/hybrid/ml-dsa-87/server.crt
+  --key /app/certs/hybrid/ml-dsa-87/server.key
+  --ca-cert /app/certs/hybrid/ml-dsa-87/ca.crt
+  --client-cert-mode optional
+  --openssl-groups "X25519MLKEM768:P256MLKEM768:P384MLKEM1024"
+```
+
+The available hybrid groups in OpenSSL 3.5+ are:
+- `X25519MLKEM768`: Combines X25519 with ML-KEM-768 (recommended)
+- `P256MLKEM768`: Combines NIST P-256 with ML-KEM-768
+- `P384MLKEM1024`: Combines NIST P-384 with ML-KEM-1024 (highest security)
 
 After modifying the configuration, restart the services:
 
@@ -705,6 +744,87 @@ Look for messages like:
 - `Using OpenSSL with oqs-provider` (when using OQS provider)
 - Messages about post-quantum algorithms being used
 
+## Security Considerations
+
+### TLS Configuration
+
+The proxy uses the following TLS settings by default:
+
+- TLS 1.2 and 1.3 only (older versions disabled)
+- Strong cipher suites with forward secrecy
+- Certificate verification for both client and server
+- Hybrid certificates for quantum resistance
+
+### Non-TLS Connection Protection
+
+The proxy includes a robust mechanism to detect and reject non-TLS connections:
+
+#### How It Works
+
+1. When a new connection is established, the proxy examines the first few bytes
+2. Valid TLS connections start with a specific byte pattern (0x16 for handshake)
+3. If the connection doesn't match this pattern, it's immediately rejected with a TCP RST packet
+4. The rejection is logged with details about the connection
+
+#### Implementation Details
+
+The implementation uses the following techniques:
+- `TcpStream::peek()` to examine data without consuming it
+- `SO_LINGER` socket option with zero timeout to send TCP RST
+- Timeout protection to prevent hanging on malicious connections
+- Detailed error reporting through the `NonTlsConnection` error type
+
+The code responsible for this feature is in `src/proxy/handler.rs`:
+
+```rust
+async fn ensure_tls_connection(stream: TcpStream) -> Result<TcpStream> {
+    // Enable TCP_NODELAY for faster response
+    stream.set_nodelay(true).map_err(ProxyError::Io)?;
+
+    // Peek at the first few bytes to check if it looks like a TLS ClientHello
+    let mut peek_buf = [0u8; 5];
+
+    // Use timeout to avoid waiting indefinitely
+    match tokio::time::timeout(Duration::from_millis(500), stream.peek(&mut peek_buf)).await {
+        // Successfully peeked at data
+        Ok(Ok(size)) if size >= 3 => {
+            // TLS handshake starts with content type 0x16 (22 decimal)
+            if peek_buf[0] != 0x16 {
+                debug!("非 TLS 連接: 第一個字節是 {:#04x}, 預期 0x16", peek_buf[0]);
+                send_tcp_rst(&stream)?;
+                return Err(ProxyError::NonTlsConnection(format!("無效協議: 第一個字節 {:#04x}", peek_buf[0])));
+            }
+            // ... rest of the function
+        }
+        // ... other cases
+    }
+}
+
+#### Testing
+
+Two test scripts are provided to verify this functionality:
+- `test_non_tls.sh`: Simple test using a standard TCP client
+- `test_detailed_non_tls.sh`: More detailed test using Tokio async runtime
+
+To run the tests:
+```bash
+# Make the scripts executable
+chmod +x test_non_tls.sh test_detailed_non_tls.sh
+
+# Run the simple test
+./test_non_tls.sh
+
+# Run the detailed test
+./test_detailed_non_tls.sh
+```
+
+Example output when a non-TLS connection is detected:
+```
+WARN [quantum_safe_proxy] Non-TLS connection: Invalid protocol: first byte 0x48
+```
+
+The test scripts create simple TCP clients that attempt to connect to the proxy without using TLS. The proxy should detect these connections as non-TLS and immediately close them with a TCP RST packet.
+
 ## Performance and Compatibility
 
 ### Performance Considerations
@@ -720,14 +840,16 @@ When testing, consider monitoring:
 - CPU usage
 - Memory usage
 - Network bandwidth
+- Connection rejection rate (for non-TLS connections)
 
 ### Compatibility Notes
 
 - Traditional certificates work with all TLS clients
 - Hybrid certificates work with most clients (the traditional part ensures compatibility)
 - Pure post-quantum certificates only work with clients that support the specific algorithm
+- Non-TLS connections are automatically rejected with TCP RST packets
 
-For maximum compatibility and security, hybrid certificates are recommended for most use cases.
+For maximum compatibility and security, hybrid certificates are recommended for most use cases. The proxy's non-TLS connection detection ensures that only proper TLS clients can connect, improving security.
 
 ## Migrating from OQS to OpenSSL 3.5+
 
@@ -736,7 +858,7 @@ If you're currently using the OQS provider and want to migrate to OpenSSL 3.5+ w
 ### 1. Build the OpenSSL 3.5+ Docker Image
 
 ```bash
-./scripts/build-openssl35.sh
+./scripts/build-proxy-with-openssl35.sh
 ```
 
 ### 2. Update Your docker-compose.yml File
@@ -805,13 +927,22 @@ Look for messages like:
 If you encounter issues with OpenSSL:
 
 ```bash
-# Verify OpenSSL installation
+# Use the built-in environment check tool
+quantum-safe-proxy check-environment
+
+# Verify OpenSSL installation manually
 /opt/openssl35/bin/openssl version
 
 # Check for post-quantum algorithms
 /opt/openssl35/bin/openssl list -kem-algorithms | grep -i ML-KEM
 /opt/openssl35/bin/openssl list -signature-algorithms | grep -i ML-DSA
 ```
+
+The `--check-environment` option provides detailed information about your OpenSSL installation, including:
+- OpenSSL version and installation path
+- Available post-quantum algorithms
+- Supported key exchange and signature methods
+- Detected issues or missing components
 
 #### Certificate Issues
 
@@ -836,6 +967,27 @@ ls -la /app/certs/hybrid/ml-dsa-65/
 - **Connection refused**: Verify that the proxy is running and listening on the correct port
 - **Handshake failures**: Check that the client supports the certificate type being used
 - **Timeout errors**: Increase the connection timeout setting
+- **Non-TLS connection errors**: If you see "Non-TLS connection detected" errors, ensure your clients are using TLS when connecting to the proxy
+
+#### Debugging Non-TLS Connection Rejections
+
+If you're seeing "Non-TLS connection detected" errors in your logs:
+
+1. **Check client configuration**: Ensure the client is configured to use TLS/SSL
+2. **Verify port numbers**: Make sure clients are connecting to the TLS port (default: 8443)
+3. **Inspect client code**: If using a custom client, verify it's initiating a TLS handshake
+4. **Use test scripts**: Run the provided test scripts to see the expected behavior:
+   ```bash
+   chmod +x test_non_tls.sh
+   ./test_non_tls.sh
+   ```
+5. **Examine logs**: Look for detailed error messages like:
+   ```
+   WARN [quantum_safe_proxy] Non-TLS connection: Invalid protocol: first byte 0x48
+   ```
+   The first byte value can help identify what protocol the client is trying to use
+
+6. **Use packet capture**: Tools like Wireshark can help identify what's being sent by the client
 
 ### Diagnostic Tools
 
