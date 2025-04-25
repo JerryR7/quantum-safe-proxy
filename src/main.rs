@@ -89,8 +89,12 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Initialize logger
-    // Use RUST_LOG environment variable to control log levels
-    // Example: RUST_LOG=quantum_safe_proxy::config=debug,quantum_safe_proxy=warn
+    // 可以使用以下環境變數控制日誌級別:
+    // 1. QUANTUM_SAFE_PROXY_LOG_LEVEL=debug (優先)
+    // 2. RUST_LOG=quantum_safe_proxy=debug (其次)
+    // 3. 命令行參數 --log-level debug (最後)
+    //
+    // 例如: RUST_LOG=quantum_safe_proxy::config=debug,quantum_safe_proxy=warn
     init_logger(&args.log_level);
 
     info!("Starting {} v{}", APP_NAME, VERSION);

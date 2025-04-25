@@ -1,6 +1,6 @@
 services:
   quantum-safe-proxy:
-    image: quantum-safe-proxy:openssl35
+    image: quantum-safe-proxy:0.0.1
 #    image: quantum-safe-proxy:oqs
     ports:
       - "8443:8443"
@@ -9,7 +9,8 @@ services:
       - ./config.json:/app/config.json
       - ./scripts:/app/scripts
     environment:
-      - RUST_LOG=debug
+      - RUST_LOG=quantum_safe_proxy=debug
+      - QUANTUM_SAFE_PROXY_LOG_LEVEL=debug
       - LD_LIBRARY_PATH=/opt/openssl35/lib64:/opt/openssl35/lib
       - OPENSSL_DIR=/opt/openssl35
       - OPENSSL_LIB_DIR=/opt/openssl35/lib64
@@ -19,9 +20,9 @@ services:
     command: [
       "--listen", "0.0.0.0:8443",
       "--target", "backend:6000",
-      "--cert", "/app/certs/hybrid/ml-dsa-44/server_hybrid.crt",
-      "--key", "/app/certs/hybrid/ml-dsa-44/server.key",
-      "--ca-cert", "/app/certs/hybrid/ml-dsa-44/ca.crt",
+      "--cert", "/app/certs/hybrid/ml-dsa-87/server.crt",
+      "--key", "/app/certs/hybrid/ml-dsa-87/server.key",
+      "--ca-cert", "/app/certs/hybrid/ml-dsa-87/ca.crt",
       "--log-level", "debug",
       "--client-cert-mode", "optional",
       "--buffer-size", "8192",

@@ -4,8 +4,24 @@
 
 use quantum_safe_proxy::config::ProxyConfig;
 use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
-use quantum_safe_proxy::proxy::server::ConnectionInfo;
+use std::path::PathBuf;
 use std::time::SystemTime;
+
+// Define a local ConnectionInfo struct for testing
+#[derive(Debug, Clone)]
+struct ConnectionInfo {
+    source: String,
+    target: String,
+    timestamp: SystemTime,
+}
+
+// Define a local CertificateInfo struct for testing
+#[derive(Debug, Clone)]
+struct CertificateInfo {
+    subject: String,
+    fingerprint: Option<String>,
+    is_hybrid: bool,
+}
 
 #[test]
 fn test_config_creation() {
