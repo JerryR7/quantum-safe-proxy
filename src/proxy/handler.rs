@@ -11,7 +11,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_openssl::SslStream;
 
-use crate::config::{self, ProxyConfig};
+use crate::config::{self, ProxyConfig, ClientCertMode};
 
 use crate::common::{ProxyError, Result};
 use super::forwarder::proxy_data;
@@ -34,12 +34,26 @@ pub async fn handle_connection(
     tls_acceptor: Arc<SslAcceptor>,
     config: &ProxyConfig,
 ) -> Result<()> {
-    // Set up TLS connection with optimized settings
-    let ssl = openssl::ssl::Ssl::new(tls_acceptor.context())
+    // Create SSL object
+    let mut ssl = openssl::ssl::Ssl::new(tls_acceptor.context())
         .map_err(ProxyError::Ssl)?;
 
-    // Create SslStream and wrap in Pin<Box<>> for async operations
-    // We use a single allocation for the SslStream to reduce memory overhead
+    // Set verification mode based on configuration
+    let verify_mode = match config.client_cert_mode {
+        ClientCertMode::Required => {
+            openssl::ssl::SslVerifyMode::PEER | openssl::ssl::SslVerifyMode::FAIL_IF_NO_PEER_CERT
+        },
+        ClientCertMode::Optional => {
+            openssl::ssl::SslVerifyMode::PEER
+        },
+        ClientCertMode::None => {
+            openssl::ssl::SslVerifyMode::NONE
+        },
+    };
+
+    ssl.set_verify(verify_mode);
+
+    // Create SslStream
     let stream = SslStream::new(ssl, client_stream)
         .map_err(ProxyError::Ssl)?;
 

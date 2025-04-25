@@ -4,7 +4,10 @@ use clap::Parser;
 use log::{info, warn};
 
 
-use quantum_safe_proxy::{Proxy, create_tls_acceptor, VERSION, APP_NAME, reload_config};
+use quantum_safe_proxy::{
+    StandardProxyService, ProxyService,
+    create_tls_acceptor, VERSION, APP_NAME, reload_config_async
+};
 use quantum_safe_proxy::common::{Result, init_logger};
 use quantum_safe_proxy::config;
 use quantum_safe_proxy::config::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
@@ -13,7 +16,7 @@ use quantum_safe_proxy::crypto::{check_environment, initialize_openssl};
 
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Command line arguments
@@ -80,7 +83,7 @@ struct Args {
     #[clap(long)]
     openssl_dir: Option<PathBuf>,
 
-    // environment 參數已移除，不再支持環境特定配置文件
+    // environment parameter removed, environment-specific config files no longer supported
 }
 
 #[tokio::main]
@@ -89,12 +92,12 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Initialize logger
-    // 可以使用以下環境變數控制日誌級別:
-    // 1. QUANTUM_SAFE_PROXY_LOG_LEVEL=debug (優先)
-    // 2. RUST_LOG=quantum_safe_proxy=debug (其次)
-    // 3. 命令行參數 --log-level debug (最後)
+    // Log level can be controlled using the following environment variables:
+    // 1. QUANTUM_SAFE_PROXY_LOG_LEVEL=debug (highest priority)
+    // 2. RUST_LOG=quantum_safe_proxy=debug (medium priority)
+    // 3. Command line argument --log-level debug (lowest priority)
     //
-    // 例如: RUST_LOG=quantum_safe_proxy::config=debug,quantum_safe_proxy=warn
+    // Example: RUST_LOG=quantum_safe_proxy::config=debug,quantum_safe_proxy=warn
     init_logger(&args.log_level);
 
     info!("Starting {} v{}", APP_NAME, VERSION);
@@ -181,16 +184,19 @@ async fn main() -> Result<()> {
         strategy,
     )?;
 
-    // Create proxy instance
-    let proxy = Proxy::new(
+    // Create proxy service
+    let proxy_service = StandardProxyService::new(
         config.listen,
         config.target,
         tls_acceptor,
-        Arc::new(config),  // 將 ProxyConfig 包裝在 Arc 中
+        Arc::new(config),  // Wrap ProxyConfig in Arc
     );
 
-    // Store proxy in shared state
-    let proxy = Arc::new(Mutex::new(proxy));
+    // Start proxy service and get handle
+    let proxy_handle = proxy_service.start()?;
+
+    // Store proxy handle in shared state for legacy code
+    let proxy_handle = Arc::new(proxy_handle);
 
     // Create configuration reload channel
     let (reload_tx, mut reload_rx) = mpsc::channel(1);
@@ -273,7 +279,7 @@ async fn main() -> Result<()> {
     }
 
     // Clone for reload handler
-    let proxy_clone = proxy.clone();
+    let proxy_handle_clone = proxy_handle.clone();
 
     // Spawn reload handler
     tokio::spawn(async move {
@@ -294,21 +300,64 @@ async fn main() -> Result<()> {
                 continue;
             }
 
-            // Reload configuration
-            let mut proxy_guard = match proxy_clone.lock() {
-                Ok(guard) => guard,
-                Err(e) => {
-                    warn!("Failed to acquire proxy lock: {}", e);
-                    continue;
-                }
-            };
-
-            match reload_config(&mut proxy_guard, Path::new(&config_path)) {
+            // Reload configuration using async version
+            info!("Calling reload_config_async function");
+            match reload_config_async(&proxy_handle_clone, Path::new(&config_path)).await {
                 Ok(_) => {
                     info!("Configuration updated successfully");
                 },
                 Err(e) => {
+                    // Provide more detailed error information
                     warn!("Failed to reload configuration: {}", e);
+
+                    // Check error type and provide more specific error information
+                    use quantum_safe_proxy::common::ProxyError;
+                    match e {
+                        ProxyError::Config(msg) => warn!("Configuration error: {}", msg),
+                        ProxyError::Io(err) => warn!("IO error: {}", err),
+                        ProxyError::Ssl(err) => warn!("SSL error: {}", err),
+                        ProxyError::TlsHandshake(msg) => warn!("TLS handshake error: {}", msg),
+                        ProxyError::Certificate(msg) => warn!("Certificate error: {}", msg),
+                        ProxyError::FileNotFound(path) => warn!("File not found: {}", path),
+                        ProxyError::PermissionDenied(path) => warn!("Permission denied: {}", path),
+                        ProxyError::Network(msg) => warn!("Network error: {}", msg),
+                        ProxyError::ConnectionTimeout(timeout) => warn!("Connection timeout after {} seconds", timeout),
+                        ProxyError::BufferPool(msg) => warn!("Buffer pool error: {}", msg),
+                        ProxyError::TaskJoin(err) => warn!("Task join error: {}", err),
+                        ProxyError::Other(msg) => warn!("Other error: {}", msg),
+                    }
+
+                    // Check if certificate files exist
+                    let config = match config::get_config() {
+                        Ok(cfg) => cfg,
+                        Err(e) => {
+                            warn!("Failed to get current configuration: {}", e);
+                            continue;
+                        }
+                    };
+
+                    // Check certificate files
+                    let cert_path = Path::new(&config.cert_path);
+                    let key_path = Path::new(&config.key_path);
+                    let ca_cert_path = Path::new(&config.ca_cert_path);
+                    let classic_cert = Path::new(&config.classic_cert);
+                    let classic_key = Path::new(&config.classic_key);
+
+                    if !cert_path.exists() {
+                        warn!("Certificate file does not exist: {}", cert_path.display());
+                    }
+                    if !key_path.exists() {
+                        warn!("Key file does not exist: {}", key_path.display());
+                    }
+                    if !ca_cert_path.exists() {
+                        warn!("CA certificate file does not exist: {}", ca_cert_path.display());
+                    }
+                    if !classic_cert.exists() {
+                        warn!("Classic certificate file does not exist: {}", classic_cert.display());
+                    }
+                    if !classic_key.exists() {
+                        warn!("Classic key file does not exist: {}", classic_key.display());
+                    }
                 }
             }
         }
@@ -321,8 +370,16 @@ async fn main() -> Result<()> {
     info!("Listening on {}", current_config.listen);
     info!("Forwarding to {}", current_config.target);
 
-    // Run the proxy
-    proxy.lock().unwrap().run().await?;
+    // Wait for Ctrl+C signal
+    tokio::signal::ctrl_c().await?;
+    info!("Received shutdown signal");
+
+    // Shutdown proxy service
+    let handle = Arc::try_unwrap(proxy_handle)
+        .map_err(|_| quantum_safe_proxy::common::ProxyError::Other("Failed to unwrap proxy handle".to_string()))?;
+
+    handle.shutdown().await?;
+    info!("Proxy service shutdown complete");
 
     Ok(())
 }

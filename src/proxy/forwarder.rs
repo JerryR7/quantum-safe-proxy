@@ -14,25 +14,25 @@ use tokio::net::TcpStream;
 use crate::common::{ProxyError, Result};
 use crate::config::ProxyConfig;
 
-// 常數定義
-const KEEPALIVE_INTERVAL: u64 = 10;   // TCP keepalive 間隔時間（秒）
-const KEEPALIVE_RETRIES: u32 = 3;     // TCP keepalive 重試次數
-const MIN_BUFFER_SIZE: usize = 1024;  // 最小緩衝區大小（字節）
+// Constants
+const KEEPALIVE_INTERVAL: u64 = 10;   // TCP keepalive interval (seconds)
+const KEEPALIVE_RETRIES: u32 = 3;     // TCP keepalive retry count
+const MIN_BUFFER_SIZE: usize = 1024;  // Minimum buffer size (bytes)
 
-/// 設置 TCP keepalive
+/// Set TCP keepalive
 fn set_tcp_keepalive(stream: &TcpStream, timeout_secs: u64) -> io::Result<()> {
-    // 獲取文件描述符
+    // Get file descriptor
     let fd = stream.as_raw_fd();
 
-    // 安全地使用 socket2 設置 keepalive
+    // Safely use socket2 to set keepalive
     unsafe {
-        // 從文件描述符創建 Socket，但不獲取所有權
+        // Create Socket from file descriptor without taking ownership
         let socket = Socket::from_raw_fd(fd);
 
-        // 設置 keepalive
+        // Enable keepalive
         socket.set_keepalive(true)?;
 
-        // 設置 keepalive 參數
+        // Set keepalive parameters
         let keepalive = TcpKeepalive::new()
             .with_time(Duration::from_secs(timeout_secs))
             .with_interval(Duration::from_secs(KEEPALIVE_INTERVAL))
@@ -40,56 +40,56 @@ fn set_tcp_keepalive(stream: &TcpStream, timeout_secs: u64) -> io::Result<()> {
 
         socket.set_tcp_keepalive(&keepalive)?;
 
-        // 釋放 socket 但不關閉文件描述符
+        // Release socket without closing file descriptor
         let _ = socket.into_raw_fd();
     }
 
     Ok(())
 }
 
-/// 單向數據傳輸
+/// One-way data transfer
 ///
-/// 從 reader 讀取數據並寫入 writer，直到連接關閉或發生錯誤
-/// 使用 tokio::io::copy 實現高效的數據傳輸
+/// Reads data from reader and writes to writer until connection closes or error occurs
+/// Uses tokio::io::copy for efficient data transfer
 async fn transfer<R, W>(
     mut reader: R,
     mut writer: W,
-    _buffer_size: usize, // 保留參數以維持 API 兼容性，但不再使用
+    _buffer_size: usize, // Kept for API compatibility but no longer used
     direction: &'static str
 ) -> Result<u64>
 where
     R: AsyncRead + Unpin + Send,
     W: AsyncWrite + Unpin + Send,
 {
-    // 使用 tokio::io::copy 進行高效的數據傳輸
-    // 它內部使用了優化的緩衝區管理和零拷貝技術
+    // Use tokio::io::copy for efficient data transfer
+    // It internally uses optimized buffer management and zero-copy techniques
     let result = tokio::io::copy(
         &mut reader,
         &mut writer,
     ).await;
 
-    // 處理結果
+    // Handle result
     match result {
         Ok(total_bytes) => {
-            debug!("{}: 總共傳輸 {} 字節", direction, total_bytes);
+            debug!("{}: Total transferred {} bytes", direction, total_bytes);
 
-            // 正常關閉寫入端
+            // Properly close the write end
             if let Err(e) = writer.shutdown().await {
-                debug!("{}: 關閉連接錯誤: {}", direction, e);
+                debug!("{}: Connection close error: {}", direction, e);
             }
 
             Ok(total_bytes)
         },
         Err(e) => {
-            debug!("{}: 傳輸錯誤: {}", direction, e);
+            debug!("{}: Transfer error: {}", direction, e);
             Err(ProxyError::Io(e))
         }
     }
 }
 
-/// 雙向數據轉發
+/// Bidirectional data forwarding
 ///
-/// 在兩個流之間進行雙向數據轉發，直到兩個方向都完成或發生錯誤
+/// Forwards data bidirectionally between two streams until both directions complete or an error occurs
 pub async fn proxy_data<S>(
     tls_stream: S,
     target_stream: TcpStream,
@@ -98,44 +98,44 @@ pub async fn proxy_data<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    // 獲取連接超時設置，用於 TCP keepalive
+    // Get connection timeout setting for TCP keepalive
     let timeout_secs = config.connection_timeout;
 
-    // 設置 TCP keepalive 以維持長連線
+    // Set TCP keepalive to maintain long connections
     if let Err(e) = set_tcp_keepalive(&target_stream, timeout_secs) {
-        debug!("無法設置 TCP keepalive: {}", e);
+        debug!("Failed to set TCP keepalive: {}", e);
     } else {
-        debug!("TCP keepalive 已啟用，超時時間: {}秒，間隔: {}秒，重試次數: {}",
+        debug!("TCP keepalive enabled, timeout: {}s, interval: {}s, retries: {}",
                timeout_secs, KEEPALIVE_INTERVAL, KEEPALIVE_RETRIES);
     }
 
-    // 獲取配置的緩衝區大小，確保至少達到最小緩衝區大小
+    // Get configured buffer size, ensuring it meets minimum size
     let buffer_size = config.buffer_size.max(MIN_BUFFER_SIZE);
 
-    // 分割流
+    // Split streams
     let (tls_read, tls_write) = tokio::io::split(tls_stream);
     let (target_read, target_write) = tokio::io::split(target_stream);
 
-    // 啟動雙向傳輸
+    // Start bidirectional transfer
     let client_to_target = transfer(tls_read, target_write, buffer_size, "Client->Target");
     let target_to_client = transfer(target_read, tls_write, buffer_size, "Target->Client");
 
-    // 等待兩個方向都完成
+    // Wait for both directions to complete
     let (client_result, target_result) = tokio::join!(client_to_target, target_to_client);
 
-    // 處理結果
+    // Handle results
     match (client_result, target_result) {
         (Ok(client_bytes), Ok(target_bytes)) => {
-            debug!("連接成功完成。客戶端->目標: {} 字節，目標->客戶端: {} 字節",
+            debug!("Connection completed successfully. Client->Target: {} bytes, Target->Client: {} bytes",
                    client_bytes, target_bytes);
         },
         (client_result, target_result) => {
-            // 只要有一個方向成功，我們就認為連接是部分成功的
+            // If at least one direction succeeded, consider the connection partially successful
             if client_result.is_ok() || target_result.is_ok() {
-                debug!("連接部分成功。客戶端->目標: {:?}, 目標->客戶端: {:?}",
+                debug!("Connection partially successful. Client->Target: {:?}, Target->Client: {:?}",
                        client_result, target_result);
             } else {
-                debug!("連接失敗。客戶端->目標: {:?}, 目標->客戶端: {:?}",
+                debug!("Connection failed. Client->Target: {:?}, Target->Client: {:?}",
                        client_result, target_result);
             }
         }
@@ -146,28 +146,27 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use tokio::io::duplex;
+    use tokio::io::{duplex, AsyncReadExt, AsyncWriteExt};
     use tokio::test;
 
     #[test]
     async fn test_transfer() {
-        // 創建一對連接的流
+        // Create a pair of connected streams
         let (client, server) = duplex(1024);
 
-        // 寫入測試數據
+        // Write test data
         let test_data = b"Hello, World!";
         let mut client_write = client;
         client_write.write_all(test_data).await.unwrap();
         client_write.flush().await.unwrap();
         client_write.shutdown().await.unwrap();
 
-        // 讀取數據
+        // Read data
         let mut server_read = server;
         let mut buffer = vec![0u8; 1024];
         let n = server_read.read(&mut buffer).await.unwrap();
 
-        // 驗證數據
+        // Verify data
         assert_eq!(&buffer[..n], test_data);
     }
 }

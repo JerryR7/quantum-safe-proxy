@@ -67,12 +67,12 @@ pub fn create_tls_acceptor(
     acceptor.set_ca_file(ca_cert_path)?;
     debug!("Set CA certificate file: {:?}", ca_cert_path);
 
-    // 我們不再硬編碼支持的簽名算法和群組，而是讓 OpenSSL 自動選擇
-    // 這樣可以確保我們使用的是 OpenSSL 支持的算法和群組
+    // We no longer hardcode supported signature algorithms and groups, letting OpenSSL choose automatically
+    // This ensures we use algorithms and groups supported by the OpenSSL version
     debug!("Using OpenSSL's default signature algorithms and groups");
 
-    // 設置 TLS 1.3 密碼套件
-    // 這些是標準的 TLS 1.3 密碼套件，應該被所有 TLS 1.3 實現支持
+    // Set TLS 1.3 cipher suites
+    // These are standard TLS 1.3 cipher suites that should be supported by all TLS 1.3 implementations
     let ciphersuites = "TLS_AES_256_GCM_SHA384:TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256";
     debug!("Setting supported TLS 1.3 cipher suites: {}", ciphersuites);
     acceptor.set_ciphersuites(ciphersuites)?;
@@ -80,16 +80,22 @@ pub fn create_tls_acceptor(
     // Set verification mode based on client certificate mode
     match client_cert_mode {
         ClientCertMode::Required => {
+            let verify_mode = SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT;
             info!("Client certificates required (will be verified)");
-            acceptor.set_verify(SslVerifyMode::PEER | SslVerifyMode::FAIL_IF_NO_PEER_CERT);
+            acceptor.set_verify(verify_mode);
+
+            // Set verification depth to ensure the entire certificate chain is validated
+            acceptor.set_verify_depth(10);
         },
         ClientCertMode::Optional => {
+            let verify_mode = SslVerifyMode::PEER;
             info!("Client certificates optional (will be verified if provided)");
-            acceptor.set_verify(SslVerifyMode::PEER);
+            acceptor.set_verify(verify_mode);
         },
         ClientCertMode::None => {
+            let verify_mode = SslVerifyMode::NONE;
             info!("Client certificates not required (no verification)");
-            acceptor.set_verify(SslVerifyMode::NONE);
+            acceptor.set_verify(verify_mode);
         },
     }
 
