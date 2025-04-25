@@ -7,6 +7,7 @@ use openssl::ssl::SslAcceptor;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_openssl::SslStream;
@@ -28,62 +29,58 @@ use super::forwarder::proxy_data;
 /// # Returns
 ///
 /// Returns `Ok(())` if handling is successful, otherwise returns an error.
-/// Check if a connection is using TLS protocol
+/// 檢查連接是否使用 TLS 協議
 ///
-/// This function checks if the connection is using TLS by peeking at the first few bytes.
-/// If it's not a TLS connection, it sends a TCP RST to immediately close the connection.
-///
-/// # Returns
-/// - `Ok(stream)` if the connection is using TLS
-/// - `Err(ProxyError)` if the connection is not using TLS or an error occurred
+/// 通過查看前幾個字節來確定連接是否使用 TLS。
+/// 如果不是 TLS 連接，則發送 TCP RST 立即關閉連接。
 async fn ensure_tls_connection(stream: TcpStream) -> Result<TcpStream> {
-    // Enable TCP_NODELAY for faster response
+    // 啟用 TCP_NODELAY 以獲得更快的響應
     stream.set_nodelay(true).map_err(ProxyError::Io)?;
 
-    // Peek at the first few bytes to check if it looks like a TLS ClientHello
+    // 查看前幾個字節以檢查是否是 TLS ClientHello
     let mut peek_buf = [0u8; 5];
 
-    // Use timeout to avoid waiting indefinitely
+    // 使用超時避免無限等待
     match tokio::time::timeout(Duration::from_millis(500), stream.peek(&mut peek_buf)).await {
-        // Successfully peeked at data
+        // 成功查看數據
         Ok(Ok(size)) if size >= 3 => {
-            // TLS handshake starts with content type 0x16 (22 decimal)
+            // TLS 握手以內容類型 0x16 (22 十進制) 開始
             if peek_buf[0] != 0x16 {
-                debug!("Not a TLS connection: first byte is {:#04x}, expected 0x16", peek_buf[0]);
+                debug!("非 TLS 連接: 第一個字節是 {:#04x}, 預期 0x16", peek_buf[0]);
                 send_tcp_rst(&stream)?;
-                return Err(ProxyError::NonTlsConnection(format!("Invalid protocol: first byte {:#04x}", peek_buf[0])));
+                return Err(ProxyError::NonTlsConnection(format!("無效協議: 第一個字節 {:#04x}", peek_buf[0])));
             }
 
-            debug!("Detected TLS connection, proceeding with handshake");
+            debug!("檢測到 TLS 連接，繼續握手");
             Ok(stream)
         },
-        // Not enough data to determine protocol
+        // 數據不足以確定協議
         Ok(Ok(size)) => {
-            debug!("Insufficient data ({} bytes) to determine protocol", size);
+            debug!("數據不足 ({} 字節) 無法確定協議", size);
             send_tcp_rst(&stream)?;
-            Err(ProxyError::NonTlsConnection(format!("Insufficient data: only {} bytes received", size)))
+            Err(ProxyError::NonTlsConnection(format!("數據不足: 僅收到 {} 字節", size)))
         },
-        // Error reading from socket
+        // 讀取套接字錯誤
         Ok(Err(e)) => {
-            debug!("Error reading from socket: {}", e);
+            debug!("讀取套接字錯誤: {}", e);
             send_tcp_rst(&stream)?;
             Err(ProxyError::Io(e))
         },
-        // Timeout waiting for data
+        // 等待數據超時
         Err(_) => {
-            debug!("Timeout waiting for initial data");
+            debug!("等待初始數據超時");
             send_tcp_rst(&stream)?;
-            Err(ProxyError::NonTlsConnection("Timeout waiting for initial data".to_string()))
+            Err(ProxyError::NonTlsConnection("等待初始數據超時".to_string()))
         }
     }
 }
 
-/// Send a TCP RST packet to immediately close the connection
+/// 發送 TCP RST 包立即關閉連接
 fn send_tcp_rst(stream: &TcpStream) -> Result<()> {
-    // Setting SO_LINGER with a timeout of 0 causes a TCP RST to be sent on close
+    // 設置 SO_LINGER 為 0 會在關閉時發送 TCP RST
     stream.set_linger(Some(Duration::from_secs(0)))
         .map_err(|e| {
-            debug!("Failed to set TCP RST option: {}", e);
+            debug!("設置 TCP RST 選項失敗: {}", e);
             ProxyError::Io(e)
         })
 }
@@ -94,7 +91,7 @@ pub async fn handle_connection(
     tls_acceptor: Arc<SslAcceptor>,
     config: &ProxyConfig,
 ) -> Result<()> {
-    // First, ensure this is a TLS connection
+    // 首先確保這是一個 TLS 連接
     let client_stream = ensure_tls_connection(client_stream).await?;
 
     // Setup TLS with client verification mode
