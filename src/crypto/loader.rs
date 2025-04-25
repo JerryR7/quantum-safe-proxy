@@ -49,12 +49,13 @@ pub fn initialize_openssl(openssl_dir: &Path) -> bool {
     // Reset any previously loaded libraries
     openssl_sys::init();
 
-    // Try to get the OpenSSL version to verify it's loaded correctly
-    let version = openssl::version::version();
+    // Get OpenSSL version and check if it's 3.5+
+    let version = super::capabilities::get_openssl_version();
     info!("Loaded OpenSSL version: {}", version);
 
-    // Check if it's OpenSSL 3.5+
-    if version.contains("3.5") || version.contains("3.6") || version.contains("3.7") {
+    let is_openssl_35_plus = super::capabilities::is_openssl35_available();
+
+    if is_openssl_35_plus {
         info!("Successfully loaded OpenSSL 3.5+ from {}", openssl_dir.display());
         true
     } else {

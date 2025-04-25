@@ -26,10 +26,9 @@ pub fn is_openssl35_available() -> bool {
         debug!("OpenSSL version: {}, number: 0x{:08X}, major: {}, minor: {}",
                version_str, version_number, major, minor);
 
-        // Check if it's OpenSSL 3.5+ using string comparison
+        // Check if it's OpenSSL 3.5+ using version number comparison
         // Consider it PQC-capable if version is 3.5 or higher
-        let is_openssl35 = version_str.contains("OpenSSL 3.") &&
-                          (major == 3 && minor >= 5);
+        let is_openssl35 = (major == 3 && minor >= 5) || major > 3;
 
         // Store the result
         unsafe {
@@ -163,16 +162,14 @@ pub fn list_supported_kems() -> Vec<String> {
             // Ideally, we should use APIs like SSL_CTX_get1_supported_kems
             // But since the Rust OpenSSL bindings might not provide these APIs yet, we use alternative methods
 
-            // Check if ML-KEM algorithms are supported
-            if is_openssl35_available() {
-                // Check if TLS 1.3 supports hybrid groups like X25519MLKEM768
-                // This is a simplified implementation; ideally we should use APIs like SSL_CTX_get1_groups
+            // We already checked OpenSSL 3.5+ availability above, so we can directly add KEM algorithms
+            // Check if TLS 1.3 supports hybrid groups like X25519MLKEM768
+            // This is a simplified implementation; ideally we should use APIs like SSL_CTX_get1_groups
 
-                // Add potentially supported KEM algorithms
-                kems.push("ML-KEM-768".to_string());
+            // Add potentially supported KEM algorithms
+            kems.push("ML-KEM-768".to_string());
 
-                debug!("Detected potential support for ML-KEM-768");
-            }
+            debug!("Detected potential support for ML-KEM-768");
         }
         Err(e) => {
             warn!("Failed to create SSL context for KEM detection: {}", e);
@@ -198,13 +195,12 @@ fn get_supported_algorithms() -> HashSet<String> {
 
                 // Signature algorithms - this still needs improvement
                 // Ideally, we should use an API like SSL_CTX_get1_supported_signature_algorithms
-                if is_openssl35_available() {
-                    algorithms.insert("ML-DSA-44".to_string());
-                    algorithms.insert("ML-DSA-65".to_string());
-                    algorithms.insert("ML-DSA-87".to_string());
-                    algorithms.insert("SLH-DSA-FALCON-512".to_string());
-                    algorithms.insert("SLH-DSA-FALCON-1024".to_string());
-                }
+                // We already checked OpenSSL 3.5+ availability above, so we can directly add signature algorithms
+                algorithms.insert("ML-DSA-44".to_string());
+                algorithms.insert("ML-DSA-65".to_string());
+                algorithms.insert("ML-DSA-87".to_string());
+                algorithms.insert("SLH-DSA-FALCON-512".to_string());
+                algorithms.insert("SLH-DSA-FALCON-1024".to_string());
             }
         }
         Err(e) => {

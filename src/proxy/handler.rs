@@ -34,101 +34,56 @@ pub async fn handle_connection(
     tls_acceptor: Arc<SslAcceptor>,
     config: &ProxyConfig,
 ) -> Result<()> {
-    // Create SSL object
-    let mut ssl = openssl::ssl::Ssl::new(tls_acceptor.context())
-        .map_err(ProxyError::Ssl)?;
+    // Setup TLS with client verification mode
+    let mut ssl = openssl::ssl::Ssl::new(tls_acceptor.context()).map_err(ProxyError::Ssl)?;
+    ssl.set_verify(match config.client_cert_mode {
+        ClientCertMode::Required => openssl::ssl::SslVerifyMode::PEER | openssl::ssl::SslVerifyMode::FAIL_IF_NO_PEER_CERT,
+        ClientCertMode::Optional => openssl::ssl::SslVerifyMode::PEER,
+        ClientCertMode::None => openssl::ssl::SslVerifyMode::NONE,
+    });
 
-    // Set verification mode based on configuration
-    let verify_mode = match config.client_cert_mode {
-        ClientCertMode::Required => {
-            openssl::ssl::SslVerifyMode::PEER | openssl::ssl::SslVerifyMode::FAIL_IF_NO_PEER_CERT
-        },
-        ClientCertMode::Optional => {
-            openssl::ssl::SslVerifyMode::PEER
-        },
-        ClientCertMode::None => {
-            openssl::ssl::SslVerifyMode::NONE
-        },
-    };
+    // Create and accept TLS stream
+    let mut stream = Box::pin(SslStream::new(ssl, client_stream).map_err(ProxyError::Ssl)?);
 
-    ssl.set_verify(verify_mode);
+    // Perform TLS handshake with error handling
+    if let Err(e) = stream.as_mut().accept().await {
+        // Log error details if error logging is enabled
+        if log::log_enabled!(log::Level::Error) {
+            let ssl_error = stream.as_ref().get_ref().ssl().verify_result();
+            error!("TLS handshake failed: {e}, verify result: {ssl_error}");
 
-    // Create SslStream
-    let stream = SslStream::new(ssl, client_stream)
-        .map_err(ProxyError::Ssl)?;
+            // Extract OpenSSL error code if present
+            e.to_string().strip_prefix("error:").and_then(|s| s.find(':'))
+                .map(|code_end| error!("OpenSSL error code: {}", &e.to_string()[6..6+code_end]));
+        }
+        return Err(ProxyError::TlsHandshake(e.to_string()));
+    }
 
-    use std::pin::Pin;
-    let mut stream = Pin::new(Box::new(stream));
+    debug!("TLS handshake successful");
 
-    match stream.as_mut().accept().await {
-        Ok(_) => {
-            debug!("TLS handshake successful");
+    // Log TLS details and client certificate when appropriate
+    if let (true, ssl) = (log::log_enabled!(log::Level::Debug), stream.as_ref().get_ref().ssl()) {
+        debug!("TLS version: {}", ssl.version_str());
+        debug!("TLS cipher: {}", ssl.current_cipher().map_or("None", |c| c.name()));
+        debug!("TLS SNI: {}", ssl.servername(openssl::ssl::NameType::HOST_NAME).unwrap_or("None"));
 
-            // Only log TLS details when debug logging is enabled (performance optimization)
-            if log::log_enabled!(log::Level::Debug) {
-                let ssl = stream.as_ref().get_ref().ssl();
-                debug!("TLS version: {}", ssl.version_str());
-
-                // Avoid unnecessary string allocations
-                if let Some(cipher) = ssl.current_cipher() {
-                    debug!("TLS cipher: {}", cipher.name());
-                } else {
-                    debug!("TLS cipher: None");
-                }
-
-                // Log SNI without unnecessary allocations
-                match ssl.servername(openssl::ssl::NameType::HOST_NAME) {
-                    Some(servername) => debug!("TLS SNI: {}", servername),
-                    None => debug!("TLS SNI: None"),
-                }
-            }
-        },
-        Err(e) => {
-            // Only get detailed error information when error logging is enabled
-            if log::log_enabled!(log::Level::Error) {
-                // Get SSL verification result without unnecessary allocations
-                let ssl_error = stream.as_ref().get_ref().ssl().verify_result();
-                error!("TLS handshake failed: {}", e);
-                error!("TLS verify result: {}", ssl_error);
-
-                // Extract OpenSSL error code more efficiently
-                let err_string = e.to_string();
-                if err_string.starts_with("error:") {
-                    if let Some(code_end) = err_string.find(':') {
-                        if code_end > 6 { // "error:" is 6 chars
-                            error!("OpenSSL error code: {}", &err_string[6..code_end]);
-                        }
-                    }
-                }
-            }
-
-            // Create error with borrowed string to avoid allocation
-            return Err(ProxyError::TlsHandshake(e.to_string()));
+        // Log client certificate if present and info logging is enabled
+        if log::log_enabled!(log::Level::Info) {
+            ssl.peer_certificate()
+                .map(|cert| info!("Client certificate subject: {:?}", cert.subject_name()));
         }
     }
 
-    // Get client certificate information only when info logging is enabled
-    if log::log_enabled!(log::Level::Info) {
-        if let Some(cert) = stream.as_ref().get_ref().ssl().peer_certificate() {
-            // Only format the subject name when needed (avoid unnecessary allocations)
-            let subject = cert.subject_name();
-            info!("Client certificate subject: {:?}", subject);
-        }
-    }
+    // Connect to target with timeout
+    let target_stream = timeout(
+        Duration::from_secs(config::get_connection_timeout()),
+        TcpStream::connect(target_addr)
+    )
+    .await
+    .map_err(|_| ProxyError::ConnectionTimeout(config::get_connection_timeout()))?
+    .map_err(ProxyError::Io)?;
 
-    // Connect to target service with timeout
-    // Use lock-free access method to get connection timeout for better performance
-    let connect_timeout = Duration::from_secs(config::get_connection_timeout());
-
-    // Use more specific error type for better diagnostics
-    let target_stream = match timeout(connect_timeout, TcpStream::connect(target_addr)).await {
-        Ok(result) => result,
-        Err(_) => return Err(ProxyError::ConnectionTimeout(config::get_connection_timeout())),
-    }
-        .map_err(ProxyError::Io)?;
-
-    // Forward data between client and target service
-    // Pass config by reference to avoid cloning
+    // Forward data between client and target
     proxy_data(stream, target_stream, config).await
 }
 
