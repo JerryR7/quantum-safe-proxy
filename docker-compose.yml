@@ -1,6 +1,6 @@
 services:
   quantum-safe-proxy:
-    image: quantum-safe-proxy:0.0.1
+    image: quantum-safe-proxy:openssl35
 #    image: quantum-safe-proxy:oqs
     ports:
       - "8443:8443"

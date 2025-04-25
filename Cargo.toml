@@ -39,6 +39,10 @@ thiserror = "1.0"
 once_cell = "1.19"
 # Efficient buffer management
 bytes = "1.5"
+# Socket options
+socket2 = "0.5"
+# Futures utilities
+futures = "0.3"
 
 
 
