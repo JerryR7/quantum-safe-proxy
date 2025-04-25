@@ -28,12 +28,75 @@ use super::forwarder::proxy_data;
 /// # Returns
 ///
 /// Returns `Ok(())` if handling is successful, otherwise returns an error.
+/// Check if a connection is using TLS protocol
+///
+/// This function checks if the connection is using TLS by peeking at the first few bytes.
+/// If it's not a TLS connection, it sends a TCP RST to immediately close the connection.
+///
+/// # Returns
+/// - `Ok(stream)` if the connection is using TLS
+/// - `Err(ProxyError)` if the connection is not using TLS or an error occurred
+async fn ensure_tls_connection(stream: TcpStream) -> Result<TcpStream> {
+    // Enable TCP_NODELAY for faster response
+    stream.set_nodelay(true).map_err(ProxyError::Io)?;
+
+    // Peek at the first few bytes to check if it looks like a TLS ClientHello
+    let mut peek_buf = [0u8; 5];
+
+    // Use timeout to avoid waiting indefinitely
+    match tokio::time::timeout(Duration::from_millis(500), stream.peek(&mut peek_buf)).await {
+        // Successfully peeked at data
+        Ok(Ok(size)) if size >= 3 => {
+            // TLS handshake starts with content type 0x16 (22 decimal)
+            if peek_buf[0] != 0x16 {
+                debug!("Not a TLS connection: first byte is {:#04x}, expected 0x16", peek_buf[0]);
+                send_tcp_rst(&stream)?;
+                return Err(ProxyError::NonTlsConnection(format!("Invalid protocol: first byte {:#04x}", peek_buf[0])));
+            }
+
+            debug!("Detected TLS connection, proceeding with handshake");
+            Ok(stream)
+        },
+        // Not enough data to determine protocol
+        Ok(Ok(size)) => {
+            debug!("Insufficient data ({} bytes) to determine protocol", size);
+            send_tcp_rst(&stream)?;
+            Err(ProxyError::NonTlsConnection(format!("Insufficient data: only {} bytes received", size)))
+        },
+        // Error reading from socket
+        Ok(Err(e)) => {
+            debug!("Error reading from socket: {}", e);
+            send_tcp_rst(&stream)?;
+            Err(ProxyError::Io(e))
+        },
+        // Timeout waiting for data
+        Err(_) => {
+            debug!("Timeout waiting for initial data");
+            send_tcp_rst(&stream)?;
+            Err(ProxyError::NonTlsConnection("Timeout waiting for initial data".to_string()))
+        }
+    }
+}
+
+/// Send a TCP RST packet to immediately close the connection
+fn send_tcp_rst(stream: &TcpStream) -> Result<()> {
+    // Setting SO_LINGER with a timeout of 0 causes a TCP RST to be sent on close
+    stream.set_linger(Some(Duration::from_secs(0)))
+        .map_err(|e| {
+            debug!("Failed to set TCP RST option: {}", e);
+            ProxyError::Io(e)
+        })
+}
+
 pub async fn handle_connection(
     client_stream: TcpStream,
     target_addr: SocketAddr,
     tls_acceptor: Arc<SslAcceptor>,
     config: &ProxyConfig,
 ) -> Result<()> {
+    // First, ensure this is a TLS connection
+    let client_stream = ensure_tls_connection(client_stream).await?;
+
     // Setup TLS with client verification mode
     let mut ssl = openssl::ssl::Ssl::new(tls_acceptor.context()).map_err(ProxyError::Ssl)?;
     ssl.set_verify(match config.client_cert_mode {

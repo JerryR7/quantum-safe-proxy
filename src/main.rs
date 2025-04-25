@@ -322,6 +322,7 @@ async fn main() -> Result<()> {
                         ProxyError::PermissionDenied(path) => warn!("Permission denied: {}", path),
                         ProxyError::Network(msg) => warn!("Network error: {}", msg),
                         ProxyError::ConnectionTimeout(timeout) => warn!("Connection timeout after {} seconds", timeout),
+                        ProxyError::NonTlsConnection(msg) => warn!("Non-TLS connection: {}", msg),
                         ProxyError::BufferPool(msg) => warn!("Buffer pool error: {}", msg),
                         ProxyError::TaskJoin(err) => warn!("Task join error: {}", err),
                         ProxyError::Other(msg) => warn!("Other error: {}", msg),

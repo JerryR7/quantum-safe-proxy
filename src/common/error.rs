@@ -44,6 +44,10 @@ pub enum ProxyError {
     #[error("Connection timeout after {0} seconds")]
     ConnectionTimeout(u64),
 
+    /// Non-TLS connection error
+    #[error("Non-TLS connection detected: {0}")]
+    NonTlsConnection(String),
+
     /// Buffer pool error
     #[error("Buffer pool error: {0}")]
     BufferPool(String),
