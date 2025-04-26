@@ -35,44 +35,7 @@ graph LR
     PROXY -->|Plain TCP （loopback）| SERVICE
 ```
 
-### System Components
 
-```mermaid
-graph TD
-    Client[Client] <-->|TLS Connection| QSP[Quantum Safe Proxy]
-    QSP <-->|Forward Traffic| Backend[Backend Service]
-
-    subgraph "Quantum Safe Proxy"
-        TLS[TLS Module] --> Handler[Connection Handler]
-        Handler --> Forwarder[Data Forwarder]
-        Config[Config Manager] --> TLS
-        Config --> Handler
-        Crypto[Crypto Module] --> TLS
-        BufferPool[Buffer Pool] --> Forwarder
-    end
-
-    subgraph "Security Detection"
-        QSP --> NonTLS[Non-TLS Detection]
-        NonTLS -->|Reject| RST[TCP RST]
-    end
-```
-
-### Data Flow
-
-```mermaid
-flowchart TD
-    Client[Client] -->|Encrypted Data| Acceptor[TLS Acceptor]
-    Acceptor -->|Decrypted Data| Handler[Connection Handler]
-    Handler -->|Raw Data| Forwarder[Data Forwarder]
-    Forwarder -->|Raw Data| Backend[Backend Service]
-
-    Backend -->|Response Data| Forwarder
-    Forwarder -->|Response Data| Handler
-    Handler -->|Encrypted Data| Acceptor
-    Acceptor -->|Encrypted Data| Client
-
-    BufferPool[Buffer Pool] <-->|Provide/Recycle Buffers| Forwarder
-```
 
 ### How It Works
 
@@ -103,21 +66,21 @@ mindmap
   root((Quantum Safe Proxy))
     Security Features
       Hybrid Certificate Support
-        ECDSA + ML-DSA
-        RSA + ML-DSA
-        X25519 + ML-KEM
+        ECDSA + ML-DSA-65/87
+        RSA-3072 + ML-DSA-65/87
+        X25519 + ML-KEM-768
       Non-TLS Connection Protection
-        Detect Non-TLS Connections
-        Immediate TCP RST
-        Detailed Logging
+        Protocol Detection (0x16 Header)
+        Immediate TCP RST (SO_LINGER=0)
+        Detailed Error Logging
       Client Certificate Verification
-        Required Mode
-        Optional Mode
-        None Mode
+        Required (Mutual TLS)
+        Optional (Verify if Present)
+        None (Server Auth Only)
       Secure Default Configuration
-        TLS 1.2/1.3
-        Strong Cipher Suites
-        Forward Secrecy
+        TLS 1.2/1.3 Only
+        AEAD Cipher Suites
+        Perfect Forward Secrecy
 ```
 
 ### TLS Handshake Flow
@@ -128,25 +91,32 @@ sequenceDiagram
     participant QSP as Quantum Safe Proxy
     participant Backend as Backend Service
 
-    Client->>QSP: Initial Connection
-    QSP->>QSP: Detect if TLS Connection
+    Client->>QSP: TCP Connection (SYN)
+    QSP-->>Client: TCP ACK (SYN-ACK)
 
-    alt Non-TLS Connection
-        QSP-->>Client: Send TCP RST
-    else TLS Connection
-        QSP->>Client: Offer Supported Cipher Suites (Including Hybrid)
+    Note over QSP: Peek first bytes (TcpStream::peek)
 
-        alt PQC-Capable Client
-            Client->>QSP: Select Hybrid Key Exchange (X25519MLKEM768)
-            QSP->>Client: Use Hybrid Certificate (ECDSA + ML-DSA)
+    alt Non-TLS Connection (First byte != 0x16)
+        QSP-->>Client: TCP RST (SO_LINGER=0)
+        Note over QSP: Log: "Non-TLS connection detected"
+    else TLS Connection (ClientHello)
+        QSP->>Client: ServerHello with Supported Groups
+        Note over QSP,Client: Includes X25519MLKEM768, P256MLKEM768
+
+        alt PQC-Capable Client (OpenSSL 3.5+)
+            Client->>QSP: Key Exchange with X25519MLKEM768
+            QSP->>Client: Certificate (ECDSA + ML-DSA-65)
+            Note over QSP,Client: Client verifies both traditional and PQC signatures
         else Traditional Client
-            Client->>QSP: Select Traditional Key Exchange (ECDHE)
-            QSP->>Client: Use Hybrid Certificate (Traditional Part)
+            Client->>QSP: Key Exchange with X25519/ECDHE
+            QSP->>Client: Certificate (ECDSA + ML-DSA-65)
+            Note over QSP,Client: Client verifies only traditional signature
         end
 
-        QSP->>Backend: Establish Connection
-        Backend->>QSP: Response
-        QSP->>Client: Forward Response
+        Client->>QSP: Finished
+        QSP->>Backend: New TCP Connection
+        Backend-->>QSP: TCP Accept
+        QSP->>Client: Finished
     end
 ```
 
@@ -308,23 +278,26 @@ The proxy uses a clear priority system for configuration options:
 
 ```mermaid
 graph LR
-    CMD[Command-line Arguments] -->|Highest Priority| Config[Final Configuration]
-    ENV[Environment Variables] -->|Second Priority| Config
-    File[Configuration File] -->|Third Priority| Config
-    Default[Default Values] -->|Lowest Priority| Config
+    CMD["Command-line Arguments<br/>--listen, --target, etc."] -->|Highest Priority| Config[Final Configuration]
+    ENV["Environment Variables<br/>QUANTUM_SAFE_PROXY_*"] -->|Second Priority| Config
+    File["Configuration File<br/>config.json"] -->|Third Priority| Config
+    Default["Default Values<br/>src/config/defaults.rs"] -->|Lowest Priority| Config
 
-    subgraph "Certificate Strategy"
+    subgraph "Certificate Selection Strategy"
         Config --> CertStrat[Certificate Strategy]
-        CertStrat --> Classic[Traditional Certificates]
-        CertStrat --> Hybrid[Hybrid Certificates]
-        CertStrat --> PQC[Pure PQC Certificates]
+        CertStrat --> Classic["Traditional<br/>(RSA, ECDSA)"]
+        CertStrat --> Hybrid["Hybrid<br/>(ECDSA + ML-DSA)"]
+        CertStrat --> PQC["Pure PQC<br/>(ML-DSA only)"]
+
+        SigAlgs["use_sigalgs: true"] -.->|Enables| AutoSelect["Auto-select based on<br/>client signature_algorithms"]
+        AutoSelect -.->|Chooses| CertStrat
     end
 
-    subgraph "Client Verification"
-        Config --> ClientMode[Client Certificate Mode]
-        ClientMode --> Required[Required]
-        ClientMode --> Optional[Optional]
-        ClientMode --> None[None]
+    subgraph "TLS Configuration"
+        Config --> TLSConfig[TLS Settings]
+        TLSConfig --> ClientMode["client_cert_mode:<br/>required, optional, none"]
+        TLSConfig --> CipherSuites["Strong cipher suites<br/>with forward secrecy"]
+        TLSConfig --> TLSVersion["TLS 1.2/1.3 only<br/>(older versions disabled)"]
     end
 ```
 | `connection_timeout` | Connection timeout in seconds | `30` |
