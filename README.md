@@ -59,31 +59,11 @@ graph LR
 - **Flexible Configuration**: Command-line arguments, environment variables, and config files
 - **Containerized Deployment**: Docker, docker-compose, and Kubernetes support
 
-### Security Features
+## 4. TLS Handshake Details
 
-```mermaid
-mindmap
-  root((Quantum Safe Proxy))
-    Security Features
-      Hybrid Certificate Support
-        ECDSA + ML-DSA-65/87
-        RSA-3072 + ML-DSA-65/87
-        X25519 + ML-KEM-768
-      Non-TLS Connection Protection
-        Protocol Detection (0x16 Header)
-        Immediate TCP RST (SO_LINGER=0)
-        Detailed Error Logging
-      Client Certificate Verification
-        Required (Mutual TLS)
-        Optional (Verify if Present)
-        None (Server Auth Only)
-      Secure Default Configuration
-        TLS 1.2/1.3 Only
-        AEAD Cipher Suites
-        Perfect Forward Secrecy
-```
+### TLS Handshake Process
 
-### TLS Handshake Flow
+The proxy secures connections using a hybrid TLS handshake that supports both quantum-resistant and traditional clients:
 
 ```mermaid
 sequenceDiagram
@@ -120,7 +100,16 @@ sequenceDiagram
     end
 ```
 
-## 4. Technology Stack
+The handshake process:
+1. Detects and rejects non-TLS connections by examining the first bytes
+2. Offers both traditional and post-quantum key exchange methods
+3. Adapts to client capabilities, using hybrid algorithms with PQC-capable clients
+4. Maintains backward compatibility with traditional clients
+5. Establishes a secure tunnel to the backend service
+
+
+
+## 5. Technology Stack
 
 | Component | Technology |
 |-----------|------------|
@@ -130,7 +119,7 @@ sequenceDiagram
 | **Deployment** | Docker / Kubernetes / Systemd sidecar mode |
 | **Certificate Tools** | OpenSSL 3.5+ CLI (hybrid CSR and certificates) |
 
-## 5. Installation
+## 6. Installation
 
 ### System Requirements
 
@@ -225,7 +214,7 @@ Alternatively, you can use our provided script:
 ./scripts/openssl35-install.sh
 ```
 
-## 6. Usage
+## 7. Usage
 
 ### Basic Usage
 
@@ -276,32 +265,40 @@ The configuration file uses JSON format and supports the following options:
 
 The proxy uses a clear priority system for configuration options:
 
+1. **Command-line Arguments** (highest priority)
+2. **Environment Variables**
+3. **Configuration File**
+4. **Default Values** (lowest priority)
+
+This means that command-line arguments will override environment variables, which will override configuration file values, which will override default values.
+
+### Configuration System
+
+The following diagram illustrates the configuration priority and certificate selection:
+
 ```mermaid
-graph LR
-    CMD["Command-line Arguments<br/>--listen, --target, etc."] -->|Highest Priority| Config[Final Configuration]
-    ENV["Environment Variables<br/>QUANTUM_SAFE_PROXY_*"] -->|Second Priority| Config
-    File["Configuration File<br/>config.json"] -->|Third Priority| Config
-    Default["Default Values<br/>src/config/defaults.rs"] -->|Lowest Priority| Config
-
-    subgraph "Certificate Selection Strategy"
-        Config --> CertStrat[Certificate Strategy]
-        CertStrat --> Classic["Traditional<br/>(RSA, ECDSA)"]
-        CertStrat --> Hybrid["Hybrid<br/>(ECDSA + ML-DSA)"]
-        CertStrat --> PQC["Pure PQC<br/>(ML-DSA only)"]
-
-        SigAlgs["use_sigalgs: true"] -.->|Enables| AutoSelect["Auto-select based on<br/>client signature_algorithms"]
-        AutoSelect -.->|Chooses| CertStrat
+flowchart LR
+    subgraph "Configuration Priority"
+        direction TB
+        CLI["Command Line<br/>--listen, --target, etc."] -->|Highest| Config
+        ENV["Environment Variables<br/>QUANTUM_SAFE_PROXY_*"] -->|Second| Config
+        File["Configuration File<br/>config.json"] -->|Third| Config
+        Defaults["Default Values"] -->|Lowest| Config[Final Configuration]
     end
 
-    subgraph "TLS Configuration"
-        Config --> TLSConfig[TLS Settings]
-        TLSConfig --> ClientMode["client_cert_mode:<br/>required, optional, none"]
-        TLSConfig --> CipherSuites["Strong cipher suites<br/>with forward secrecy"]
-        TLSConfig --> TLSVersion["TLS 1.2/1.3 only<br/>(older versions disabled)"]
+    subgraph "Certificate Selection"
+        direction TB
+        Config -->|Based on| Strategy["Certificate Strategy"]
+
+        Strategy -->|If classic_cert specified| Classic["Traditional Certificate<br/>(RSA/ECDSA)"]
+        Strategy -->|If cert_path specified| Hybrid["Hybrid Certificate<br/>(ECDSA+ML-DSA)"]
+
+        UseFlag["use_sigalgs: true"] -.->|Enables| Dynamic["Dynamic Selection<br/>Based on Client Capabilities"]
+        Dynamic -.->|Selects| Strategy
     end
 ```
 | `connection_timeout` | Connection timeout in seconds | `30` |
-| `openssl_dir` | Optional path to OpenSSL installation directory | `null` |
+| `openssl_dir` | Optional path to OpenSSL installation directory | - |
 
 Example configuration file:
 
@@ -483,13 +480,37 @@ We recommend building images manually and using only `image:` in docker-compose.
 | `--config-file` | Load configuration from specified file | - |
 
 
-## 7. Security Features
+## 8. Security Features
 
-### 7.1 Hybrid Certificate Support
+The proxy implements multiple security features to protect against both classical and quantum threats:
+
+```mermaid
+mindmap
+  root((Quantum Safe Proxy))
+    Security Features
+      Hybrid Certificate Support
+        ECDSA + ML-DSA-65/87
+        RSA-3072 + ML-DSA-65/87
+        X25519 + ML-KEM-768
+      Non-TLS Connection Protection
+        Protocol Detection (0x16 Header)
+        Immediate TCP RST (SO_LINGER=0)
+        Detailed Error Logging
+      Client Certificate Verification
+        Required (Mutual TLS)
+        Optional (Verify if Present)
+        None (Server Auth Only)
+      Secure Default Configuration
+        TLS 1.2/1.3 Only
+        AEAD Cipher Suites
+        Perfect Forward Secrecy
+```
+
+### 8.1 Hybrid Certificate Support
 
 Quantum Safe Proxy supports **hybrid X.509 certificates** using OpenSSL 3.5+ with built-in PQC support. This allows the server to accept connections from both PQC-enabled and traditional clients.
 
-### 7.2 Non-TLS Connection Protection
+### 8.2 Non-TLS Connection Protection
 
 The proxy automatically detects and rejects non-TLS connections by:
 
@@ -588,7 +609,7 @@ DNS.2 = localhost
 IP.1 = 127.0.0.1
 ```
 
-## 8. Implementation Details
+## 9. Implementation Details
 
 ### Certificate Validation Logic
 
@@ -658,7 +679,7 @@ quantum-safe-proxy/
 └── config.json.example    # Example configuration file
 ```
 
-## 9. Development and Testing
+## 10. Development and Testing
 
 ### Running Tests
 
@@ -690,7 +711,7 @@ cargo fmt
 cargo clippy
 ```
 
-## 10. Use Cases
+## 11. Use Cases
 
 | Scenario | Description |
 |----------|-------------|
@@ -699,7 +720,7 @@ cargo clippy
 | **Zero-Trust Security** | Enhance mTLS with quantum-resistant algorithms |
 | **Long-Term Data Protection** | Protect sensitive data against future quantum threats |
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 ### OpenSSL 3.5+ Issues
 
@@ -772,7 +793,7 @@ quantum-safe-proxy check-environment
 
 This will display detailed information about your OpenSSL installation, including version, supported algorithms, and any detected issues.
 
-## 12. Future Roadmap
+## 13. Future Roadmap
 
 - Auto-certificate rotation via REST API
 - Hybrid client metrics and handshake logs
@@ -789,7 +810,7 @@ This will display detailed information about your OpenSSL installation, includin
 - Configurable connection rejection policies
 - Detailed metrics for rejected connections
 
-## 13. Documentation
+## 14. Documentation
 
 Detailed documentation is available in the `docs/` directory:
 
@@ -798,10 +819,10 @@ Detailed documentation is available in the `docs/` directory:
 
 See [docs/README.md](docs/README.md) for additional resources and information.
 
-## 14. Contributing
+## 15. Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
 
-## 15. License
+## 16. License
 
 This project is licensed under the [MIT License](LICENSE).
