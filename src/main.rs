@@ -56,7 +56,7 @@ struct Args {
     ca_cert: String,
 
     /// Log level
-    #[clap(long, default_value = LOG_LEVEL_STR)]
+    #[clap(long, value_name = "LEVEL", default_value = LOG_LEVEL_STR)]
     log_level: String,
 
     /// Load configuration from a file
