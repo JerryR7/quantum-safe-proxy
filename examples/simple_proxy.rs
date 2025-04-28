@@ -10,7 +10,7 @@ use std::path::Path;
 async fn main() -> Result<()> {
     env_logger::init();
 
-    println!("啟動簡單代理示例...");
+    println!("Starting simple proxy example...");
 
     // Create certificate strategy
     let strategy = CertStrategy::Single {
@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
         config,  // Use Arc<ProxyConfig>
     );
 
-    println!("代理服務已啟動，按 Ctrl+C 停止");
+    println!("Proxy service started, press Ctrl+C to stop");
 
     // Run proxy service
     proxy.run().await?;

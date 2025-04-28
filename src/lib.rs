@@ -175,11 +175,11 @@ pub async fn reload_config(
     };
 
     // Update proxy configuration
-    // 傳遞 Arc<ProxyConfig> 的引用，完全避免克隆
+    // Pass reference to Arc<ProxyConfig> to avoid cloning
     proxy.update_config(new_config.target, tls_acceptor, &new_config).await?;
 
     info!("Proxy configuration reloaded successfully");
-    // 返回 Arc<ProxyConfig>，不需要克隆 ProxyConfig
+    // Return Arc<ProxyConfig> without cloning ProxyConfig
     Ok(new_config)
 }
 
@@ -286,6 +286,6 @@ pub async fn reload_config_async(
     proxy_handle.update_config(new_config.target, tls_acceptor, Arc::clone(&new_config)).await?;
 
     info!("Proxy configuration reloaded successfully");
-    // 返回 Arc<ProxyConfig>，不需要克隆 ProxyConfig
+    // Return Arc<ProxyConfig> without cloning ProxyConfig
     Ok(new_config)
 }

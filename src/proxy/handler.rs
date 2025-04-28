@@ -29,58 +29,48 @@ use super::forwarder::proxy_data;
 /// # Returns
 ///
 /// Returns `Ok(())` if handling is successful, otherwise returns an error.
-/// 檢查連接是否使用 TLS 協議
+/// Check if connection uses TLS protocol
 ///
-/// 通過查看前幾個字節來確定連接是否使用 TLS。
-/// 如果不是 TLS 連接，則發送 TCP RST 立即關閉連接。
+/// Determines if connection uses TLS by examining the first few bytes.
+/// If not a TLS connection, sends TCP RST to immediately close the connection.
 async fn ensure_tls_connection(stream: TcpStream) -> Result<TcpStream> {
-    // 啟用 TCP_NODELAY 以獲得更快的響應
+    // Enable TCP_NODELAY for faster response
     stream.set_nodelay(true).map_err(ProxyError::Io)?;
 
-    // 查看前幾個字節以檢查是否是 TLS ClientHello
+    // Check first few bytes to determine if it's a TLS ClientHello
     let mut peek_buf = [0u8; 5];
 
-    // 使用超時避免無限等待
-    match tokio::time::timeout(Duration::from_millis(500), stream.peek(&mut peek_buf)).await {
-        // 成功查看數據
+    // Use timeout to avoid infinite waiting, but with shorter timeout
+    match tokio::time::timeout(Duration::from_millis(100), stream.peek(&mut peek_buf)).await {
+        // Successfully peeked data
         Ok(Ok(size)) if size >= 3 => {
-            // TLS 握手以內容類型 0x16 (22 十進制) 開始
+            // TLS handshake starts with content type 0x16 (22 decimal)
             if peek_buf[0] != 0x16 {
-                debug!("非 TLS 連接: 第一個字節是 {:#04x}, 預期 0x16", peek_buf[0]);
+                info!("Non-TLS connection: first byte is {:#04x}, expected 0x16", peek_buf[0]);
                 send_tcp_rst(&stream)?;
-                return Err(ProxyError::NonTlsConnection(format!("無效協議: 第一個字節 {:#04x}", peek_buf[0])));
+                return Err(ProxyError::NonTlsConnection(format!("Invalid protocol: first byte {:#04x}", peek_buf[0])));
             }
 
-            debug!("檢測到 TLS 連接，繼續握手");
+            debug!("TLS connection detected, continuing handshake");
             Ok(stream)
         },
-        // 數據不足以確定協議
-        Ok(Ok(size)) => {
-            debug!("數據不足 ({} 字節) 無法確定協議", size);
+        // Not enough data to determine protocol or timeout waiting for data
+        _ => {
+            // For non-TLS connections, clients typically don't send data immediately
+            // So we assume this is a non-TLS connection
+            debug!("No TLS handshake data detected, assuming non-TLS connection");
             send_tcp_rst(&stream)?;
-            Err(ProxyError::NonTlsConnection(format!("數據不足: 僅收到 {} 字節", size)))
-        },
-        // 讀取套接字錯誤
-        Ok(Err(e)) => {
-            debug!("讀取套接字錯誤: {}", e);
-            send_tcp_rst(&stream)?;
-            Err(ProxyError::Io(e))
-        },
-        // 等待數據超時
-        Err(_) => {
-            debug!("等待初始數據超時");
-            send_tcp_rst(&stream)?;
-            Err(ProxyError::NonTlsConnection("等待初始數據超時".to_string()))
+            Err(ProxyError::NonTlsConnection("No TLS handshake data detected".to_string()))
         }
     }
 }
 
-/// 發送 TCP RST 包立即關閉連接
+/// Send TCP RST packet to immediately close connection
 fn send_tcp_rst(stream: &TcpStream) -> Result<()> {
-    // 設置 SO_LINGER 為 0 會在關閉時發送 TCP RST
+    // Setting SO_LINGER to 0 will send TCP RST when closing
     stream.set_linger(Some(Duration::from_secs(0)))
         .map_err(|e| {
-            debug!("設置 TCP RST 選項失敗: {}", e);
+            debug!("Failed to set TCP RST option: {}", e);
             ProxyError::Io(e)
         })
 }
@@ -91,7 +81,7 @@ pub async fn handle_connection(
     tls_acceptor: Arc<SslAcceptor>,
     config: &ProxyConfig,
 ) -> Result<()> {
-    // 首先確保這是一個 TLS 連接
+    // First ensure this is a TLS connection
     let client_stream = ensure_tls_connection(client_stream).await?;
 
     // Setup TLS with client verification mode

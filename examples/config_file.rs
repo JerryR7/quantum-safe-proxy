@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
         config.listen,
         config.target,
         tls_acceptor,
-        std::sync::Arc::new(config),  // 將 ProxyConfig 包裝在 Arc 中
+        std::sync::Arc::new(config),  // Wrap ProxyConfig in Arc
     );
 
     println!("Proxy service is ready, press Ctrl+C to stop");
