@@ -13,6 +13,7 @@ use tokio::time::timeout;
 use tokio_openssl::SslStream;
 
 use crate::config::{self, ProxyConfig, ClientCertMode};
+use crate::protocol::{ProtocolDetector, TlsDetector, DetectionResult};
 
 use crate::common::{ProxyError, Result};
 use super::forwarder::proxy_data;
@@ -31,36 +32,32 @@ use super::forwarder::proxy_data;
 /// Returns `Ok(())` if handling is successful, otherwise returns an error.
 /// Check if connection uses TLS protocol
 ///
-/// Determines if connection uses TLS by examining the first few bytes.
+/// Determines if connection uses TLS by examining the first few bytes using the protocol detector.
 /// If not a TLS connection, sends TCP RST to immediately close the connection.
+/// Uses a non-blocking approach similar to NGINX.
 async fn ensure_tls_connection(stream: TcpStream) -> Result<TcpStream> {
     // Enable TCP_NODELAY for faster response
     stream.set_nodelay(true).map_err(ProxyError::Io)?;
 
-    // Check first few bytes to determine if it's a TLS ClientHello
-    let mut peek_buf = [0u8; 5];
+    // Create TLS detector
+    let detector = TlsDetector::default();
+    let mut stream_clone = stream;
 
-    // Use timeout to avoid infinite waiting, but with shorter timeout
-    match tokio::time::timeout(Duration::from_millis(100), stream.peek(&mut peek_buf)).await {
-        // Successfully peeked data
-        Ok(Ok(size)) if size >= 3 => {
-            // TLS handshake starts with content type 0x16 (22 decimal)
-            if peek_buf[0] != 0x16 {
-                info!("Non-TLS connection: first byte is {:#04x}, expected 0x16", peek_buf[0]);
-                send_tcp_rst(&stream)?;
-                return Err(ProxyError::NonTlsConnection(format!("Invalid protocol: first byte {:#04x}", peek_buf[0])));
-            }
-
+    // Detect protocol with 100ms timeout (balanced for security and compatibility)
+    match detector.detect(&mut stream_clone, 100).await? {
+        DetectionResult::Tls => {
             debug!("TLS connection detected, continuing handshake");
-            Ok(stream)
+            Ok(stream_clone)
         },
-        // Not enough data to determine protocol or timeout waiting for data
-        _ => {
-            // For non-TLS connections, clients typically don't send data immediately
-            // So we assume this is a non-TLS connection
-            debug!("No TLS handshake data detected, assuming non-TLS connection");
-            send_tcp_rst(&stream)?;
-            Err(ProxyError::NonTlsConnection("No TLS handshake data detected".to_string()))
+        DetectionResult::NonTls(reason) => {
+            info!("Non-TLS connection detected: {}", reason);
+            send_tcp_rst(&stream_clone)?;
+            Err(ProxyError::NonTlsConnection(reason))
+        },
+        DetectionResult::NeedMoreData => {
+            debug!("Not enough data to determine protocol, assuming non-TLS connection");
+            send_tcp_rst(&stream_clone)?;
+            Err(ProxyError::NonTlsConnection("Not enough data to determine protocol".to_string()))
         }
     }
 }
@@ -110,6 +107,7 @@ pub async fn handle_connection(
     }
 
     debug!("TLS handshake successful");
+    info!("Established secure connection");
 
     // Log TLS details and client certificate when appropriate
     if let (true, ssl) = (log::log_enabled!(log::Level::Debug), stream.as_ref().get_ref().ssl()) {
@@ -139,6 +137,79 @@ pub async fn handle_connection(
 
 #[cfg(test)]
 mod tests {
-    // Unit tests for connection handling could be added here
-    // However, since we need to mock TLS connections, this might require more complex test setup
+    use super::*;
+    use tokio::io::AsyncWriteExt;
+    use tokio::net::TcpListener;
+
+    // Helper function to create a connected pair of TCP streams
+    async fn create_tcp_pair() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let client_connect = tokio::spawn(async move {
+            TcpStream::connect(addr).await.unwrap()
+        });
+
+        let (server, _) = listener.accept().await.unwrap();
+        let client = client_connect.await.unwrap();
+
+        (client, server)
+    }
+
+    #[tokio::test]
+    async fn test_ensure_tls_connection_with_tls_data() {
+        let (mut client, server) = create_tcp_pair().await;
+
+        // Simulate TLS ClientHello
+        let tls_client_hello = [
+            0x16, 0x03, 0x03, 0x00, 0x31, // TLS record header (type, version, length)
+            0x01, 0x00, 0x00, 0x2d, 0x03, 0x03, // Handshake header
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Random (truncated)
+        ];
+
+        // Send TLS ClientHello from client to server
+        client.write_all(&tls_client_hello).await.unwrap();
+
+        // Test ensure_tls_connection
+        let result = ensure_tls_connection(server).await;
+        assert!(result.is_ok(), "Should accept TLS connection");
+    }
+
+    #[tokio::test]
+    async fn test_ensure_tls_connection_with_non_tls_data() {
+        let (mut client, server) = create_tcp_pair().await;
+
+        // Simulate HTTP request
+        let http_request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
+
+        // Send HTTP request from client to server
+        client.write_all(http_request).await.unwrap();
+
+        // Test ensure_tls_connection
+        let result = ensure_tls_connection(server).await;
+        assert!(result.is_err(), "Should reject non-TLS connection");
+
+        if let Err(e) = result {
+            match e {
+                ProxyError::NonTlsConnection(_) => {}, // Expected error
+                _ => panic!("Expected NonTlsConnection error, got {:?}", e),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_ensure_tls_connection_with_no_data() {
+        let (_, server) = create_tcp_pair().await;
+
+        // Test ensure_tls_connection with no data
+        let result = ensure_tls_connection(server).await;
+        assert!(result.is_err(), "Should reject connection with no data");
+
+        if let Err(e) = result {
+            match e {
+                ProxyError::NonTlsConnection(_) => {}, // Expected error
+                _ => panic!("Expected NonTlsConnection error, got {:?}", e),
+            }
+        }
+    }
 }

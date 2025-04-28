@@ -239,7 +239,7 @@ impl StandardProxyService {
     async fn process_message(state: &mut ProxyState, message: ProxyMessage) {
         match message {
             ProxyMessage::HandleConnection { client_stream, client_addr } => {
-                info!("Accepted connection from {}", client_addr);
+                debug!("New connection attempt from {}", client_addr);
 
                 // Update metrics
                 state.active_connections += 1;
@@ -265,6 +265,13 @@ impl StandardProxyService {
                     debug!("Starting to handle connection: {} -> {}", conn_info.source, conn_info.target);
 
                     let result = handle_connection(client_stream, target_addr, tls_acceptor, &config).await;
+
+                    // Log connection result
+                    if let Err(e) = &result {
+                        if let crate::common::ProxyError::NonTlsConnection(_) = e {
+                            debug!("Rejected non-TLS connection from {}", conn_info.source);
+                        }
+                    }
 
                     // Record connection duration
                     if let Ok(duration) = SystemTime::now().duration_since(start_time) {

@@ -70,7 +70,7 @@ impl Proxy {
         client_addr: SocketAddr,
         state: &mut ProxyState,
     ) {
-        info!("Accepted connection from {}", client_addr);
+        debug!("Accepted connection from {}", client_addr);
 
         // Update metrics
         state.active_connections += 1;
