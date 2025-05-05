@@ -101,6 +101,24 @@ impl ClientCertMode {
     }
 }
 
+/// Certificate strategy type
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CertStrategyType {
+    /// Single certificate strategy
+    Single,
+    /// SigAlgs strategy
+    SigAlgs,
+    /// Dynamic strategy
+    Dynamic,
+}
+
+impl Default for CertStrategyType {
+    fn default() -> Self {
+        CertStrategyType::Dynamic
+    }
+}
+
 /// Proxy configuration
 ///
 /// Contains all configuration options needed for the proxy server.
@@ -117,18 +135,6 @@ pub struct ProxyConfig {
     /// Target service address to forward traffic to
     #[serde(default = "defaults::target")]
     pub target: SocketAddr,
-
-    /// Server certificate path
-    #[serde(default = "defaults::cert_path")]
-    pub cert_path: PathBuf,
-
-    /// Server private key path
-    #[serde(default = "defaults::key_path")]
-    pub key_path: PathBuf,
-
-    /// CA certificate path for client certificate validation
-    #[serde(default = "defaults::ca_cert_path")]
-    pub ca_cert_path: PathBuf,
 
     /// Log level (error, warn, info, debug, trace)
     #[serde(default = "defaults::log_level")]
@@ -157,15 +163,63 @@ pub struct ProxyConfig {
     #[serde(default = "defaults::openssl_dir")]
     pub openssl_dir: Option<PathBuf>,
 
-    /// Path to classic (RSA/ECDSA) cert PEM
+    // ---------- TLS 策略相關欄位 ----------
+
+    /// Certificate strategy type (single, sigalgs, dynamic)
+    #[serde(default)]
+    pub strategy: CertStrategyType,
+
+    /// Traditional certificate path (for Dynamic and SigAlgs strategies)
+    #[serde(default = "defaults::classic_cert_path")]
+    pub traditional_cert: PathBuf,
+
+    /// Traditional private key path (for Dynamic and SigAlgs strategies)
+    #[serde(default = "defaults::classic_key_path")]
+    pub traditional_key: PathBuf,
+
+    /// Hybrid certificate path (for Dynamic and SigAlgs strategies)
     #[serde(default = "defaults::cert_path")]
+    pub hybrid_cert: PathBuf,
+
+    /// Hybrid private key path (for Dynamic and SigAlgs strategies)
+    #[serde(default = "defaults::key_path")]
+    pub hybrid_key: PathBuf,
+
+    /// PQC-only certificate path (for Dynamic strategy, optional)
+    #[serde(default)]
+    pub pqc_only_cert: Option<PathBuf>,
+
+    /// PQC-only private key path (for Dynamic strategy, optional)
+    #[serde(default)]
+    pub pqc_only_key: Option<PathBuf>,
+
+    /// Client CA certificate path (for client certificate validation)
+    #[serde(default = "defaults::ca_cert_path")]
+    pub client_ca_cert_path: PathBuf,
+
+    // ---------- 向後兼容性欄位 ----------
+
+    /// Server certificate path (legacy field, use hybrid_cert instead)
+    #[serde(default = "defaults::cert_path")]
+    pub cert_path: PathBuf,
+
+    /// Server private key path (legacy field, use hybrid_key instead)
+    #[serde(default = "defaults::key_path")]
+    pub key_path: PathBuf,
+
+    /// CA certificate path for client certificate validation (legacy field, use client_ca_cert_path instead)
+    #[serde(default = "defaults::ca_cert_path")]
+    pub ca_cert_path: PathBuf,
+
+    /// Path to classic (RSA/ECDSA) cert PEM (legacy field, use traditional_cert instead)
+    #[serde(default = "defaults::classic_cert_path")]
     pub classic_cert: PathBuf,
 
-    /// Path to classic private key PEM
-    #[serde(default = "defaults::key_path")]
+    /// Path to classic private key PEM (legacy field, use traditional_key instead)
+    #[serde(default = "defaults::classic_key_path")]
     pub classic_key: PathBuf,
 
-    /// Always use SigAlgs strategy: auto-select cert by client signature_algorithms
+    /// Always use SigAlgs strategy (legacy field, use strategy instead)
     #[serde(default)]
     pub use_sigalgs: bool,
 }
@@ -176,14 +230,26 @@ impl Default for ProxyConfig {
         Self {
             listen: defaults::listen(),
             target: defaults::target(),
-            cert_path: defaults::cert_path(),
-            key_path: defaults::key_path(),
-            ca_cert_path: defaults::ca_cert_path(),
             log_level: defaults::log_level(),
             client_cert_mode: defaults::client_cert_mode(),
             buffer_size: defaults::buffer_size(),
             connection_timeout: defaults::connection_timeout(),
             openssl_dir: defaults::openssl_dir(),
+
+            // New fields
+            strategy: CertStrategyType::Dynamic,
+            traditional_cert: defaults::classic_cert_path(),
+            traditional_key: defaults::classic_key_path(),
+            hybrid_cert: defaults::cert_path(),
+            hybrid_key: defaults::key_path(),
+            pqc_only_cert: None,
+            pqc_only_key: None,
+            client_ca_cert_path: defaults::ca_cert_path(),
+
+            // Legacy fields
+            cert_path: defaults::cert_path(),
+            key_path: defaults::key_path(),
+            ca_cert_path: defaults::ca_cert_path(),
             classic_cert: defaults::classic_cert_path(),
             classic_key: defaults::classic_key_path(),
             use_sigalgs: defaults::use_sigalgs(),
@@ -406,14 +472,26 @@ impl ProxyConfig {
         Ok(Self {
             listen,
             target,
-            cert_path: cert_path.clone(),
-            key_path: key_path.clone(),
-            ca_cert_path,
             log_level: log_level.to_string(),
             client_cert_mode,
             buffer_size,
             connection_timeout,
             openssl_dir: None,  // Default to None for openssl_dir
+
+            // New fields
+            strategy: CertStrategyType::Dynamic,
+            traditional_cert: defaults::classic_cert_path(),
+            traditional_key: defaults::classic_key_path(),
+            hybrid_cert: cert_path.clone(),
+            hybrid_key: key_path.clone(),
+            pqc_only_cert: None,
+            pqc_only_key: None,
+            client_ca_cert_path: ca_cert_path.clone(),
+
+            // Legacy fields
+            cert_path: cert_path.clone(),
+            key_path: key_path.clone(),
+            ca_cert_path,
             classic_cert: defaults::classic_cert_path(),
             classic_key: defaults::classic_key_path(),
             use_sigalgs: defaults::use_sigalgs(),
@@ -444,23 +522,6 @@ impl ProxyConfig {
             listen: other.listen,
             target: other.target,
 
-            // For file paths, only override if not the default
-            cert_path: if other.cert_path != default.cert_path {
-                other.cert_path.clone()
-            } else {
-                self.cert_path.clone()
-            },
-            key_path: if other.key_path != default.key_path {
-                other.key_path.clone()
-            } else {
-                self.key_path.clone()
-            },
-            ca_cert_path: if other.ca_cert_path != default.ca_cert_path {
-                other.ca_cert_path.clone()
-            } else {
-                self.ca_cert_path.clone()
-            },
-
             // For strings, only override if not the default
             log_level: if other.log_level != default.log_level {
                 other.log_level.clone()
@@ -480,7 +541,60 @@ impl ProxyConfig {
                 self.openssl_dir.clone()
             },
 
-            // For new certificate paths, only override if not the default
+            // New fields
+            strategy: other.strategy.clone(),
+            traditional_cert: if other.traditional_cert != default.traditional_cert {
+                other.traditional_cert.clone()
+            } else {
+                self.traditional_cert.clone()
+            },
+            traditional_key: if other.traditional_key != default.traditional_key {
+                other.traditional_key.clone()
+            } else {
+                self.traditional_key.clone()
+            },
+            hybrid_cert: if other.hybrid_cert != default.hybrid_cert {
+                other.hybrid_cert.clone()
+            } else {
+                self.hybrid_cert.clone()
+            },
+            hybrid_key: if other.hybrid_key != default.hybrid_key {
+                other.hybrid_key.clone()
+            } else {
+                self.hybrid_key.clone()
+            },
+            pqc_only_cert: if other.pqc_only_cert.is_some() {
+                other.pqc_only_cert.clone()
+            } else {
+                self.pqc_only_cert.clone()
+            },
+            pqc_only_key: if other.pqc_only_key.is_some() {
+                other.pqc_only_key.clone()
+            } else {
+                self.pqc_only_key.clone()
+            },
+            client_ca_cert_path: if other.client_ca_cert_path != default.client_ca_cert_path {
+                other.client_ca_cert_path.clone()
+            } else {
+                self.client_ca_cert_path.clone()
+            },
+
+            // Legacy fields
+            cert_path: if other.cert_path != default.cert_path {
+                other.cert_path.clone()
+            } else {
+                self.cert_path.clone()
+            },
+            key_path: if other.key_path != default.key_path {
+                other.key_path.clone()
+            } else {
+                self.key_path.clone()
+            },
+            ca_cert_path: if other.ca_cert_path != default.ca_cert_path {
+                other.ca_cert_path.clone()
+            } else {
+                self.ca_cert_path.clone()
+            },
             classic_cert: if other.classic_cert != default.classic_cert {
                 other.classic_cert.clone()
             } else {
@@ -491,8 +605,6 @@ impl ProxyConfig {
             } else {
                 self.classic_key.clone()
             },
-
-            // For boolean flags, directly override
             use_sigalgs: other.use_sigalgs,
         }
     }
@@ -760,19 +872,39 @@ impl ProxyConfig {
         Ok(merged_config)
     }
 
-    /// Build the SigAlgs strategy if requested, else default to single classic.
+    /// Build the certificate strategy based on configuration.
+    ///
+    /// Uses the strategy field to determine which certificate strategy to use.
+    /// Falls back to use_sigalgs for backward compatibility.
     pub fn build_cert_strategy(&self) -> Result<crate::tls::strategy::CertStrategy> {
         use crate::tls::strategy::CertStrategy;
-        if self.use_sigalgs {
-            Ok(CertStrategy::SigAlgs {
-                classic: (self.classic_cert.clone(), self.classic_key.clone()),
-                hybrid: (self.cert_path.clone(), self.key_path.clone()),
-            })
-        } else {
-            Ok(CertStrategy::Single {
-                cert: self.cert_path.clone(),
-                key: self.key_path.clone(),
-            })
+
+        match self.strategy {
+            CertStrategyType::Single => {
+                // Use hybrid certificate for single strategy
+                Ok(CertStrategy::Single {
+                    cert: self.hybrid_cert.clone(),
+                    key: self.hybrid_key.clone(),
+                })
+            },
+            CertStrategyType::SigAlgs => {
+                // Use SigAlgs strategy with traditional and hybrid certificates
+                Ok(CertStrategy::SigAlgs {
+                    classic: (self.traditional_cert.clone(), self.traditional_key.clone()),
+                    hybrid: (self.hybrid_cert.clone(), self.hybrid_key.clone()),
+                })
+            },
+            CertStrategyType::Dynamic => {
+                // Use Dynamic strategy with all certificate types
+                Ok(CertStrategy::Dynamic {
+                    traditional: (self.traditional_cert.clone(), self.traditional_key.clone()),
+                    hybrid: (self.hybrid_cert.clone(), self.hybrid_key.clone()),
+                    pqc_only: match (&self.pqc_only_cert, &self.pqc_only_key) {
+                        (Some(cert), Some(key)) => Some((cert.clone(), key.clone())),
+                        _ => None,
+                    },
+                })
+            },
         }
     }
 }
@@ -837,14 +969,26 @@ mod tests {
         let override_config = ProxyConfig {
             listen: "127.0.0.1:9443".parse().unwrap(),
             target: base.target, // Keep default
-            cert_path: PathBuf::from("certs/traditional/rsa/server.crt"),
-            key_path: PathBuf::from("certs/traditional/rsa/server.key"),
-            ca_cert_path: base_ca_cert_path.clone(), // Use the cloned path
             log_level: "debug".to_string(),
             client_cert_mode: ClientCertMode::None,
             buffer_size: 4096,                      // Test different buffer size
             connection_timeout: 60,                 // Test different connection timeout
             openssl_dir: None,                      // No OpenSSL directory specified
+
+            // New fields
+            strategy: CertStrategyType::Dynamic,
+            traditional_cert: PathBuf::from("certs/traditional/rsa/server.crt"),
+            traditional_key: PathBuf::from("certs/traditional/rsa/server.key"),
+            hybrid_cert: PathBuf::from("certs/hybrid/ml-dsa-87/server.crt"),
+            hybrid_key: PathBuf::from("certs/hybrid/ml-dsa-87/server.key"),
+            pqc_only_cert: None,
+            pqc_only_key: None,
+            client_ca_cert_path: base_ca_cert_path.clone(), // Use the cloned path
+
+            // Legacy fields
+            cert_path: PathBuf::from("certs/traditional/rsa/server.crt"),
+            key_path: PathBuf::from("certs/traditional/rsa/server.key"),
+            ca_cert_path: base_ca_cert_path.clone(), // Use the cloned path
             classic_cert: PathBuf::from("certs/traditional/rsa/server.crt"),
             classic_key: PathBuf::from("certs/traditional/rsa/server.key"),
             use_sigalgs: false,

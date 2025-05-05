@@ -2,6 +2,7 @@
 use std::path::Path;
 use std::process::Command;
 use std::env;
+use std::fs;
 
 /// Check if OpenSSL version is 3.5 or higher
 fn is_openssl_35_or_higher(openssl_bin: &Path) -> bool {
@@ -29,6 +30,33 @@ fn is_openssl_35_or_higher(openssl_bin: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Try to read OpenSSL directory from config.json
+fn read_openssl_dir_from_config() -> Option<String> {
+    // Try to read config.json
+    let config_paths = ["config.json", "config/config.json"];
+
+    for config_path in config_paths.iter() {
+        if let Ok(config_content) = fs::read_to_string(config_path) {
+            // Simple JSON parsing to extract openssl_dir
+            if let Some(start) = config_content.find("\"openssl_dir\"") {
+                if let Some(colon) = config_content[start..].find(':') {
+                    let value_start = start + colon + 1;
+                    if let Some(quote_start) = config_content[value_start..].find('"') {
+                        let str_start = value_start + quote_start + 1;
+                        if let Some(quote_end) = config_content[str_start..].find('"') {
+                            let openssl_dir = &config_content[str_start..str_start + quote_end];
+                            println!("cargo:warning=Found OpenSSL directory in config.json: {}", openssl_dir);
+                            return Some(openssl_dir.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn main() {
     // Common OpenSSL 3.5+ installation locations
     let openssl35_locations = [
@@ -37,8 +65,13 @@ fn main() {
         "/usr/local/opt/openssl-3.5.0", "/usr/local/opt/openssl35",
     ];
 
-    // Get OpenSSL directory from environment or auto-detect
+    // Get OpenSSL directory from environment, config.json, or auto-detect
     let openssl_dir = env::var("OPENSSL_DIR").unwrap_or_else(|_| {
+        // Try to read from config.json
+        if let Some(dir) = read_openssl_dir_from_config() {
+            return dir;
+        }
+
         // Try to auto-detect OpenSSL 3.5+
         openssl35_locations.iter()
             .find_map(|&location| {

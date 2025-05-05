@@ -1,15 +1,28 @@
 {
-  "listen": "0.0.0.0:8443",
-  "target": "127.0.0.1:6000",
-  "cert_path": "certs/hybrid/ml-dsa-65/server.crt",
-  "key_path": "certs/hybrid/ml-dsa-65/server.key",
-  "ca_cert_path": "certs/hybrid/ml-dsa-65/ca.crt",
-  "log_level": "info",
-  "client_cert_mode": "optional",
-  "buffer_size": 8192,
-  "connection_timeout": 30,
-  "classic_cert": "certs/traditional/rsa/server.crt",
-  "classic_key": "certs/traditional/rsa/server.key",
-  "use_sigalgs": false,
-  "openssl_dir": "/opt/openssl35"
+  // ---------- 一般網路與日誌設定 ----------
+  "listen":              "0.0.0.0:8443",           // 監聽地址
+  "target":              "127.0.0.1:6000",         // 後端目標
+  "log_level":           "info",                   // 日誌等級
+  "client_cert_mode":    "optional",               // 客戶端憑證模式
+  "buffer_size":         8192,                     // 緩衝區大小
+  "connection_timeout":  30,                       // 連線逾時（秒）
+  "openssl_dir":         "/opt/openssl35",         // OpenSSL 3.5 安裝路徑
+
+  // ---------- TLS 策略 ----------  
+  "strategy":            "dynamic",                // 證書策略：dynamic, sigalgs, single
+
+  // 傳統 (fallback) 憑證──leaf + intermediate 已合併
+  "traditional_cert":    "certs/traditional/rsa/server.crt",
+  "traditional_key":     "certs/traditional/rsa/server.key",
+
+  // Hybrid 憑證──leaf + intermediate 已合併
+  "hybrid_cert":         "certs/hybrid/ml-dsa-65/server.crt",
+  "hybrid_key":          "certs/hybrid/ml-dsa-65/server.key",
+
+  // （選填）純 PQC-only，如果不需要可留 null
+  "pqc_only_cert":       null,
+  "pqc_only_key":        null,
+
+  // 驗客戶端用的 CA 根憑證，client_cert_mode = Optional / Require 時必填
+  "client_ca_cert_path": "certs/hybrid/ml-dsa-65/ca.crt"
 }

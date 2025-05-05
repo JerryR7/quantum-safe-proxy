@@ -100,19 +100,19 @@ pub fn openssl_dir() -> Option<PathBuf> {
     None
 }
 
-/// Default classic certificate path
+/// Default traditional certificate path
 pub fn classic_cert_path() -> PathBuf {
     PathBuf::from("certs/traditional/rsa/server.crt")
 }
 
-/// Default classic private key path
+/// Default traditional private key path
 pub fn classic_key_path() -> PathBuf {
     PathBuf::from("certs/traditional/rsa/server.key")
 }
 
-/// Default use_sigalgs value
+/// Default use_sigalgs value (legacy field)
 pub fn use_sigalgs() -> bool {
-    true
+    false
 }
 
 // Note: Command line argument names and environment variable names
