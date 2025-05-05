@@ -53,7 +53,7 @@ async fn main() -> Result<()> {
 
     // Create TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(
-        &config.ca_cert_path,
+        &config.client_ca_cert_path,
         &config.client_cert_mode,
         strategy,
     )?;

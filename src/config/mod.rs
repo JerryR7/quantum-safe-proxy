@@ -9,7 +9,7 @@ mod defaults;
 mod manager;
 
 // Re-export types
-pub use config::{ProxyConfig, ClientCertMode, parse_socket_addr};
+pub use config::{ProxyConfig, ClientCertMode, CertStrategyType, parse_socket_addr};
 pub use manager::{initialize, get_config, update_config, reload_config, add_listener, ConfigChangeEvent, get_buffer_size, get_connection_timeout, is_client_cert_required, is_sigalgs_enabled};
 
 // Export constants needed externally
@@ -109,17 +109,19 @@ pub fn load_config(args: Vec<String>, config_file: Option<&str>) -> Result<Proxy
     if log::log_enabled!(log::Level::Debug) {
         debug!("Listen address: {}", config.listen);
         debug!("Target address: {}", config.target);
-        debug!("Certificate path: {:?}", config.cert_path);
-        debug!("Private key path: {:?}", config.key_path);
-        debug!("CA certificate path: {:?}", config.ca_cert_path);
+        debug!("Strategy: {:?}", config.strategy);
+        debug!("Traditional certificate path: {:?}", config.traditional_cert);
+        debug!("Traditional key path: {:?}", config.traditional_key);
+        debug!("Hybrid certificate path: {:?}", config.hybrid_cert);
+        debug!("Hybrid key path: {:?}", config.hybrid_key);
+        debug!("PQC-only certificate path: {:?}", config.pqc_only_cert);
+        debug!("PQC-only key path: {:?}", config.pqc_only_key);
+        debug!("Client CA certificate path: {:?}", config.client_ca_cert_path);
         debug!("Log level: {}", config.log_level);
         debug!("Client certificate mode: {}", config.client_cert_mode);
         debug!("Buffer size: {} bytes", config.buffer_size);
         debug!("Connection timeout: {} seconds", config.connection_timeout);
-        debug!("Classic certificate path: {:?}", config.classic_cert);
-        debug!("Classic key path: {:?}", config.classic_key);
         debug!("OpenSSL directory: {:?}", config.openssl_dir);
-        debug!("Use SigAlgs strategy: {}", config.use_sigalgs);
     }
 
     Ok(config)
@@ -165,25 +167,25 @@ fn parse_command_line_args(args: &[String]) -> Result<ProxyConfig> {
                     return Err(ProxyError::Config("Missing value for --target".to_string()));
                 }
             },
-            "--cert" => {
+            "--cert" | "--hybrid-cert" => {
                 if i + 1 < args.len() {
-                    config.cert_path = PathBuf::from(&args[i + 1]);
+                    config.hybrid_cert = PathBuf::from(&args[i + 1]);
                     i += 2;
                 } else {
                     return Err(ProxyError::Config("Missing value for --cert".to_string()));
                 }
             },
-            "--key" => {
+            "--key" | "--hybrid-key" => {
                 if i + 1 < args.len() {
-                    config.key_path = PathBuf::from(&args[i + 1]);
+                    config.hybrid_key = PathBuf::from(&args[i + 1]);
                     i += 2;
                 } else {
                     return Err(ProxyError::Config("Missing value for --key".to_string()));
                 }
             },
-            "--ca-cert" => {
+            "--ca-cert" | "--client-ca-cert" => {
                 if i + 1 < args.len() {
-                    config.ca_cert_path = PathBuf::from(&args[i + 1]);
+                    config.client_ca_cert_path = PathBuf::from(&args[i + 1]);
                     i += 2;
                 } else {
                     return Err(ProxyError::Config("Missing value for --ca-cert".to_string()));
@@ -233,32 +235,58 @@ fn parse_command_line_args(args: &[String]) -> Result<ProxyConfig> {
                     return Err(ProxyError::Config("Missing value for --openssl-dir".to_string()));
                 }
             },
-            "--classic-cert" => {
+            "--classic-cert" | "--traditional-cert" => {
                 if i + 1 < args.len() {
-                    config.classic_cert = PathBuf::from(&args[i + 1]);
+                    config.traditional_cert = PathBuf::from(&args[i + 1]);
                     i += 2;
                 } else {
-                    return Err(ProxyError::Config("Missing value for --classic-cert".to_string()));
+                    return Err(ProxyError::Config("Missing value for --traditional-cert".to_string()));
                 }
             },
-            "--classic-key" => {
+            "--classic-key" | "--traditional-key" => {
                 if i + 1 < args.len() {
-                    config.classic_key = PathBuf::from(&args[i + 1]);
+                    config.traditional_key = PathBuf::from(&args[i + 1]);
                     i += 2;
                 } else {
-                    return Err(ProxyError::Config("Missing value for --classic-key".to_string()));
+                    return Err(ProxyError::Config("Missing value for --traditional-key".to_string()));
                 }
             },
             "--use-sigalgs" => {
+                // For backward compatibility, set strategy to SigAlgs
+                config.strategy = CertStrategyType::SigAlgs;
+                i += 1;
+            },
+            "--strategy" => {
                 if i + 1 < args.len() {
-                    config.use_sigalgs = args[i + 1].parse().map_err(|_| {
-                        ProxyError::Config(format!("Invalid use_sigalgs value: {}", args[i + 1]))
-                    })?;
+                    let strategy_str = args[i + 1].to_lowercase();
+                    config.strategy = match strategy_str.as_str() {
+                        "single" => CertStrategyType::Single,
+                        "sigalgs" => CertStrategyType::SigAlgs,
+                        "dynamic" => CertStrategyType::Dynamic,
+                        _ => return Err(ProxyError::Config(format!(
+                            "Invalid strategy value: {}. Valid values are: single, sigalgs, dynamic",
+                            args[i + 1]
+                        ))),
+                    };
                     i += 2;
                 } else {
-                    // If --use-sigalgs is specified without a value, assume true
-                    config.use_sigalgs = true;
-                    i += 1;
+                    return Err(ProxyError::Config("Missing value for --strategy".to_string()));
+                }
+            },
+            "--pqc-only-cert" => {
+                if i + 1 < args.len() {
+                    config.pqc_only_cert = Some(PathBuf::from(&args[i + 1]));
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --pqc-only-cert".to_string()));
+                }
+            },
+            "--pqc-only-key" => {
+                if i + 1 < args.len() {
+                    config.pqc_only_key = Some(PathBuf::from(&args[i + 1]));
+                    i += 2;
+                } else {
+                    return Err(ProxyError::Config("Missing value for --pqc-only-key".to_string()));
                 }
             },
             _ => {

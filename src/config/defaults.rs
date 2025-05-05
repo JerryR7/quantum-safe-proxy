@@ -110,10 +110,7 @@ pub fn classic_key_path() -> PathBuf {
     PathBuf::from("certs/traditional/rsa/server.key")
 }
 
-/// Default use_sigalgs value (legacy field)
-pub fn use_sigalgs() -> bool {
-    false
-}
+
 
 // Note: Command line argument names and environment variable names
 // are now handled directly in the config.rs file

@@ -119,6 +119,22 @@ impl Default for CertStrategyType {
     }
 }
 
+impl std::str::FromStr for CertStrategyType {
+    type Err = crate::common::ProxyError;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "single" => Ok(CertStrategyType::Single),
+            "sigalgs" => Ok(CertStrategyType::SigAlgs),
+            "dynamic" => Ok(CertStrategyType::Dynamic),
+            _ => Err(crate::common::ProxyError::Config(format!(
+                "Invalid certificate strategy: {}. Valid values are: single, sigalgs, dynamic",
+                s
+            ))),
+        }
+    }
+}
+
 /// Proxy configuration
 ///
 /// Contains all configuration options needed for the proxy server.
@@ -197,31 +213,7 @@ pub struct ProxyConfig {
     #[serde(default = "defaults::ca_cert_path")]
     pub client_ca_cert_path: PathBuf,
 
-    // ---------- 向後兼容性欄位 ----------
 
-    /// Server certificate path (legacy field, use hybrid_cert instead)
-    #[serde(default = "defaults::cert_path")]
-    pub cert_path: PathBuf,
-
-    /// Server private key path (legacy field, use hybrid_key instead)
-    #[serde(default = "defaults::key_path")]
-    pub key_path: PathBuf,
-
-    /// CA certificate path for client certificate validation (legacy field, use client_ca_cert_path instead)
-    #[serde(default = "defaults::ca_cert_path")]
-    pub ca_cert_path: PathBuf,
-
-    /// Path to classic (RSA/ECDSA) cert PEM (legacy field, use traditional_cert instead)
-    #[serde(default = "defaults::classic_cert_path")]
-    pub classic_cert: PathBuf,
-
-    /// Path to classic private key PEM (legacy field, use traditional_key instead)
-    #[serde(default = "defaults::classic_key_path")]
-    pub classic_key: PathBuf,
-
-    /// Always use SigAlgs strategy (legacy field, use strategy instead)
-    #[serde(default)]
-    pub use_sigalgs: bool,
 }
 
 impl Default for ProxyConfig {
@@ -236,7 +228,7 @@ impl Default for ProxyConfig {
             connection_timeout: defaults::connection_timeout(),
             openssl_dir: defaults::openssl_dir(),
 
-            // New fields
+            // Certificate strategy fields
             strategy: CertStrategyType::Dynamic,
             traditional_cert: defaults::classic_cert_path(),
             traditional_key: defaults::classic_key_path(),
@@ -245,14 +237,6 @@ impl Default for ProxyConfig {
             pqc_only_cert: None,
             pqc_only_key: None,
             client_ca_cert_path: defaults::ca_cert_path(),
-
-            // Legacy fields
-            cert_path: defaults::cert_path(),
-            key_path: defaults::key_path(),
-            ca_cert_path: defaults::ca_cert_path(),
-            classic_cert: defaults::classic_cert_path(),
-            classic_key: defaults::classic_key_path(),
-            use_sigalgs: defaults::use_sigalgs(),
         }
     }
 }
@@ -382,16 +366,31 @@ impl ProxyConfig {
         // Update configuration fields from environment variables
         update_config!("LISTEN", config.listen, |v: &str| parse_socket_addr(v));
         update_config!("TARGET", config.target, |v: &str| parse_socket_addr(v));
-        update_config!("CERT", config.cert_path);
-        update_config!("KEY", config.key_path);
-        update_config!("CA_CERT", config.ca_cert_path);
+        // Certificate strategy
+        update_config!("STRATEGY", config.strategy, |v: &str| CertStrategyType::from_str(v));
+
+        // Certificate paths
+        update_config!("TRADITIONAL_CERT", config.traditional_cert);
+        update_config!("TRADITIONAL_KEY", config.traditional_key);
+        update_config!("HYBRID_CERT", config.hybrid_cert);
+        update_config!("HYBRID_KEY", config.hybrid_key);
+        update_config!("CLIENT_CA_CERT", config.client_ca_cert_path);
+
+        // Optional PQC-only certificate paths
+        if let Some(value) = get_env("PQC_ONLY_CERT") {
+            config.pqc_only_cert = Some(PathBuf::from(value));
+            has_changes = true;
+        }
+        if let Some(value) = get_env("PQC_ONLY_KEY") {
+            config.pqc_only_key = Some(PathBuf::from(value));
+            has_changes = true;
+        }
+
+        // Other settings
         update_config!("LOG_LEVEL", config.log_level);
         update_config!("CLIENT_CERT_MODE", config.client_cert_mode, |v: &str| ClientCertMode::from_str(v));
         update_config!("BUFFER_SIZE", config.buffer_size, |v: &str| v.parse::<usize>());
         update_config!("CONNECTION_TIMEOUT", config.connection_timeout, |v: &str| v.parse::<u64>());
-        update_config!("CLASSIC_CERT", config.classic_cert);
-        update_config!("CLASSIC_KEY", config.classic_key);
-        update_config!("USE_SIGALGS", config.use_sigalgs, |v: &str| v.parse::<bool>());
         // Use the option_fn variant for openssl_dir
         if let Some(value) = get_env("OPENSSL_DIR") {
             config.openssl_dir = Some(PathBuf::from(value));
@@ -478,23 +477,15 @@ impl ProxyConfig {
             connection_timeout,
             openssl_dir: None,  // Default to None for openssl_dir
 
-            // New fields
+            // Certificate strategy fields
             strategy: CertStrategyType::Dynamic,
             traditional_cert: defaults::classic_cert_path(),
             traditional_key: defaults::classic_key_path(),
-            hybrid_cert: cert_path.clone(),
-            hybrid_key: key_path.clone(),
+            hybrid_cert: cert_path,
+            hybrid_key: key_path,
             pqc_only_cert: None,
             pqc_only_key: None,
-            client_ca_cert_path: ca_cert_path.clone(),
-
-            // Legacy fields
-            cert_path: cert_path.clone(),
-            key_path: key_path.clone(),
-            ca_cert_path,
-            classic_cert: defaults::classic_cert_path(),
-            classic_key: defaults::classic_key_path(),
-            use_sigalgs: defaults::use_sigalgs(),
+            client_ca_cert_path: ca_cert_path,
         })
     }
 
@@ -579,33 +570,7 @@ impl ProxyConfig {
                 self.client_ca_cert_path.clone()
             },
 
-            // Legacy fields
-            cert_path: if other.cert_path != default.cert_path {
-                other.cert_path.clone()
-            } else {
-                self.cert_path.clone()
-            },
-            key_path: if other.key_path != default.key_path {
-                other.key_path.clone()
-            } else {
-                self.key_path.clone()
-            },
-            ca_cert_path: if other.ca_cert_path != default.ca_cert_path {
-                other.ca_cert_path.clone()
-            } else {
-                self.ca_cert_path.clone()
-            },
-            classic_cert: if other.classic_cert != default.classic_cert {
-                other.classic_cert.clone()
-            } else {
-                self.classic_cert.clone()
-            },
-            classic_key: if other.classic_key != default.classic_key {
-                other.classic_key.clone()
-            } else {
-                self.classic_key.clone()
-            },
-            use_sigalgs: other.use_sigalgs,
+
         }
     }
 
@@ -738,27 +703,60 @@ impl ProxyConfig {
             },
         }
 
-        // Check if certificate file exists
-        check_file_exists(&self.cert_path).map_err(|_| {
+        // Check if traditional certificate files exist
+        check_file_exists(&self.traditional_cert).map_err(|_| {
             ProxyError::Config(format!(
-                "Certificate file does not exist or is invalid: {:?}",
-                self.cert_path
+                "Traditional certificate file does not exist or is invalid: {:?}",
+                self.traditional_cert
             ))
         })?;
 
-        // Check if key file exists
-        check_file_exists(&self.key_path).map_err(|_| {
+        check_file_exists(&self.traditional_key).map_err(|_| {
             ProxyError::Config(format!(
-                "Key file does not exist or is invalid: {:?}",
-                self.key_path
+                "Traditional key file does not exist or is invalid: {:?}",
+                self.traditional_key
             ))
         })?;
 
-        // Check if CA certificate file exists
-        check_file_exists(&self.ca_cert_path).map_err(|_| {
+        // Check if hybrid certificate files exist
+        check_file_exists(&self.hybrid_cert).map_err(|_| {
             ProxyError::Config(format!(
-                "CA certificate file does not exist or is invalid: {:?}",
-                self.ca_cert_path
+                "Hybrid certificate file does not exist or is invalid: {:?}",
+                self.hybrid_cert
+            ))
+        })?;
+
+        check_file_exists(&self.hybrid_key).map_err(|_| {
+            ProxyError::Config(format!(
+                "Hybrid key file does not exist or is invalid: {:?}",
+                self.hybrid_key
+            ))
+        })?;
+
+        // Check if PQC-only certificate files exist (if specified)
+        if let Some(cert) = &self.pqc_only_cert {
+            check_file_exists(cert).map_err(|_| {
+                ProxyError::Config(format!(
+                    "PQC-only certificate file does not exist or is invalid: {:?}",
+                    cert
+                ))
+            })?;
+        }
+
+        if let Some(key) = &self.pqc_only_key {
+            check_file_exists(key).map_err(|_| {
+                ProxyError::Config(format!(
+                    "PQC-only key file does not exist or is invalid: {:?}",
+                    key
+                ))
+            })?;
+        }
+
+        // Check if client CA certificate file exists
+        check_file_exists(&self.client_ca_cert_path).map_err(|_| {
+            ProxyError::Config(format!(
+                "Client CA certificate file does not exist or is invalid: {:?}",
+                self.client_ca_cert_path
             ))
         })?;
 
@@ -777,27 +775,60 @@ impl ProxyConfig {
     pub fn check(&self) -> Vec<String> {
         let mut warnings = Vec::new();
 
-        // Check if a certificate file exists
-        if !self.cert_path.exists() {
+        // Check if traditional certificate files exist
+        if !self.traditional_cert.exists() {
             warnings.push(format!(
-                "Certificate file does not exist: {}",
-                self.cert_path.display()
+                "Traditional certificate file does not exist: {}",
+                self.traditional_cert.display()
             ));
         }
 
-        // Check if the key file exists
-        if !self.key_path.exists() {
+        if !self.traditional_key.exists() {
             warnings.push(format!(
-                "Key file does not exist: {}",
-                self.key_path.display()
+                "Traditional key file does not exist: {}",
+                self.traditional_key.display()
             ));
         }
 
-        // Check if the CA certificate file exists
-        if !self.ca_cert_path.exists() {
+        // Check if hybrid certificate files exist
+        if !self.hybrid_cert.exists() {
             warnings.push(format!(
-                "CA certificate file does not exist: {}",
-                self.ca_cert_path.display()
+                "Hybrid certificate file does not exist: {}",
+                self.hybrid_cert.display()
+            ));
+        }
+
+        if !self.hybrid_key.exists() {
+            warnings.push(format!(
+                "Hybrid key file does not exist: {}",
+                self.hybrid_key.display()
+            ));
+        }
+
+        // Check if PQC-only certificate files exist (if specified)
+        if let Some(cert) = &self.pqc_only_cert {
+            if !cert.exists() {
+                warnings.push(format!(
+                    "PQC-only certificate file does not exist: {}",
+                    cert.display()
+                ));
+            }
+        }
+
+        if let Some(key) = &self.pqc_only_key {
+            if !key.exists() {
+                warnings.push(format!(
+                    "PQC-only key file does not exist: {}",
+                    key.display()
+                ));
+            }
+        }
+
+        // Check if client CA certificate file exists
+        if !self.client_ca_cert_path.exists() {
+            warnings.push(format!(
+                "Client CA certificate file does not exist: {}",
+                self.client_ca_cert_path.display()
             ));
         }
 
@@ -875,7 +906,6 @@ impl ProxyConfig {
     /// Build the certificate strategy based on configuration.
     ///
     /// Uses the strategy field to determine which certificate strategy to use.
-    /// Falls back to use_sigalgs for backward compatibility.
     pub fn build_cert_strategy(&self) -> Result<crate::tls::strategy::CertStrategy> {
         use crate::tls::strategy::CertStrategy;
 
@@ -921,9 +951,9 @@ mod tests {
 
         assert_eq!(config.listen, defaults::listen());
         assert_eq!(config.target, defaults::target());
-        assert_eq!(config.cert_path, defaults::cert_path());
-        assert_eq!(config.key_path, defaults::key_path());
-        assert_eq!(config.ca_cert_path, defaults::ca_cert_path());
+        assert_eq!(config.hybrid_cert, defaults::cert_path());
+        assert_eq!(config.hybrid_key, defaults::key_path());
+        assert_eq!(config.client_ca_cert_path, defaults::ca_cert_path());
         assert_eq!(config.log_level, defaults::log_level());
         assert_eq!(config.client_cert_mode, defaults::client_cert_mode());
     }
@@ -949,7 +979,7 @@ mod tests {
             assert_eq!(config.listen.port(), 8443);
             assert_eq!(config.target.port(), 6000);
             assert_eq!(
-                config.cert_path,
+                config.hybrid_cert,
                 PathBuf::from("certs/hybrid/dilithium3/server.crt")
             );
             assert_eq!(config.log_level, "info");
@@ -962,8 +992,8 @@ mod tests {
         // Create base configuration
         let base = ProxyConfig::default();
 
-        // Clone the ca_cert_path before using it
-        let base_ca_cert_path = base.ca_cert_path.clone();
+        // Clone the client_ca_cert_path before using it
+        let base_ca_cert_path = base.client_ca_cert_path.clone();
 
         // Create override configuration
         let override_config = ProxyConfig {
@@ -985,13 +1015,7 @@ mod tests {
             pqc_only_key: None,
             client_ca_cert_path: base_ca_cert_path.clone(), // Use the cloned path
 
-            // Legacy fields
-            cert_path: PathBuf::from("certs/traditional/rsa/server.crt"),
-            key_path: PathBuf::from("certs/traditional/rsa/server.key"),
-            ca_cert_path: base_ca_cert_path.clone(), // Use the cloned path
-            classic_cert: PathBuf::from("certs/traditional/rsa/server.crt"),
-            classic_key: PathBuf::from("certs/traditional/rsa/server.key"),
-            use_sigalgs: false,
+
         };
 
         // Merge configurations
@@ -1000,9 +1024,9 @@ mod tests {
         // Verify merged configuration
         assert_eq!(merged.listen, override_config.listen);
         assert_eq!(merged.target, base.target);
-        assert_eq!(merged.cert_path, override_config.cert_path);
-        assert_eq!(merged.key_path, override_config.key_path);
-        assert_eq!(merged.ca_cert_path, base_ca_cert_path); // Use the cloned path
+        assert_eq!(merged.hybrid_cert, override_config.hybrid_cert);
+        assert_eq!(merged.hybrid_key, override_config.hybrid_key);
+        assert_eq!(merged.client_ca_cert_path, override_config.client_ca_cert_path);
         assert_eq!(merged.log_level, override_config.log_level);
         assert_eq!(merged.client_cert_mode, override_config.client_cert_mode);
     }
@@ -1020,9 +1044,11 @@ mod tests {
         config.log_level = "debug".to_string();
 
         // Set certificate paths to non-existent files
-        config.cert_path = PathBuf::from("non_existent_cert.crt");
-        config.key_path = PathBuf::from("non_existent_key.key");
-        config.ca_cert_path = PathBuf::from("non_existent_ca.crt");
+        config.traditional_cert = PathBuf::from("non_existent_traditional_cert.crt");
+        config.traditional_key = PathBuf::from("non_existent_traditional_key.key");
+        config.hybrid_cert = PathBuf::from("non_existent_hybrid_cert.crt");
+        config.hybrid_key = PathBuf::from("non_existent_hybrid_key.key");
+        config.client_ca_cert_path = PathBuf::from("non_existent_ca.crt");
 
         // Validation should fail because certificate files don't exist
         assert!(config.validate().is_err());
@@ -1033,9 +1059,9 @@ mod tests {
         // Set environment variables for testing
         env::set_var("QUANTUM_SAFE_PROXY_LISTEN", "127.0.0.1:9443");
         env::set_var("QUANTUM_SAFE_PROXY_TARGET", "127.0.0.1:7000");
-        env::set_var("QUANTUM_SAFE_PROXY_CERT", "test/cert.crt");
-        env::set_var("QUANTUM_SAFE_PROXY_KEY", "test/key.key");
-        env::set_var("QUANTUM_SAFE_PROXY_HYBRID_MODE", "false");
+        env::set_var("QUANTUM_SAFE_PROXY_HYBRID_CERT", "test/cert.crt");
+        env::set_var("QUANTUM_SAFE_PROXY_HYBRID_KEY", "test/key.key");
+        env::set_var("QUANTUM_SAFE_PROXY_STRATEGY", "dynamic");
         env::set_var("QUANTUM_SAFE_PROXY_LOG_LEVEL", "debug");
         env::set_var("QUANTUM_SAFE_PROXY_CLIENT_CERT_MODE", "none");
 
@@ -1050,8 +1076,9 @@ mod tests {
             // Verify configuration values
             assert_eq!(config.listen.to_string(), "127.0.0.1:9443");
             assert_eq!(config.target.to_string(), "127.0.0.1:7000");
-            assert_eq!(config.cert_path, PathBuf::from("test/cert.crt"));
-            assert_eq!(config.key_path, PathBuf::from("test/key.key"));
+            assert_eq!(config.hybrid_cert, PathBuf::from("test/cert.crt"));
+            assert_eq!(config.hybrid_key, PathBuf::from("test/key.key"));
+            assert_eq!(config.strategy, CertStrategyType::Dynamic);
             assert_eq!(config.log_level, "debug");
             assert_eq!(config.client_cert_mode, ClientCertMode::None);
         }
@@ -1059,9 +1086,9 @@ mod tests {
         // Clean up environment variables
         env::remove_var("QUANTUM_SAFE_PROXY_LISTEN");
         env::remove_var("QUANTUM_SAFE_PROXY_TARGET");
-        env::remove_var("QUANTUM_SAFE_PROXY_CERT");
-        env::remove_var("QUANTUM_SAFE_PROXY_KEY");
-        env::remove_var("QUANTUM_SAFE_PROXY_HYBRID_MODE");
+        env::remove_var("QUANTUM_SAFE_PROXY_HYBRID_CERT");
+        env::remove_var("QUANTUM_SAFE_PROXY_HYBRID_KEY");
+        env::remove_var("QUANTUM_SAFE_PROXY_STRATEGY");
         env::remove_var("QUANTUM_SAFE_PROXY_LOG_LEVEL");
         env::remove_var("QUANTUM_SAFE_PROXY_CLIENT_CERT_MODE");
     }

@@ -29,7 +29,7 @@ pub type ConfigChangeListener = Box<dyn Fn(ConfigChangeEvent) + Send + Sync>;
 static BUFFER_SIZE: Lazy<AtomicUsize> = Lazy::new(|| AtomicUsize::new(defaults::buffer_size()));
 static CONNECTION_TIMEOUT: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(defaults::connection_timeout()));
 static CLIENT_CERT_REQUIRED: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(defaults::client_cert_mode() == super::config::ClientCertMode::Required));
-static USE_SIGALGS: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(defaults::use_sigalgs()));
+
 
 /// Configuration manager singleton
 pub struct ConfigManager {
@@ -118,9 +118,15 @@ impl ConfigManager {
         CLIENT_CERT_REQUIRED.load(Ordering::Relaxed)
     }
 
-    /// Check if signature algorithms selection is enabled without acquiring a lock (high performance)
+    /// Check if signature algorithms selection is enabled based on strategy
     pub fn is_sigalgs_enabled() -> bool {
-        USE_SIGALGS.load(Ordering::Relaxed)
+        // Get the current configuration
+        if let Ok(config) = Self::get_config() {
+            // Check if strategy is SigAlgs
+            matches!(config.strategy, super::config::CertStrategyType::SigAlgs)
+        } else {
+            false
+        }
     }
 
     /// Update the configuration
@@ -142,7 +148,6 @@ impl ConfigManager {
         BUFFER_SIZE.store(config.buffer_size, Ordering::Relaxed);
         CONNECTION_TIMEOUT.store(config.connection_timeout, Ordering::Relaxed);
         CLIENT_CERT_REQUIRED.store(config.client_cert_mode == super::config::ClientCertMode::Required, Ordering::Relaxed);
-        USE_SIGALGS.store(config.use_sigalgs, Ordering::Relaxed);
 
         // Update the configuration
         {
@@ -201,7 +206,6 @@ impl ConfigManager {
         BUFFER_SIZE.store(merged_config.buffer_size, Ordering::Relaxed);
         CONNECTION_TIMEOUT.store(merged_config.connection_timeout, Ordering::Relaxed);
         CLIENT_CERT_REQUIRED.store(merged_config.client_cert_mode == super::config::ClientCertMode::Required, Ordering::Relaxed);
-        USE_SIGALGS.store(merged_config.use_sigalgs, Ordering::Relaxed);
 
         // Update the configuration
         {
