@@ -2,17 +2,15 @@
 //!
 //! This file contains integration tests for Quantum Safe Proxy.
 
-use quantum_safe_proxy::config::ProxyConfig;
+use quantum_safe_proxy::config::{ProxyConfig, ConfigLoader};
 use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
 use std::path::PathBuf;
-use std::time::SystemTime;
 
 // Define a local ConnectionInfo struct for testing
 #[derive(Debug, Clone)]
 struct ConnectionInfo {
     source: String,
     target: String,
-    timestamp: SystemTime,
 }
 
 // Define a local CertificateInfo struct for testing
@@ -69,7 +67,6 @@ fn test_common_types() {
     let conn_info = ConnectionInfo {
         source: "127.0.0.1:12345".to_string(),
         target: "127.0.0.1:6000".to_string(),
-        timestamp: SystemTime::now(),
     };
 
     assert_eq!(conn_info.source, "127.0.0.1:12345");

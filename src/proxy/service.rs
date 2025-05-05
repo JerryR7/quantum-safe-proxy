@@ -121,8 +121,17 @@ impl StandardProxyService {
     /// Returns a result indicating success or failure
     async fn run_service(self, mut rx: mpsc::Receiver<ProxyMessage>) -> Result<()> {
         // Create TCP listener
-        let listener = TcpListener::bind(self.listen_addr).await
-            .map_err(ProxyError::Io)?;
+        let listener = match TcpListener::bind(self.listen_addr).await {
+            Ok(listener) => listener,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::AddrInUse {
+                    error!("Address {} already in use, exiting", self.listen_addr);
+                    // Exit with error code 1
+                    std::process::exit(1);
+                }
+                return Err(ProxyError::Io(e));
+            }
+        };
 
         info!("Proxy service started, listening on {}", self.listen_addr);
         info!("Forwarding to {}", self.target_addr);

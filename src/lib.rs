@@ -71,7 +71,7 @@ pub use proxy::Proxy; // Legacy export
 pub use proxy::{ProxyService, StandardProxyService, ProxyHandle, ProxyMessage}; // New message-driven architecture
 pub use tls::create_tls_acceptor;
 pub use common::{ProxyError, Result};
-pub use config::parse_socket_addr;
+pub use config::{parse_socket_addr, CertificateStrategyBuilder};
 use std::sync::Arc;
 
 // Buffer size moved to ProxyConfig
@@ -123,7 +123,7 @@ pub async fn reload_config(
     info!("Reloading configuration from {}", config_path.display());
 
     // Reload configuration from file using the singleton manager
-    match config::reload_config(Some(config_path)) {
+    match config::reload_config(config_path) {
         Ok(_) => info!("Configuration reloaded successfully from file"),
         Err(e) => {
             let err_msg = format!("Failed to reload configuration from file: {}", e);
@@ -133,17 +133,7 @@ pub async fn reload_config(
     }
 
     // Get the updated configuration
-    let new_config = match config::get_config() {
-        Ok(config) => {
-            info!("Got updated configuration");
-            config
-        },
-        Err(e) => {
-            let err_msg = format!("Failed to get updated configuration: {}", e);
-            log::error!("{}", err_msg);
-            return Err(e);
-        }
-    };
+    let new_config = Arc::new(config::get_config());
 
     // Build certificate strategy
     let strategy = match new_config.build_cert_strategy() {
@@ -231,7 +221,7 @@ pub async fn reload_config_async(
     info!("Reloading configuration from {}", config_path.display());
 
     // Reload configuration from file using the singleton manager
-    match config::reload_config(Some(config_path)) {
+    match config::reload_config(config_path) {
         Ok(_) => info!("Configuration reloaded successfully from file"),
         Err(e) => {
             let err_msg = format!("Failed to reload configuration from file: {}", e);
@@ -241,17 +231,7 @@ pub async fn reload_config_async(
     }
 
     // Get the updated configuration
-    let new_config = match config::get_config() {
-        Ok(config) => {
-            info!("Got updated configuration");
-            config
-        },
-        Err(e) => {
-            let err_msg = format!("Failed to get updated configuration: {}", e);
-            log::error!("{}", err_msg);
-            return Err(e);
-        }
-    };
+    let new_config = Arc::new(config::get_config());
 
     // Build certificate strategy
     let strategy = match new_config.build_cert_strategy() {

@@ -10,6 +10,7 @@ use quantum_safe_proxy::{
 };
 use quantum_safe_proxy::common::{Result, init_logger};
 use quantum_safe_proxy::config;
+use quantum_safe_proxy::CertificateStrategyBuilder;
 use quantum_safe_proxy::config::{LISTEN_STR, TARGET_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
 use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
 use quantum_safe_proxy::crypto::{check_environment, initialize_openssl};
@@ -117,7 +118,10 @@ async fn main() -> Result<()> {
     }
 
     // Initialize configuration system first
-    let mut config = config::initialize(std::env::args().collect(), args.config_file.as_deref())?;
+    config::initialize()?;
+
+    // Get the initialized configuration
+    let mut config = config::get_config();
 
     // Update certificate strategy from command line
     match args.strategy.to_lowercase().as_str() {
@@ -231,7 +235,7 @@ async fn main() -> Result<()> {
     // Add configuration change listener
     config::add_listener(|event| {
         info!("Configuration change detected: {:?}", event);
-    })?;
+    });
 
     let config_file = args.config_file.clone();
 
@@ -355,13 +359,7 @@ async fn main() -> Result<()> {
                     }
 
                     // Check if certificate files exist
-                    let config = match config::get_config() {
-                        Ok(cfg) => cfg,
-                        Err(e) => {
-                            warn!("Failed to get current configuration: {}", e);
-                            continue;
-                        }
-                    };
+                    let config = config::get_config();
 
                     // Check certificate files
                     let traditional_cert = Path::new(&config.traditional_cert);
@@ -405,7 +403,7 @@ async fn main() -> Result<()> {
     });
 
     // Get current configuration
-    let current_config = config::get_config()?;
+    let current_config = config::get_config();
 
     // Start the proxy server
     info!("Listening on {}", current_config.listen);

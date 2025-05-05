@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use super::config::ClientCertMode;
+use crate::config::ClientCertMode;
 
 /// Environment variable prefix for all configuration options
 pub const ENV_PREFIX: &str = "QUANTUM_SAFE_PROXY_";
