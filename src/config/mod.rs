@@ -8,7 +8,7 @@
 mod loader;
 mod merger;
 mod validator;
-mod defaults;
+pub mod defaults;
 pub mod strategy;
 
 // Re-export types and traits
@@ -144,8 +144,8 @@ pub struct ProxyConfig {
     pub listen: SocketAddr,
 
     /// Target service address to forward traffic to (host:port format)
-    #[serde(default = "defaults::target_str")]
-    pub target: String,
+    #[serde(default = "defaults::target", deserialize_with = "deserialize_socket_addr")]
+    pub target: SocketAddr,
 
     // --- General settings ---
 
@@ -217,7 +217,7 @@ impl Default for ProxyConfig {
         Self {
             // Network settings
             listen: defaults::listen(),
-            target: defaults::target_str(),
+            target: defaults::target(),
 
             // General settings
             log_level: defaults::log_level(),
@@ -251,7 +251,7 @@ impl ProxyConfig {
     ///
     /// Returns a Result containing the resolved SocketAddr or an error
     pub fn resolve_target(&self) -> Result<SocketAddr> {
-        parse_socket_addr(&self.target)
+        parse_socket_addr(&self.target.to_string())
     }
 }
 

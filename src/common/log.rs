@@ -22,10 +22,11 @@ pub fn init_logger(level: &str) {
         .filter_or("RUST_LOG", &log_level);
 
     // Try to initialize the logger, but don't panic if it's already initialized
-    let _ = env_logger::try_init_from_env(env);
-
-    // Output log initialization information
-    log::debug!("Logger initialized with level: {}", log_level);
+    if let Err(e) = env_logger::try_init_from_env(env) {
+        eprintln!("Failed to initialize logger: {}", e);
+    } else {
+        log::debug!("Logger initialized with level: {}", log_level);
+    }
 }
 
 #[cfg(test)]

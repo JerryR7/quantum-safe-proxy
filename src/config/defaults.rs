@@ -54,7 +54,10 @@ pub fn target_str() -> String {
     TARGET_STR.to_string()
 }
 
-// Default target address function removed (unused)
+/// Default target address
+pub fn target() -> SocketAddr {
+    "127.0.0.1:6000".parse().expect("Default target address should be valid")
+}
 
 /// Default certificate path
 pub fn cert_path() -> PathBuf {

@@ -7,12 +7,14 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use std::env;
 use std::str::FromStr;
-
+use std::net::SocketAddr;
 
 use crate::common::{ProxyError, Result};
 use crate::config::defaults;
 use crate::config::{ProxyConfig, parse_socket_addr};
 use crate::config::merger::ConfigMerger;
+use crate::tls::strategy::CertStrategy;
+use crate::config::strategy::CertificateStrategyBuilder;
 
 /// Trait for loading configuration from different sources
 pub trait ConfigLoader {
@@ -89,9 +91,9 @@ impl ConfigLoader for ProxyConfig {
         // Network settings
         update_field(&get_env, "LISTEN", &mut config.listen, parse_socket_addr, &mut has_changes);
 
-        // Target is now a string, so we can directly use it
+        // Target is now parsed as SocketAddr
         if let Some(value) = get_env("TARGET") {
-            config.target = value;
+            config.target = value.parse::<SocketAddr>().expect("Invalid target address");
             has_changes = true;
         }
 
@@ -227,7 +229,7 @@ impl ConfigLoader for ProxyConfig {
 
         // Update with provided values
         config.listen = parse_socket_addr(listen)?;
-        config.target = target.to_string();  // Target is now a string
+        config.target = target.parse::<SocketAddr>().expect("Invalid target address");
         config.log_level = log_level.to_string();
         config.client_cert_mode = ClientCertMode::from_str(client_cert_mode)?;
         config.buffer_size = buffer_size;
@@ -242,5 +244,21 @@ impl ConfigLoader for ProxyConfig {
         config.strategy = CertStrategyType::Dynamic;
 
         Ok(config)
+    }
+}
+
+impl ProxyConfig {
+    pub fn load() -> Result<Self> {
+        // Attempt to load configuration from a file
+        if let Ok(file_config) = Self::from_file("config.json") {
+            return Ok(file_config);
+        }
+
+        // Fallback to loading from environment variables
+        Self::from_env()
+    }
+
+    pub fn build_cert_strategy(&self) -> Result<CertStrategy> {
+        CertificateStrategyBuilder::build_cert_strategy(self)
     }
 }

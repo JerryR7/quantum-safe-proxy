@@ -5,6 +5,27 @@
 use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, CertificateStrategyBuilder};
 use quantum_safe_proxy::config::ConfigLoader;
 use std::env;
+use std::net::SocketAddr;
+
+/// Helper function to set environment variables
+fn set_env_vars() {
+    let env_vars = [
+        ("QUANTUM_SAFE_PROXY_LISTEN", "0.0.0.0:9443"),
+        ("QUANTUM_SAFE_PROXY_TARGET", "127.0.0.1:7000"),
+        ("QUANTUM_SAFE_PROXY_LOG_LEVEL", "debug"),
+        ("QUANTUM_SAFE_PROXY_CLIENT_CERT_MODE", "optional"),
+        ("QUANTUM_SAFE_PROXY_STRATEGY", "dynamic"),
+        ("QUANTUM_SAFE_PROXY_TRADITIONAL_CERT", "certs/traditional/rsa/server.crt"),
+        ("QUANTUM_SAFE_PROXY_TRADITIONAL_KEY", "certs/traditional/rsa/server.key"),
+        ("QUANTUM_SAFE_PROXY_HYBRID_CERT", "certs/hybrid/dilithium3/server.crt"),
+        ("QUANTUM_SAFE_PROXY_HYBRID_KEY", "certs/hybrid/dilithium3/server.key"),
+        ("QUANTUM_SAFE_PROXY_CLIENT_CA_CERT", "certs/hybrid/dilithium3/ca.crt"),
+    ];
+
+    for (key, value) in env_vars {
+        env::set_var(key, value);
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -14,31 +35,7 @@ async fn main() -> Result<()> {
     println!("Starting Quantum Safe Proxy with environment variables...");
 
     // Set environment variables
-    env::set_var("QUANTUM_SAFE_PROXY_LISTEN", "0.0.0.0:9443");
-    env::set_var("QUANTUM_SAFE_PROXY_TARGET", "127.0.0.1:7000");
-    env::set_var("QUANTUM_SAFE_PROXY_LOG_LEVEL", "debug");
-    env::set_var("QUANTUM_SAFE_PROXY_CLIENT_CERT_MODE", "optional");
-
-    // Set certificate strategy
-    env::set_var("QUANTUM_SAFE_PROXY_STRATEGY", "dynamic");
-
-    // Set traditional certificate
-    env::set_var("QUANTUM_SAFE_PROXY_TRADITIONAL_CERT", "certs/traditional/rsa/server.crt");
-    env::set_var("QUANTUM_SAFE_PROXY_TRADITIONAL_KEY", "certs/traditional/rsa/server.key");
-
-    // Set hybrid certificate
-    env::set_var("QUANTUM_SAFE_PROXY_HYBRID_CERT", "certs/hybrid/dilithium3/server.crt");
-    env::set_var("QUANTUM_SAFE_PROXY_HYBRID_KEY", "certs/hybrid/dilithium3/server.key");
-
-    // Set client CA certificate
-    env::set_var("QUANTUM_SAFE_PROXY_CLIENT_CA_CERT", "certs/hybrid/dilithium3/ca.crt");
-
-    println!("Set environment variables:");
-    println!("  QUANTUM_SAFE_PROXY_LISTEN: {}", env::var("QUANTUM_SAFE_PROXY_LISTEN").unwrap());
-    println!("  QUANTUM_SAFE_PROXY_TARGET: {}", env::var("QUANTUM_SAFE_PROXY_TARGET").unwrap());
-    println!("  QUANTUM_SAFE_PROXY_STRATEGY: {}", env::var("QUANTUM_SAFE_PROXY_STRATEGY").unwrap());
-    println!("  QUANTUM_SAFE_PROXY_TRADITIONAL_CERT: {}", env::var("QUANTUM_SAFE_PROXY_TRADITIONAL_CERT").unwrap());
-    println!("  QUANTUM_SAFE_PROXY_HYBRID_CERT: {}", env::var("QUANTUM_SAFE_PROXY_HYBRID_CERT").unwrap());
+    set_env_vars();
 
     // Load configuration from environment variables
     let config = quantum_safe_proxy::config::ProxyConfig::from_env()?;
@@ -61,10 +58,14 @@ async fn main() -> Result<()> {
         strategy,
     )?;
 
+    // Parse listen and target addresses
+    let listen_addr = config.listen;
+    let target_addr = config.target;
+
     // Create and start proxy
     let mut proxy = Proxy::new(
-        config.listen,
-        config.target,
+        listen_addr,
+        target_addr,
         tls_acceptor,
         std::sync::Arc::new(config),
     );
