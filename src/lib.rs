@@ -44,7 +44,7 @@
 //!     let config = std::sync::Arc::new(quantum_safe_proxy::config::ProxyConfig::default());
 //!
 //!     // Create and start proxy
-//!     let proxy = Proxy::new(
+//!     let mut proxy = Proxy::new(
 //!         listen_addr,
 //!         target_addr,
 //!         tls_acceptor,
@@ -71,7 +71,7 @@ pub use proxy::Proxy; // Legacy export
 pub use proxy::{ProxyService, StandardProxyService, ProxyHandle, ProxyMessage}; // New message-driven architecture
 pub use tls::create_tls_acceptor;
 pub use common::{ProxyError, Result};
-pub use config::parse_socket_addr;
+pub use config::{parse_socket_addr, CertificateStrategyBuilder};
 use std::sync::Arc;
 
 // Buffer size moved to ProxyConfig
@@ -101,7 +101,7 @@ pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
 /// ```no_run
 /// # use quantum_safe_proxy::{Proxy, reload_config};
 /// # use std::path::Path;
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// # use std::sync::Arc;
 /// # use quantum_safe_proxy::config::ProxyConfig;
 /// # use openssl::ssl::SslAcceptor;
@@ -110,7 +110,7 @@ pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
 /// # use std::net::SocketAddr;
 /// # let mut proxy = Proxy::new("127.0.0.1:8443".parse::<SocketAddr>()?, "127.0.0.1:6000".parse::<SocketAddr>()?, tls_acceptor, config);
 /// // Reload configuration
-/// let new_config = reload_config(&mut proxy, Path::new("config.json"))?;
+/// let new_config = reload_config(&mut proxy, Path::new("config.json")).await?;
 /// # Ok(())
 /// # }
 /// ```
@@ -123,7 +123,7 @@ pub async fn reload_config(
     info!("Reloading configuration from {}", config_path.display());
 
     // Reload configuration from file using the singleton manager
-    match config::reload_config(Some(config_path)) {
+    match config::reload_config(config_path) {
         Ok(_) => info!("Configuration reloaded successfully from file"),
         Err(e) => {
             let err_msg = format!("Failed to reload configuration from file: {}", e);
@@ -133,17 +133,7 @@ pub async fn reload_config(
     }
 
     // Get the updated configuration
-    let new_config = match config::get_config() {
-        Ok(config) => {
-            info!("Got updated configuration");
-            config
-        },
-        Err(e) => {
-            let err_msg = format!("Failed to get updated configuration: {}", e);
-            log::error!("{}", err_msg);
-            return Err(e);
-        }
-    };
+    let new_config = Arc::new(config::get_config());
 
     // Build certificate strategy
     let strategy = match new_config.build_cert_strategy() {
@@ -160,7 +150,7 @@ pub async fn reload_config(
 
     // Create new TLS acceptor with system-detected TLS settings
     let tls_acceptor = match create_tls_acceptor(
-        &new_config.ca_cert_path,
+        &new_config.client_ca_cert_path,
         &new_config.client_cert_mode,
         strategy,
     ) {
@@ -231,7 +221,7 @@ pub async fn reload_config_async(
     info!("Reloading configuration from {}", config_path.display());
 
     // Reload configuration from file using the singleton manager
-    match config::reload_config(Some(config_path)) {
+    match config::reload_config(config_path) {
         Ok(_) => info!("Configuration reloaded successfully from file"),
         Err(e) => {
             let err_msg = format!("Failed to reload configuration from file: {}", e);
@@ -241,17 +231,7 @@ pub async fn reload_config_async(
     }
 
     // Get the updated configuration
-    let new_config = match config::get_config() {
-        Ok(config) => {
-            info!("Got updated configuration");
-            config
-        },
-        Err(e) => {
-            let err_msg = format!("Failed to get updated configuration: {}", e);
-            log::error!("{}", err_msg);
-            return Err(e);
-        }
-    };
+    let new_config = Arc::new(config::get_config());
 
     // Build certificate strategy
     let strategy = match new_config.build_cert_strategy() {
@@ -268,7 +248,7 @@ pub async fn reload_config_async(
 
     // Create new TLS acceptor with system-detected TLS settings
     let tls_acceptor = match create_tls_acceptor(
-        &new_config.ca_cert_path,
+        &new_config.client_ca_cert_path,
         &new_config.client_cert_mode,
         strategy,
     ) {

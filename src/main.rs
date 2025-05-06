@@ -10,7 +10,8 @@ use quantum_safe_proxy::{
 };
 use quantum_safe_proxy::common::{Result, init_logger};
 use quantum_safe_proxy::config;
-use quantum_safe_proxy::config::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
+use quantum_safe_proxy::CertificateStrategyBuilder;
+use quantum_safe_proxy::config::{LISTEN_STR, TARGET_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
 use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
 use quantum_safe_proxy::crypto::{check_environment, initialize_openssl};
 
@@ -31,29 +32,37 @@ struct Args {
     #[clap(short, long, default_value = TARGET_STR)]
     target: String,
 
-    /// Server certificate path (legacy parameter, use classic-cert instead)
-    #[clap(long, default_value = CERT_PATH_STR)]
-    cert: String,
+    /// Certificate strategy (single, sigalgs, dynamic)
+    #[clap(long, default_value = "dynamic")]
+    strategy: String,
 
-    /// Server private key path (legacy parameter, use classic-key instead)
-    #[clap(long, default_value = KEY_PATH_STR)]
-    key: String,
-
-    /// Path to classic (RSA/ECDSA) cert PEM
+    /// Path to traditional (RSA/ECDSA) certificate PEM
     #[clap(long)]
-    classic_cert: Option<String>,
+    traditional_cert: Option<String>,
 
-    /// Path to classic private key PEM
+    /// Path to traditional private key PEM
     #[clap(long)]
-    classic_key: Option<String>,
+    traditional_key: Option<String>,
 
-    /// Always use SigAlgs strategy: auto-select cert by client signature_algorithms
+    /// Path to hybrid (PQC+traditional) certificate PEM
     #[clap(long)]
-    use_sigalgs: Option<bool>,
+    hybrid_cert: Option<String>,
 
-    /// CA certificate path (for client certificate validation)
+    /// Path to hybrid private key PEM
+    #[clap(long)]
+    hybrid_key: Option<String>,
+
+    /// Path to PQC-only certificate PEM (optional)
+    #[clap(long)]
+    pqc_only_cert: Option<String>,
+
+    /// Path to PQC-only private key PEM (optional)
+    #[clap(long)]
+    pqc_only_key: Option<String>,
+
+    /// Client CA certificate path (for client certificate validation)
     #[clap(long, default_value = CA_CERT_PATH_STR)]
-    ca_cert: String,
+    client_ca_cert: String,
 
     /// Log level
     #[clap(long, value_name = "LEVEL", default_value = LOG_LEVEL_STR)]
@@ -109,35 +118,46 @@ async fn main() -> Result<()> {
     }
 
     // Initialize configuration system first
-    let mut config = config::initialize(std::env::args().collect(), args.config_file.as_deref())?;
+    config::initialize()?;
 
-    // Only update certificate paths from command line if they are explicitly specified
-    let default_cert = PathBuf::from(CERT_PATH_STR);
-    let default_key = PathBuf::from(KEY_PATH_STR);
+    // Get the initialized configuration
+    let mut config = config::get_config();
 
-    // For classic_cert and classic_key, only override if explicitly specified
-    if let Some(classic_cert) = &args.classic_cert {
-        config.classic_cert = PathBuf::from(classic_cert);
+    // Update certificate strategy from command line
+    match args.strategy.to_lowercase().as_str() {
+        "single" => config.strategy = config::CertStrategyType::Single,
+        "sigalgs" => config.strategy = config::CertStrategyType::SigAlgs,
+        "dynamic" => config.strategy = config::CertStrategyType::Dynamic,
+        _ => warn!("Invalid strategy: {}, using default (dynamic)", args.strategy),
     }
 
-    if let Some(classic_key) = &args.classic_key {
-        config.classic_key = PathBuf::from(classic_key);
+    // Update certificate paths from command line if explicitly specified
+    if let Some(traditional_cert) = &args.traditional_cert {
+        config.traditional_cert = PathBuf::from(traditional_cert);
     }
 
-    // Only override use_sigalgs if explicitly specified in command line
-    if let Some(use_sigalgs) = args.use_sigalgs {
-        config.use_sigalgs = use_sigalgs;
+    if let Some(traditional_key) = &args.traditional_key {
+        config.traditional_key = PathBuf::from(traditional_key);
     }
 
-    // For backward compatibility, also update the legacy cert_path and key_path
-    // but only if they are different from the defaults
-    if PathBuf::from(&args.cert) != default_cert {
-        config.cert_path = PathBuf::from(&args.cert);
+    if let Some(hybrid_cert) = &args.hybrid_cert {
+        config.hybrid_cert = PathBuf::from(hybrid_cert);
     }
 
-    if PathBuf::from(&args.key) != default_key {
-        config.key_path = PathBuf::from(&args.key);
+    if let Some(hybrid_key) = &args.hybrid_key {
+        config.hybrid_key = PathBuf::from(hybrid_key);
     }
+
+    if let Some(pqc_only_cert) = &args.pqc_only_cert {
+        config.pqc_only_cert = Some(PathBuf::from(pqc_only_cert));
+    }
+
+    if let Some(pqc_only_key) = &args.pqc_only_key {
+        config.pqc_only_key = Some(PathBuf::from(pqc_only_key));
+    }
+
+    // Update client CA certificate path
+    config.client_ca_cert_path = PathBuf::from(&args.client_ca_cert);
 
     // Configuration details are already logged in config module
 
@@ -165,13 +185,23 @@ async fn main() -> Result<()> {
           if env_info.pqc_available { "available" } else { "not available" });
 
     // Log certificate information
-    match get_cert_subject(&config.cert_path) {
-        Ok(subject) => info!("Certificate subject: {}", subject),
-        Err(e) => warn!("Unable to get certificate subject: {}", e),
+    match get_cert_subject(&config.hybrid_cert) {
+        Ok(subject) => info!("Hybrid certificate subject: {}", subject),
+        Err(e) => warn!("Unable to get hybrid certificate subject: {}", e),
     }
-    match get_cert_fingerprint(&config.cert_path) {
-        Ok(fingerprint) => info!("Certificate fingerprint: {}", fingerprint),
-        Err(e) => warn!("Unable to get certificate fingerprint: {}", e),
+    match get_cert_fingerprint(&config.hybrid_cert) {
+        Ok(fingerprint) => info!("Hybrid certificate fingerprint: {}", fingerprint),
+        Err(e) => warn!("Unable to get hybrid certificate fingerprint: {}", e),
+    }
+
+    // Log traditional certificate information
+    match get_cert_subject(&config.traditional_cert) {
+        Ok(subject) => info!("Traditional certificate subject: {}", subject),
+        Err(e) => warn!("Unable to get traditional certificate subject: {}", e),
+    }
+    match get_cert_fingerprint(&config.traditional_cert) {
+        Ok(fingerprint) => info!("Traditional certificate fingerprint: {}", fingerprint),
+        Err(e) => warn!("Unable to get traditional certificate fingerprint: {}", e),
     }
 
     // Build certificate strategy
@@ -179,7 +209,7 @@ async fn main() -> Result<()> {
 
     // Create TLS acceptor with the certificate strategy
     let tls_acceptor = create_tls_acceptor(
-        &config.ca_cert_path,
+        &config.client_ca_cert_path,
         &config.client_cert_mode,
         strategy,
     )?;
@@ -205,7 +235,7 @@ async fn main() -> Result<()> {
     // Add configuration change listener
     config::add_listener(|event| {
         info!("Configuration change detected: {:?}", event);
-    })?;
+    });
 
     let config_file = args.config_file.clone();
 
@@ -329,35 +359,43 @@ async fn main() -> Result<()> {
                     }
 
                     // Check if certificate files exist
-                    let config = match config::get_config() {
-                        Ok(cfg) => cfg,
-                        Err(e) => {
-                            warn!("Failed to get current configuration: {}", e);
-                            continue;
-                        }
-                    };
+                    let config = config::get_config();
 
                     // Check certificate files
-                    let cert_path = Path::new(&config.cert_path);
-                    let key_path = Path::new(&config.key_path);
-                    let ca_cert_path = Path::new(&config.ca_cert_path);
-                    let classic_cert = Path::new(&config.classic_cert);
-                    let classic_key = Path::new(&config.classic_key);
+                    let traditional_cert = Path::new(&config.traditional_cert);
+                    let traditional_key = Path::new(&config.traditional_key);
+                    let hybrid_cert = Path::new(&config.hybrid_cert);
+                    let hybrid_key = Path::new(&config.hybrid_key);
+                    let client_ca_cert_path = Path::new(&config.client_ca_cert_path);
 
-                    if !cert_path.exists() {
-                        warn!("Certificate file does not exist: {}", cert_path.display());
+                    if !traditional_cert.exists() {
+                        warn!("Traditional certificate file does not exist: {}", traditional_cert.display());
                     }
-                    if !key_path.exists() {
-                        warn!("Key file does not exist: {}", key_path.display());
+                    if !traditional_key.exists() {
+                        warn!("Traditional key file does not exist: {}", traditional_key.display());
                     }
-                    if !ca_cert_path.exists() {
-                        warn!("CA certificate file does not exist: {}", ca_cert_path.display());
+                    if !hybrid_cert.exists() {
+                        warn!("Hybrid certificate file does not exist: {}", hybrid_cert.display());
                     }
-                    if !classic_cert.exists() {
-                        warn!("Classic certificate file does not exist: {}", classic_cert.display());
+                    if !hybrid_key.exists() {
+                        warn!("Hybrid key file does not exist: {}", hybrid_key.display());
                     }
-                    if !classic_key.exists() {
-                        warn!("Classic key file does not exist: {}", classic_key.display());
+                    if !client_ca_cert_path.exists() {
+                        warn!("Client CA certificate file does not exist: {}", client_ca_cert_path.display());
+                    }
+
+                    // Check PQC-only certificate files if specified
+                    if let Some(pqc_only_cert) = &config.pqc_only_cert {
+                        let pqc_only_cert_path = Path::new(pqc_only_cert);
+                        if !pqc_only_cert_path.exists() {
+                            warn!("PQC-only certificate file does not exist: {}", pqc_only_cert_path.display());
+                        }
+                    }
+                    if let Some(pqc_only_key) = &config.pqc_only_key {
+                        let pqc_only_key_path = Path::new(pqc_only_key);
+                        if !pqc_only_key_path.exists() {
+                            warn!("PQC-only key file does not exist: {}", pqc_only_key_path.display());
+                        }
                     }
                 }
             }
@@ -365,7 +403,7 @@ async fn main() -> Result<()> {
     });
 
     // Get current configuration
-    let current_config = config::get_config()?;
+    let current_config = config::get_config();
 
     // Start the proxy server
     info!("Listening on {}", current_config.listen);

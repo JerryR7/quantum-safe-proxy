@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use super::config::ClientCertMode;
+use crate::config::ClientCertMode;
 
 /// Environment variable prefix for all configuration options
 pub const ENV_PREFIX: &str = "QUANTUM_SAFE_PROXY_";
@@ -100,20 +100,17 @@ pub fn openssl_dir() -> Option<PathBuf> {
     None
 }
 
-/// Default classic certificate path
+/// Default traditional certificate path
 pub fn classic_cert_path() -> PathBuf {
     PathBuf::from("certs/traditional/rsa/server.crt")
 }
 
-/// Default classic private key path
+/// Default traditional private key path
 pub fn classic_key_path() -> PathBuf {
     PathBuf::from("certs/traditional/rsa/server.key")
 }
 
-/// Default use_sigalgs value
-pub fn use_sigalgs() -> bool {
-    true
-}
+
 
 // Note: Command line argument names and environment variable names
 // are now handled directly in the config.rs file

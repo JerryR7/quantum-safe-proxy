@@ -37,9 +37,16 @@ async fn main() -> Result<()> {
     println!("Backend service started at {}", backend_addr);
 
     // Create certificate strategy
-    let strategy = CertStrategy::Single {
-        cert: Path::new("certs/hybrid/dilithium3/server.crt").to_path_buf(),
-        key: Path::new("certs/hybrid/dilithium3/server.key").to_path_buf(),
+    let strategy = CertStrategy::Dynamic {
+        traditional: (
+            Path::new("certs/traditional/rsa/server.crt").to_path_buf(),
+            Path::new("certs/traditional/rsa/server.key").to_path_buf(),
+        ),
+        hybrid: (
+            Path::new("certs/hybrid/dilithium3/server.crt").to_path_buf(),
+            Path::new("certs/hybrid/dilithium3/server.key").to_path_buf(),
+        ),
+        pqc_only: None,
     };
 
     // Create TLS acceptor with system-detected TLS settings
@@ -53,7 +60,7 @@ async fn main() -> Result<()> {
     // Create default config and wrap in Arc
     let config = std::sync::Arc::new(quantum_safe_proxy::config::ProxyConfig::default());
 
-    let proxy = Proxy::new(
+    let mut proxy = Proxy::new(
         proxy_listen_addr,
         backend_addr,
         tls_acceptor,

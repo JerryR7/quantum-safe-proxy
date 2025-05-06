@@ -2,7 +2,8 @@
 //!
 //! This example demonstrates how to use a configuration file with Quantum Safe Proxy.
 
-use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result};
+use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, CertificateStrategyBuilder};
+use quantum_safe_proxy::config::ConfigLoader;
 use std::fs;
 
 #[tokio::main]
@@ -16,11 +17,20 @@ async fn main() -> Result<()> {
     let config_content = r#"{
         "listen": "0.0.0.0:8443",
         "target": "127.0.0.1:6000",
-        "cert_path": "certs/hybrid/dilithium3/server.crt",
-        "key_path": "certs/hybrid/dilithium3/server.key",
-        "ca_cert_path": "certs/hybrid/dilithium3/ca.crt",
-        "hybrid_mode": true,
-        "log_level": "debug"
+        "log_level": "debug",
+        "client_cert_mode": "optional",
+        "buffer_size": 8192,
+        "connection_timeout": 30,
+
+        "strategy": "dynamic",
+
+        "traditional_cert": "certs/traditional/rsa/server.crt",
+        "traditional_key": "certs/traditional/rsa/server.key",
+
+        "hybrid_cert": "certs/hybrid/dilithium3/server.crt",
+        "hybrid_key": "certs/hybrid/dilithium3/server.key",
+
+        "client_ca_cert_path": "certs/hybrid/dilithium3/ca.crt"
     }"#;
 
     // Write the configuration to a temporary file
@@ -33,7 +43,9 @@ async fn main() -> Result<()> {
     println!("Loaded configuration:");
     println!("  Listen: {}", config.listen);
     println!("  Target: {}", config.target);
-    println!("  Certificate: {:?}", config.cert_path);
+    println!("  Strategy: {:?}", config.strategy);
+    println!("  Traditional Certificate: {:?}", config.traditional_cert);
+    println!("  Hybrid Certificate: {:?}", config.hybrid_cert);
     println!("  Buffer size: {} bytes", config.buffer_size);
     println!("  Connection timeout: {} seconds", config.connection_timeout);
 
@@ -42,13 +54,13 @@ async fn main() -> Result<()> {
 
     // Create TLS acceptor with system-detected TLS settings
     let tls_acceptor = create_tls_acceptor(
-        &config.ca_cert_path,
+        &config.client_ca_cert_path,
         &config.client_cert_mode,
         strategy,
     )?;
 
     // Create and start proxy
-    let proxy = Proxy::new(
+    let mut proxy = Proxy::new(
         config.listen,
         config.target,
         tls_acceptor,
