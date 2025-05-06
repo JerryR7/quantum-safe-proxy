@@ -8,20 +8,29 @@
 mod loader;
 mod merger;
 mod validator;
-mod builder;
 mod defaults;
+pub mod strategy;
 
 // Re-export types and traits
 pub use self::loader::ConfigLoader;
 pub use self::merger::ConfigMerger;
 pub use self::validator::ConfigValidator;
-pub use self::builder::CertificateStrategyBuilder;
+pub use self::strategy::CertificateStrategyBuilder;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Deserializer};
 use std::fmt;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+
+/// Custom deserializer for socket addresses
+fn deserialize_socket_addr<'de, D>(deserializer: D) -> std::result::Result<SocketAddr, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    parse_socket_addr(&s).map_err(serde::de::Error::custom)
+}
 
 use crate::common::{ProxyError, Result};
 
@@ -131,12 +140,12 @@ pub struct ProxyConfig {
     // --- Network settings ---
 
     /// Listen address for the proxy server
-    #[serde(default = "defaults::listen")]
+    #[serde(default = "defaults::listen", deserialize_with = "deserialize_socket_addr")]
     pub listen: SocketAddr,
 
-    /// Target service address to forward traffic to
-    #[serde(default = "defaults::target")]
-    pub target: SocketAddr,
+    /// Target service address to forward traffic to (host:port format)
+    #[serde(default = "defaults::target_str")]
+    pub target: String,
 
     // --- General settings ---
 
@@ -208,7 +217,7 @@ impl Default for ProxyConfig {
         Self {
             // Network settings
             listen: defaults::listen(),
-            target: defaults::target(),
+            target: defaults::target_str(),
 
             // General settings
             log_level: defaults::log_level(),
@@ -230,6 +239,22 @@ impl Default for ProxyConfig {
     }
 }
 
+impl ProxyConfig {
+    /// Resolve the target address string to a SocketAddr
+    ///
+    /// This method handles various formats including:
+    /// - IP:port (e.g., "127.0.0.1:6000")
+    /// - Hostname:port (e.g., "localhost:6000")
+    /// - Docker service name:port (e.g., "backend:6000")
+    ///
+    /// # Returns
+    ///
+    /// Returns a Result containing the resolved SocketAddr or an error
+    pub fn resolve_target(&self) -> Result<SocketAddr> {
+        parse_socket_addr(&self.target)
+    }
+}
+
 // Implement AsRef<ProxyConfig> for ProxyConfig to simplify merge operations
 impl AsRef<ProxyConfig> for ProxyConfig {
     #[inline]
@@ -241,18 +266,61 @@ impl AsRef<ProxyConfig> for ProxyConfig {
 /// Parse a socket address with optimized error handling
 ///
 /// First tries direct parsing, then falls back to DNS resolution
+/// In Docker environments, service names like "backend:6000" are handled specially
 #[inline]
 pub fn parse_socket_addr(addr: &str) -> Result<SocketAddr> {
+    use log::{debug, warn};
+
+    debug!("Parsing socket address: {}", addr);
+
     // Try direct parsing first (most efficient)
     if let Ok(socket_addr) = SocketAddr::from_str(addr) {
+        debug!("Successfully parsed as direct socket address: {}", socket_addr);
         return Ok(socket_addr);
     }
 
+    debug!("Not a direct socket address, trying to parse as host:port");
+
+    // Special handling for Docker service names (format: "service:port")
+    if let Some((host, port_str)) = addr.split_once(':') {
+        debug!("Split into host: '{}' and port: '{}'", host, port_str);
+
+        if let Ok(port) = port_str.parse::<u16>() {
+            debug!("Successfully parsed port: {}", port);
+
+            // For Docker environments, we'll use a placeholder IP that will be resolved at connection time
+            // This allows us to parse the address without actual DNS resolution
+            use std::net::{IpAddr, Ipv4Addr};
+            let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+            debug!("Using placeholder IP for Docker service name: {}:{}", ip, port);
+            return Ok(SocketAddr::new(ip, port));
+        } else {
+            warn!("Failed to parse port part '{}' as u16", port_str);
+        }
+    } else {
+        warn!("Address '{}' does not contain a colon separator", addr);
+    }
+
+    debug!("Trying standard DNS resolution for: {}", addr);
+
     // Try using ToSocketAddrs trait for hostname resolution
-    addr.to_socket_addrs()
-        .map_err(|e| ProxyError::Network(format!("Failed to parse address {}: {}", addr, e)))?
-        .next()
-        .ok_or_else(|| ProxyError::Network(format!("Failed to resolve address: {}", addr)))
+    match addr.to_socket_addrs() {
+        Ok(mut addrs) => {
+            if let Some(resolved) = addrs.next() {
+                debug!("Successfully resolved to: {}", resolved);
+                Ok(resolved)
+            } else {
+                let err = format!("Address resolved but no socket addresses returned: {}", addr);
+                warn!("{}", err);
+                Err(ProxyError::Network(err))
+            }
+        },
+        Err(e) => {
+            let err = format!("Failed to parse or resolve address {}: {}", addr, e);
+            warn!("{}", err);
+            Err(ProxyError::Network(err))
+        }
+    }
 }
 
 /// Check if a file exists and is a valid file
@@ -377,17 +445,17 @@ pub fn reload_config<P: AsRef<Path>>(path: P) -> Result<ProxyConfig> {
     debug!("Loaded configuration from file");
 
     // Merge with current configuration
-    let new_config = current_config.merge(file_config);
+    let loaded_config = current_config.merge(file_config);
     debug!("Merged with current configuration");
 
     // Update the configuration in the global state
-    update_config(new_config.clone())?;
+    update_config(loaded_config.clone())?;
     info!("Configuration updated successfully");
 
     // Log the final configuration
-    log_config(&new_config);
+    log_config(&loaded_config);
 
-    Ok(new_config)
+    Ok(loaded_config)
 }
 
 /// Configuration change event types

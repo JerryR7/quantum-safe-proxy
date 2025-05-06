@@ -29,8 +29,13 @@ impl ConfigValidator for ProxyConfig {
             return Err(ProxyError::Config("Invalid listen port: 0 (random port not supported)".to_string()));
         }
 
-        if self.target.port() == 0 {
-            return Err(ProxyError::Config("Invalid target port: 0 (random port not supported)".to_string()));
+        // Parse target string to check port
+        if let Ok(addr) = self.resolve_target() {
+            if addr.port() == 0 {
+                return Err(ProxyError::Config("Invalid target port: 0 (random port not supported)".to_string()));
+            }
+        } else {
+            return Err(ProxyError::Config(format!("Invalid target address: {}", self.target)));
         }
 
         // Validate log level
@@ -93,11 +98,16 @@ impl ConfigValidator for ProxyConfig {
             ));
         }
 
-        if self.target.port() == 0 {
-            warnings.push(format!(
-                "Target address has port 0, which may not work as expected: {}",
-                self.target
-            ));
+        // Parse target string to check port
+        if let Ok(addr) = self.resolve_target() {
+            if addr.port() == 0 {
+                warnings.push(format!(
+                    "Target address has port 0, which may not work as expected: {}",
+                    self.target
+                ));
+            }
+        } else {
+            warnings.push(format!("Invalid target address: {}", self.target));
         }
 
         // Check log level

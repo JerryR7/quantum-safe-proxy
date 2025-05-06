@@ -10,7 +10,7 @@ use quantum_safe_proxy::{
 };
 use quantum_safe_proxy::common::{Result, init_logger};
 use quantum_safe_proxy::config;
-use quantum_safe_proxy::CertificateStrategyBuilder;
+use quantum_safe_proxy::config::{ConfigLoader, ConfigMerger, CertificateStrategyBuilder};
 
 use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
 use quantum_safe_proxy::crypto::{check_environment, initialize_openssl};
@@ -118,11 +118,32 @@ async fn main() -> Result<()> {
         std::env::set_var("OPENSSL_DIR", openssl_dir.to_string_lossy().to_string());
     }
 
-    // Initialize configuration system first
-    config::initialize()?;
+    // Start with default configuration
+    let mut config = config::ProxyConfig::default();
 
-    // Get the initialized configuration
-    let mut config = config::get_config();
+    // Load configuration from file if it exists
+    if let Some(config_file) = &args.config_file {
+        if let Ok(file_config) = config::ProxyConfig::from_file(config_file) {
+            info!("Loaded configuration from file: {}", config_file);
+            config = config.merge(file_config);
+        } else {
+            warn!("Failed to load configuration from file: {}", config_file);
+        }
+    } else if std::path::Path::new("config.json").exists() {
+        // Try default config file if no config file specified
+        if let Ok(file_config) = config::ProxyConfig::from_file("config.json") {
+            info!("Loaded configuration from default file: config.json");
+            config = config.merge(file_config);
+        }
+    }
+
+    // Load configuration from environment variables
+    if let Ok(env_config) = config::ProxyConfig::from_env() {
+        if env_config != config::ProxyConfig::default() {
+            info!("Applying configuration from environment variables");
+            config = config.merge(env_config);
+        }
+    }
 
     // Update certificate strategy from command line if explicitly specified
     if let Some(strategy) = &args.strategy {
@@ -198,12 +219,42 @@ async fn main() -> Result<()> {
         config.connection_timeout = connection_timeout;
     }
 
+    // Update log level if explicitly specified
+    if let Some(log_level) = &args.log_level {
+        config.log_level = log_level.clone();
+    }
+
+    // Log the initial configuration (before applying command line arguments)
+    info!("Initial configuration from file and environment variables:");
+    config::log_config(&config);
+
+    // Log the final configuration (after applying command line arguments)
+    info!("=== Final Configuration ===");
+    info!("Network Settings:");
+    info!("  Listen address: {}", config.listen);
+    info!("  Target address: {}", config.target);
+    info!("General Settings:");
+    info!("  Log level: {}", config.log_level);
+    info!("  Client certificate mode: {}", config.client_cert_mode);
+    info!("  Buffer size: {} bytes", config.buffer_size);
+    info!("  Connection timeout: {} seconds", config.connection_timeout);
+    info!("Certificate Strategy Settings:");
+    info!("  Strategy: {:?}", config.strategy);
+    info!("  Traditional certificate: {}", config.traditional_cert.display());
+    info!("  Traditional key: {}", config.traditional_key.display());
+    info!("  Hybrid certificate: {}", config.hybrid_cert.display());
+    info!("  Hybrid key: {}", config.hybrid_key.display());
+    if let Some(ref cert) = config.pqc_only_cert {
+        info!("  PQC-only certificate: {}", cert.display());
+    }
+    if let Some(ref key) = config.pqc_only_key {
+        info!("  PQC-only key: {}", key.display());
+    }
+    info!("  Client CA certificate: {}", config.client_ca_cert_path.display());
+    info!("=========================");
+
     // Update the global configuration with our modified config
     config::update_config(config.clone())?;
-
-    // Log the updated configuration with command line overrides
-    info!("Configuration after applying command line arguments:");
-    config::log_config(&config);
 
     // Initialize OpenSSL from the specified directory
 
@@ -261,7 +312,7 @@ async fn main() -> Result<()> {
     // Create proxy service
     let proxy_service = StandardProxyService::new(
         config.listen,
-        config.target,
+        config.resolve_target()?,  // Resolve target string to SocketAddr
         tls_acceptor,
         Arc::new(config),  // Wrap ProxyConfig in Arc
     );

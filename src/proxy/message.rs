@@ -112,10 +112,12 @@ impl ProxyHandle {
     /// Returns a result indicating success or failure
     pub async fn update_config(
         &self,
-        target_addr: SocketAddr,
         tls_acceptor: SslAcceptor,
         config: Arc<ProxyConfig>
     ) -> Result<()> {
+        // Resolve the target address from the config
+        let target_addr = config.resolve_target()?;
+
         self.send(ProxyMessage::UpdateConfig {
             target_addr,
             tls_acceptor,

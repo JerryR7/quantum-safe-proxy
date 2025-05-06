@@ -49,11 +49,12 @@ pub fn listen() -> SocketAddr {
         .expect("Default listen address should be valid")
 }
 
-/// Default target address
-pub fn target() -> SocketAddr {
-    SocketAddr::from_str(TARGET_STR)
-        .expect("Default target address should be valid")
+/// Default target address as string
+pub fn target_str() -> String {
+    TARGET_STR.to_string()
 }
+
+// Default target address function removed (unused)
 
 /// Default certificate path
 pub fn cert_path() -> PathBuf {

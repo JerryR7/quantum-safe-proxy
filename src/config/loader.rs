@@ -44,12 +44,16 @@ impl ConfigLoader for ProxyConfig {
         let path = path.as_ref();
         let path_display = path.display();
 
-        // Open the file with error mapping
-        let file = fs::File::open(path)
+        // Check if file exists and can be opened
+        fs::File::open(path)
             .map_err(|e| ProxyError::Config(format!("Failed to open config file {}: {}", path_display, e)))?;
 
+        // Read the file content
+        let content = fs::read_to_string(path)
+            .map_err(|e| ProxyError::Config(format!("Failed to read config file {}: {}", path_display, e)))?;
+
         // Deserialize with error mapping
-        serde_json::from_reader(file)
+        serde_json::from_str(&content)
             .map_err(|e| ProxyError::Config(format!("Failed to parse JSON config file {}: {}", path_display, e)))
     }
 
@@ -84,7 +88,12 @@ impl ConfigLoader for ProxyConfig {
 
         // Network settings
         update_field(&get_env, "LISTEN", &mut config.listen, parse_socket_addr, &mut has_changes);
-        update_field(&get_env, "TARGET", &mut config.target, parse_socket_addr, &mut has_changes);
+
+        // Target is now a string, so we can directly use it
+        if let Some(value) = get_env("TARGET") {
+            config.target = value;
+            has_changes = true;
+        }
 
         // Certificate strategy
         update_field(&get_env, "STRATEGY", &mut config.strategy, |s| s.parse(), &mut has_changes);
@@ -218,7 +227,7 @@ impl ConfigLoader for ProxyConfig {
 
         // Update with provided values
         config.listen = parse_socket_addr(listen)?;
-        config.target = parse_socket_addr(target)?;
+        config.target = target.to_string();  // Target is now a string
         config.log_level = log_level.to_string();
         config.client_cert_mode = ClientCertMode::from_str(client_cert_mode)?;
         config.buffer_size = buffer_size;

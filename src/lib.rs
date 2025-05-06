@@ -71,7 +71,7 @@ pub use proxy::Proxy; // Legacy export
 pub use proxy::{ProxyService, StandardProxyService, ProxyHandle, ProxyMessage}; // New message-driven architecture
 pub use tls::create_tls_acceptor;
 pub use common::{ProxyError, Result};
-pub use config::{parse_socket_addr, CertificateStrategyBuilder};
+pub use config::{parse_socket_addr, strategy::CertificateStrategyBuilder};
 use std::sync::Arc;
 
 // Buffer size moved to ProxyConfig
@@ -133,10 +133,10 @@ pub async fn reload_config(
     }
 
     // Get the updated configuration
-    let new_config = Arc::new(config::get_config());
+    let loaded_config = Arc::new(config::get_config());
 
     // Build certificate strategy
-    let strategy = match new_config.build_cert_strategy() {
+    let strategy = match config::strategy::CertificateStrategyBuilder::build_cert_strategy(&loaded_config) {
         Ok(s) => {
             info!("Built certificate strategy successfully");
             s
@@ -150,8 +150,8 @@ pub async fn reload_config(
 
     // Create new TLS acceptor with system-detected TLS settings
     let tls_acceptor = match create_tls_acceptor(
-        &new_config.client_ca_cert_path,
-        &new_config.client_cert_mode,
+        &loaded_config.client_ca_cert_path,
+        &loaded_config.client_cert_mode,
         strategy,
     ) {
         Ok(acceptor) => {
@@ -167,11 +167,11 @@ pub async fn reload_config(
 
     // Update proxy configuration
     // Pass reference to Arc<ProxyConfig> to avoid cloning
-    proxy.update_config(new_config.target, tls_acceptor, &new_config).await?;
+    proxy.update_config(tls_acceptor, &loaded_config).await?;
 
     info!("Proxy configuration reloaded successfully");
     // Return Arc<ProxyConfig> without cloning ProxyConfig
-    Ok(new_config)
+    Ok(loaded_config)
 }
 
 /// Reload proxy configuration from file (async version)
@@ -231,10 +231,10 @@ pub async fn reload_config_async(
     }
 
     // Get the updated configuration
-    let new_config = Arc::new(config::get_config());
+    let loaded_config = Arc::new(config::get_config());
 
     // Build certificate strategy
-    let strategy = match new_config.build_cert_strategy() {
+    let strategy = match config::strategy::CertificateStrategyBuilder::build_cert_strategy(&loaded_config) {
         Ok(s) => {
             info!("Built certificate strategy successfully");
             s
@@ -248,8 +248,8 @@ pub async fn reload_config_async(
 
     // Create new TLS acceptor with system-detected TLS settings
     let tls_acceptor = match create_tls_acceptor(
-        &new_config.client_ca_cert_path,
-        &new_config.client_cert_mode,
+        &loaded_config.client_ca_cert_path,
+        &loaded_config.client_cert_mode,
         strategy,
     ) {
         Ok(acceptor) => {
@@ -264,9 +264,9 @@ pub async fn reload_config_async(
     };
 
     // Send update message to proxy service
-    proxy_handle.update_config(new_config.target, tls_acceptor, Arc::clone(&new_config)).await?;
+    proxy_handle.update_config(tls_acceptor, Arc::clone(&loaded_config)).await?;
 
     info!("Proxy configuration reloaded successfully");
     // Return Arc<ProxyConfig> without cloning ProxyConfig
-    Ok(new_config)
+    Ok(loaded_config)
 }

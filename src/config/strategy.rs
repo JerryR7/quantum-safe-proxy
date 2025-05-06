@@ -5,6 +5,7 @@
 use crate::common::Result;
 use crate::config::{ProxyConfig, CertStrategyType};
 use crate::tls::strategy::CertStrategy;
+use std::sync::Arc;
 
 /// Trait for building certificate strategies
 pub trait CertificateStrategyBuilder {
@@ -46,5 +47,15 @@ impl CertificateStrategyBuilder for ProxyConfig {
                 }
             },
         })
+    }
+}
+
+// Implement CertificateStrategyBuilder for Arc<ProxyConfig>
+impl CertificateStrategyBuilder for Arc<ProxyConfig> {
+    /// Build the certificate strategy based on configuration.
+    ///
+    /// Delegates to the inner ProxyConfig implementation.
+    fn build_cert_strategy(&self) -> Result<CertStrategy> {
+        (**self).build_cert_strategy()
     }
 }

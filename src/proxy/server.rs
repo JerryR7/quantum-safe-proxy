@@ -148,7 +148,7 @@ impl Proxy {
     ) -> Self {
         Self {
             listen_addr: listen_addr.into(),
-            target_addr: target_addr.into(),
+            target_addr: target_addr.into(),  // We'll still use this for initial setup
             tls_acceptor: Arc::new(tls_acceptor),
             config,
             message_tx: None,
@@ -169,8 +169,11 @@ impl Proxy {
     /// # Returns
     ///
     /// Returns a result indicating success or failure
-    pub async fn update_config(&self, target_addr: SocketAddr, tls_acceptor: SslAcceptor, config: &Arc<ProxyConfig>) -> Result<()> {
+    pub async fn update_config(&self, tls_acceptor: SslAcceptor, config: &Arc<ProxyConfig>) -> Result<()> {
         if let Some(tx) = &self.message_tx {
+            // Resolve the target address from the config
+            let target_addr = config.resolve_target()?;
+
             info!("Sending configuration update message");
             info!("New target address: {}", target_addr);
 
