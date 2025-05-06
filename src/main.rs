@@ -11,7 +11,7 @@ use quantum_safe_proxy::{
 use quantum_safe_proxy::common::{Result, init_logger};
 use quantum_safe_proxy::config;
 use quantum_safe_proxy::CertificateStrategyBuilder;
-use quantum_safe_proxy::config::{LISTEN_STR, TARGET_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
+
 use quantum_safe_proxy::tls::{get_cert_subject, get_cert_fingerprint};
 use quantum_safe_proxy::crypto::{check_environment, initialize_openssl};
 
@@ -25,16 +25,16 @@ use tokio::sync::mpsc;
 #[clap(author, version = VERSION, about, long_about = None)]
 struct Args {
     /// Listen to the address
-    #[clap(short, long, default_value = LISTEN_STR)]
-    listen: String,
+    #[clap(short, long)]
+    listen: Option<String>,
 
     /// Target service address
-    #[clap(short, long, default_value = TARGET_STR)]
-    target: String,
+    #[clap(short, long)]
+    target: Option<String>,
 
     /// Certificate strategy (single, sigalgs, dynamic)
-    #[clap(long, default_value = "dynamic")]
-    strategy: String,
+    #[clap(long)]
+    strategy: Option<String>,
 
     /// Path to traditional (RSA/ECDSA) certificate PEM
     #[clap(long)]
@@ -61,12 +61,12 @@ struct Args {
     pqc_only_key: Option<String>,
 
     /// Client CA certificate path (for client certificate validation)
-    #[clap(long, default_value = CA_CERT_PATH_STR)]
-    client_ca_cert: String,
+    #[clap(long)]
+    client_ca_cert: Option<String>,
 
     /// Log level
-    #[clap(long, value_name = "LEVEL", default_value = LOG_LEVEL_STR)]
-    log_level: String,
+    #[clap(long, value_name = "LEVEL")]
+    log_level: Option<String>,
 
     /// Load configuration from a file
     #[clap(long)]
@@ -76,16 +76,16 @@ struct Args {
     /// - required: Client must provide a valid certificate
     /// - optional: Client certificate is verified if provided
     /// - none: No client certificate verification
-    #[clap(long, default_value = "optional")]
-    client_cert_mode: String,
+    #[clap(long)]
+    client_cert_mode: Option<String>,
 
-    /// Buffer size for data transfer in bytes (default: 8192)
-    #[clap(long, default_value = "8192")]
-    buffer_size: usize,
+    /// Buffer size for data transfer in bytes
+    #[clap(long)]
+    buffer_size: Option<usize>,
 
-    /// Connection timeout in seconds (default: 30)
-    #[clap(long, default_value = "30")]
-    connection_timeout: u64,
+    /// Connection timeout in seconds
+    #[clap(long)]
+    connection_timeout: Option<u64>,
 
     /// OpenSSL installation directory
     /// If specified, this will be used to locate OpenSSL libraries and headers
@@ -107,7 +107,8 @@ async fn main() -> Result<()> {
     // 3. Command line argument --log-level debug (lowest priority)
     //
     // Example: RUST_LOG=quantum_safe_proxy::config=debug,quantum_safe_proxy=warn
-    init_logger(&args.log_level);
+    let default_log_level = "info";
+    init_logger(args.log_level.as_deref().unwrap_or(default_log_level));
 
     info!("Starting {} v{}", APP_NAME, VERSION);
 
@@ -123,12 +124,14 @@ async fn main() -> Result<()> {
     // Get the initialized configuration
     let mut config = config::get_config();
 
-    // Update certificate strategy from command line
-    match args.strategy.to_lowercase().as_str() {
-        "single" => config.strategy = config::CertStrategyType::Single,
-        "sigalgs" => config.strategy = config::CertStrategyType::SigAlgs,
-        "dynamic" => config.strategy = config::CertStrategyType::Dynamic,
-        _ => warn!("Invalid strategy: {}, using default (dynamic)", args.strategy),
+    // Update certificate strategy from command line if explicitly specified
+    if let Some(strategy) = &args.strategy {
+        match strategy.to_lowercase().as_str() {
+            "single" => config.strategy = config::CertStrategyType::Single,
+            "sigalgs" => config.strategy = config::CertStrategyType::SigAlgs,
+            "dynamic" => config.strategy = config::CertStrategyType::Dynamic,
+            _ => warn!("Invalid strategy: {}, using default (dynamic)", strategy),
+        }
     }
 
     // Update certificate paths from command line if explicitly specified
@@ -156,8 +159,44 @@ async fn main() -> Result<()> {
         config.pqc_only_key = Some(PathBuf::from(pqc_only_key));
     }
 
-    // Update client CA certificate path
-    config.client_ca_cert_path = PathBuf::from(&args.client_ca_cert);
+    // Update client CA certificate path if explicitly specified
+    if let Some(client_ca_cert) = &args.client_ca_cert {
+        config.client_ca_cert_path = PathBuf::from(client_ca_cert);
+    }
+
+    // Update listen address if explicitly specified
+    if let Some(listen) = &args.listen {
+        config.listen = listen.parse().map_err(|e| {
+            quantum_safe_proxy::common::ProxyError::Config(format!("Invalid listen address: {}", e))
+        })?;
+    }
+
+    // Update target address if explicitly specified
+    if let Some(target) = &args.target {
+        config.target = target.parse().map_err(|e| {
+            quantum_safe_proxy::common::ProxyError::Config(format!("Invalid target address: {}", e))
+        })?;
+    }
+
+    // Update client certificate mode if explicitly specified
+    if let Some(client_cert_mode) = &args.client_cert_mode {
+        match client_cert_mode.to_lowercase().as_str() {
+            "required" => config.client_cert_mode = config::ClientCertMode::Required,
+            "optional" => config.client_cert_mode = config::ClientCertMode::Optional,
+            "none" => config.client_cert_mode = config::ClientCertMode::None,
+            _ => warn!("Invalid client certificate mode: {}, using default (optional)", client_cert_mode),
+        }
+    }
+
+    // Update buffer size if explicitly specified
+    if let Some(buffer_size) = args.buffer_size {
+        config.buffer_size = buffer_size;
+    }
+
+    // Update connection timeout if explicitly specified
+    if let Some(connection_timeout) = args.connection_timeout {
+        config.connection_timeout = connection_timeout;
+    }
 
     // Configuration details are already logged in config module
 

@@ -7,7 +7,7 @@ rustc -o non_tls_client tests/non_tls_client.rs
 
 # Start the proxy server in the background
 echo "Starting proxy server..."
-cargo run &
+cargo run --bin quantum-safe-proxy -- --listen 0.0.0.0:8443 --target 127.0.0.1:6000 --hybrid-cert certs/hybrid/ml-dsa-87/hybrid.crt --hybrid-key certs/hybrid/ml-dsa-87/hybrid.key --traditional-cert certs/traditional/rsa/server.crt --traditional-key certs/traditional/rsa/privkey.pem --client-ca-cert certs/hybrid/ml-dsa-87/fullchain.pem &
 PROXY_PID=$!
 
 # Wait for the proxy to start
