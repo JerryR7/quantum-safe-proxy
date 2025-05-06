@@ -281,7 +281,7 @@ static CONFIG: Lazy<RwLock<ProxyConfig>> = Lazy::new(|| {
 });
 
 /// Log the configuration with source information
-fn log_config(config: &ProxyConfig) {
+pub fn log_config(config: &ProxyConfig) {
     use log::info;
 
     // Only log in info level or below
@@ -331,10 +331,12 @@ fn log_config(config: &ProxyConfig) {
 
 // Configuration management functions
 pub fn initialize() -> Result<()> {
+    use log::info;
     // Initialize configuration with default values
     let config = ProxyConfig::auto_load()?;
 
-    // Log the final configuration
+    // Log the initial configuration (before command line arguments)
+    info!("Initial configuration from file and environment variables:");
     log_config(&config);
 
     // Set the configuration in the global state

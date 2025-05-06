@@ -198,7 +198,12 @@ async fn main() -> Result<()> {
         config.connection_timeout = connection_timeout;
     }
 
-    // Configuration details are already logged in config module
+    // Update the global configuration with our modified config
+    config::update_config(config.clone())?;
+
+    // Log the updated configuration with command line overrides
+    info!("Configuration after applying command line arguments:");
+    config::log_config(&config);
 
     // Initialize OpenSSL from the specified directory
 
