@@ -178,23 +178,23 @@ pub fn parse_socket_addr(addr: &str) -> Result<SocketAddr> {
 /// Parse a socket address string for clap
 ///
 /// This is a wrapper around parse_socket_addr that returns a clap-compatible error
-pub fn parse_socket_addr_string(addr: &str) -> std::result::Result<SocketAddr, String> {
-    parse_socket_addr(addr).map_err(|e| e.to_string())
-}
+// pub fn parse_socket_addr_string(addr: &str) -> std::result::Result<SocketAddr, String> {
+//     parse_socket_addr(addr).map_err(|e| e.to_string())
+// }
 
-/// Parse a client certificate mode string for clap
-///
-/// This is a wrapper around ClientCertMode::from_str that returns a clap-compatible error
-pub fn parse_client_cert_mode(mode: &str) -> std::result::Result<ClientCertMode, String> {
-    ClientCertMode::from_str(mode).map_err(|e| e.to_string())
-}
+// /// Parse a client certificate mode string for clap
+// ///
+// /// This is a wrapper around ClientCertMode::from_str that returns a clap-compatible error
+// pub fn parse_client_cert_mode(mode: &str) -> std::result::Result<ClientCertMode, String> {
+//     ClientCertMode::from_str(mode).map_err(|e| e.to_string())
+// }
 
-/// Parse a certificate strategy type string for clap
-///
-/// This is a wrapper around CertStrategyType::from_str that returns a clap-compatible error
-pub fn parse_cert_strategy_type(strategy: &str) -> std::result::Result<CertStrategyType, String> {
-    CertStrategyType::from_str(strategy).map_err(|e| e.to_string())
-}
+// /// Parse a certificate strategy type string for clap
+// ///
+// /// This is a wrapper around CertStrategyType::from_str that returns a clap-compatible error
+// pub fn parse_cert_strategy_type(strategy: &str) -> std::result::Result<CertStrategyType, String> {
+//     CertStrategyType::from_str(strategy).map_err(|e| e.to_string())
+// }
 
 /// Check if a file exists and is a valid file
 ///

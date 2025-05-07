@@ -7,6 +7,7 @@
 use std::sync::Arc;
 use log::{info, warn};
 use tokio::signal;
+use tokio::signal::unix::{signal, SignalKind};
 
 use quantum_safe_proxy::{
     StandardProxyService, ProxyService,
@@ -57,9 +58,23 @@ async fn main() -> Result<()> {
     );
     let proxy_handle = proxy_service.start()?;
 
-    // 7. Wait for shutdown signal
+    // 7. Wait for shutdown or reload signal
+    let mut sighup = signal(SignalKind::hangup())?;
+    tokio::spawn(async move {
+        while let Some(_) = sighup.recv().await {
+            info!("Received SIGHUP signal, reloading configuration...");
+            if let Err(e) = quantum_safe_proxy::config::manager::reload_config("config.json") {
+                warn!("Failed to reload configuration: {}", e);
+            } else {
+                info!("Configuration reloaded successfully");
+            }
+        }
+    });
+
+    // Wait for Ctrl+C signal
     info!("Proxy service started. Press Ctrl+C to stop.");
     signal::ctrl_c().await?;
+
     info!("Shutdown signal received, stopping proxy service...");
     proxy_handle.shutdown().await?;
     info!("Proxy service stopped.");
