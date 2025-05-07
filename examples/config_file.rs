@@ -2,10 +2,9 @@
 //!
 //! This example demonstrates how to use a configuration file with Quantum Safe Proxy.
 
-use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, CertificateStrategyBuilder};
+use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result};
 use quantum_safe_proxy::config::ConfigLoader;
 use std::fs;
-use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -60,14 +59,10 @@ async fn main() -> Result<()> {
         strategy,
     )?;
 
-    // Parse listen and target addresses
-    let listen_addr = config.listen;
-    let target_addr = config.target;
-
     // Create and start proxy
     let mut proxy = Proxy::new(
-        listen_addr,
-        target_addr,
+        config.listen,
+        config.target,
         tls_acceptor,
         std::sync::Arc::new(config),  // Wrap ProxyConfig in Arc
     );

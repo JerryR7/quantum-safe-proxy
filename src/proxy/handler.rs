@@ -12,7 +12,7 @@ use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_openssl::SslStream;
 
-use crate::config::{self, ProxyConfig, ClientCertMode};
+use crate::config::{ProxyConfig, ClientCertMode, get_connection_timeout};
 use crate::protocol::{ProtocolDetector, TlsDetector, DetectionResult};
 
 use crate::common::{ProxyError, Result};
@@ -123,12 +123,13 @@ pub async fn handle_connection(
     }
 
     // Connect to target with timeout
+    let timeout_secs = get_connection_timeout();
     let target_stream = timeout(
-        Duration::from_secs(config::get_connection_timeout()),
+        Duration::from_secs(timeout_secs),
         TcpStream::connect(target_addr)
     )
     .await
-    .map_err(|_| ProxyError::ConnectionTimeout(config::get_connection_timeout()))?
+    .map_err(|_| ProxyError::ConnectionTimeout(timeout_secs))?
     .map_err(ProxyError::Io)?;
 
     // Forward data between client and target

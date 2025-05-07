@@ -103,7 +103,6 @@ impl ProxyHandle {
     ///
     /// # Parameters
     ///
-    /// * `target_addr` - New target service address
     /// * `tls_acceptor` - New TLS acceptor
     /// * `config` - New proxy configuration
     ///

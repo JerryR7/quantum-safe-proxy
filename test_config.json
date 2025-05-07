@@ -1,0 +1,18 @@
+{
+  "listen":              "0.0.0.0:8445",
+  "target":              "localhost:6001",
+  "log_level":           "info",
+  "client_cert_mode":    "none",
+  "buffer_size":         16384,
+  "connection_timeout":  60,
+
+  "strategy":            "single",
+
+  "traditional_cert":    "certs/traditional/rsa/server.crt",
+  "traditional_key":     "certs/traditional/rsa/server.key",
+
+  "hybrid_cert":         "certs/hybrid/ml-dsa-65/server.crt",
+  "hybrid_key":          "certs/hybrid/ml-dsa-65/server.key",
+
+  "client_ca_cert_path": "certs/traditional/rsa/ca.crt"
+}

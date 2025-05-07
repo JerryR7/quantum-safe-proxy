@@ -2,10 +2,9 @@
 //!
 //! This example demonstrates how to use environment variables with Quantum Safe Proxy.
 
-use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, CertificateStrategyBuilder};
+use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result};
 use quantum_safe_proxy::config::ConfigLoader;
 use std::env;
-use std::net::SocketAddr;
 
 /// Helper function to set environment variables
 fn set_env_vars() {
@@ -37,8 +36,8 @@ async fn main() -> Result<()> {
     // Set environment variables
     set_env_vars();
 
-    // Load configuration from environment variables
-    let config = quantum_safe_proxy::config::ProxyConfig::from_env()?;
+    // Load configuration from environment variables and defaults
+    let config = quantum_safe_proxy::config::ProxyConfig::auto_load()?;
     println!("Loaded configuration:");
     println!("  Listen: {}", config.listen);
     println!("  Target: {}", config.target);

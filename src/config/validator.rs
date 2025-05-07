@@ -1,28 +1,16 @@
-//! Configuration validation functionality
+//! Configuration validator implementation
 //!
 //! This module provides functionality for validating configuration.
 
 use std::path::Path;
-
 use crate::common::{ProxyError, Result};
-use crate::config::{ProxyConfig, CertStrategyType, check_file_exists};
+use crate::config::traits::ConfigValidator;
+use crate::config::types::{ProxyConfig, check_file_exists};
 
-/// Trait for validating configuration
-pub trait ConfigValidator {
+impl ConfigValidator for ProxyConfig {
     /// Validate configuration
     ///
     /// Checks if certificate files exist and other configuration is valid.
-    fn validate(&self) -> Result<()>;
-
-    /// Check configuration for potential issues
-    ///
-    /// This method checks the configuration for potential issues and returns
-    /// a list of warnings. Unlike `validate()`, this method does not return
-    /// an error if issues are found.
-    fn check(&self) -> Vec<String>;
-}
-
-impl ConfigValidator for ProxyConfig {
     fn validate(&self) -> Result<()> {
         // Validate network settings
         if self.listen.port() == 0 {
@@ -53,6 +41,11 @@ impl ConfigValidator for ProxyConfig {
         self.validate_certificate_files()
     }
 
+    /// Check configuration for potential issues
+    ///
+    /// This method checks the configuration for potential issues and returns
+    /// a list of warnings. Unlike `validate()`, this method does not return
+    /// an error if issues are found.
     fn check(&self) -> Vec<String> {
         let mut warnings = Vec::new();
 
@@ -65,12 +58,12 @@ impl ConfigValidator for ProxyConfig {
 
         // Check certificate files based on strategy
         match self.strategy {
-            CertStrategyType::Single => {
+            crate::config::types::CertStrategyType::Single => {
                 // Single strategy only requires hybrid certificate
                 check_file(&self.hybrid_cert, "Hybrid certificate", &mut warnings);
                 check_file(&self.hybrid_key, "Hybrid key", &mut warnings);
             },
-            CertStrategyType::SigAlgs | CertStrategyType::Dynamic => {
+            crate::config::types::CertStrategyType::SigAlgs | crate::config::types::CertStrategyType::Dynamic => {
                 // Both SigAlgs and Dynamic strategies require traditional and hybrid certificates
                 check_file(&self.traditional_cert, "Traditional certificate", &mut warnings);
                 check_file(&self.traditional_key, "Traditional key", &mut warnings);
@@ -120,7 +113,6 @@ impl ConfigValidator for ProxyConfig {
     }
 }
 
-// Private implementation details
 impl ProxyConfig {
     /// Validate certificate files based on the selected strategy
     fn validate_certificate_files(&self) -> Result<()> {
@@ -140,19 +132,19 @@ impl ProxyConfig {
 
         // Validate required certificates based on strategy
         match self.strategy {
-            CertStrategyType::Single => {
+            crate::config::types::CertStrategyType::Single => {
                 // Single strategy only requires hybrid certificate
                 validate_cert_file(&self.hybrid_cert, "Hybrid certificate")?;
                 validate_cert_file(&self.hybrid_key, "Hybrid key")?;
             },
-            CertStrategyType::SigAlgs => {
+            crate::config::types::CertStrategyType::SigAlgs => {
                 // SigAlgs strategy requires both traditional and hybrid certificates
                 validate_cert_file(&self.traditional_cert, "Traditional certificate")?;
                 validate_cert_file(&self.traditional_key, "Traditional key")?;
                 validate_cert_file(&self.hybrid_cert, "Hybrid certificate")?;
                 validate_cert_file(&self.hybrid_key, "Hybrid key")?;
             },
-            CertStrategyType::Dynamic => {
+            crate::config::types::CertStrategyType::Dynamic => {
                 // Dynamic strategy requires traditional and hybrid certificates
                 // and optionally PQC-only certificates
                 validate_cert_file(&self.traditional_cert, "Traditional certificate")?;

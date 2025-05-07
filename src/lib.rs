@@ -71,7 +71,7 @@ pub use proxy::Proxy; // Legacy export
 pub use proxy::{ProxyService, StandardProxyService, ProxyHandle, ProxyMessage}; // New message-driven architecture
 pub use tls::create_tls_acceptor;
 pub use common::{ProxyError, Result};
-pub use config::{parse_socket_addr, strategy::CertificateStrategyBuilder};
+pub use config::{parse_socket_addr, strategy::CertificateStrategyBuilder, ProxyConfig};
 use std::sync::Arc;
 
 // Buffer size moved to ProxyConfig
@@ -123,17 +123,17 @@ pub async fn reload_config(
     info!("Reloading configuration from {}", config_path.display());
 
     // Reload configuration from file using the singleton manager
-    match config::reload_config(config_path) {
-        Ok(_) => info!("Configuration reloaded successfully from file"),
+    let loaded_config = match config::reload_config(config_path) {
+        Ok(config) => {
+            info!("Configuration reloaded successfully from file");
+            Arc::new(config)
+        },
         Err(e) => {
             let err_msg = format!("Failed to reload configuration from file: {}", e);
             log::error!("{}", err_msg);
             return Err(e);
         }
-    }
-
-    // Get the updated configuration
-    let loaded_config = Arc::new(config::get_config());
+    };
 
     // Build certificate strategy
     let strategy = match config::strategy::CertificateStrategyBuilder::build_cert_strategy(&loaded_config) {
@@ -166,7 +166,6 @@ pub async fn reload_config(
     };
 
     // Update proxy configuration
-    // Pass reference to Arc<ProxyConfig> to avoid cloning
     proxy.update_config(tls_acceptor, &loaded_config).await?;
 
     info!("Proxy configuration reloaded successfully");
@@ -221,17 +220,17 @@ pub async fn reload_config_async(
     info!("Reloading configuration from {}", config_path.display());
 
     // Reload configuration from file using the singleton manager
-    match config::reload_config(config_path) {
-        Ok(_) => info!("Configuration reloaded successfully from file"),
+    let loaded_config = match config::reload_config(config_path) {
+        Ok(config) => {
+            info!("Configuration reloaded successfully from file");
+            Arc::new(config)
+        },
         Err(e) => {
             let err_msg = format!("Failed to reload configuration from file: {}", e);
             log::error!("{}", err_msg);
             return Err(e);
         }
-    }
-
-    // Get the updated configuration
-    let loaded_config = Arc::new(config::get_config());
+    };
 
     // Build certificate strategy
     let strategy = match config::strategy::CertificateStrategyBuilder::build_cert_strategy(&loaded_config) {

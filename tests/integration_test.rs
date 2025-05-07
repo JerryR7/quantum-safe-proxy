@@ -2,9 +2,11 @@
 //!
 //! This file contains integration tests for Quantum Safe Proxy.
 
-use quantum_safe_proxy::config::{ProxyConfig, ConfigLoader};
+use quantum_safe_proxy::config::{ProxyConfig, ConfigValidator};
 use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
 use std::path::PathBuf;
+use std::net::SocketAddr;
+use std::str::FromStr;
 
 // Define a local ConnectionInfo struct for testing
 #[derive(Debug, Clone)]
@@ -23,20 +25,20 @@ struct CertificateInfo {
 
 #[test]
 fn test_config_creation() {
-    // Test creating configuration
-    let config = ProxyConfig::from_args(
-        "127.0.0.1:8443",
-        "127.0.0.1:6000",
-        "certs/hybrid/dilithium3/server.crt",
-        "certs/hybrid/dilithium3/server.key",
-        "certs/hybrid/dilithium3/ca.crt",
-        "info",
-        "optional",
-        8192,                                  // buffer_size
-        30                                    // connection_timeout
-    );
+    // Test creating configuration with default values
+    let mut config = ProxyConfig::default();
 
-    assert!(config.is_ok(), "Should be able to create configuration");
+    // Update with test values
+    config.listen = SocketAddr::from_str("127.0.0.1:8443").unwrap();
+    config.target = SocketAddr::from_str("127.0.0.1:6000").unwrap();
+    config.hybrid_cert = PathBuf::from("certs/hybrid/dilithium3/server.crt");
+    config.hybrid_key = PathBuf::from("certs/hybrid/dilithium3/server.key");
+    config.client_ca_cert_path = PathBuf::from("certs/hybrid/dilithium3/ca.crt");
+    config.log_level = "info".to_string();
+
+    // Validate the configuration
+    let result = config.validate();
+    assert!(result.is_ok(), "Should be able to validate configuration");
 }
 
 #[test]
