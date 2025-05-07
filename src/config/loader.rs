@@ -248,14 +248,47 @@ impl ConfigLoader for ProxyConfig {
 }
 
 impl ProxyConfig {
+    /// Load configuration with proper priority:
+    /// 1. Default values (lowest priority)
+    /// 2. Configuration file (config.json by default)
+    /// 3. Environment variables
+    /// 4. Command line arguments (handled in main.rs)
+    ///
+    /// This method doesn't handle command line arguments directly,
+    /// as they are parsed in main.rs using clap.
     pub fn load() -> Result<Self> {
-        // Attempt to load configuration from a file
-        if let Ok(file_config) = Self::from_file("config.json") {
-            return Ok(file_config);
+        use log::{debug, info};
+
+        // Start with default configuration
+        let mut config = Self::default();
+        debug!("Starting with default configuration");
+
+        // Try to load from configuration file
+        let config_path = std::path::Path::new("config.json");
+        if config_path.exists() {
+            info!("Loading configuration from {}", config_path.display());
+            match Self::from_file(config_path) {
+                Ok(file_config) => {
+                    config = config.merge(file_config);
+                    debug!("Merged configuration from file");
+                }
+                Err(e) => {
+                    debug!("Failed to load configuration from file: {}", e);
+                }
+            }
         }
 
-        // Fallback to loading from environment variables
-        Self::from_env()
+        // Load from environment variables
+        match Self::from_env() {
+            Ok(env_config) if env_config != Self::default() => {
+                info!("Applying configuration from environment variables");
+                config = config.merge(env_config);
+                debug!("Merged configuration from environment variables");
+            }
+            _ => debug!("No environment variable configuration found or applied"),
+        }
+
+        Ok(config)
     }
 
     pub fn build_cert_strategy(&self) -> Result<CertStrategy> {
