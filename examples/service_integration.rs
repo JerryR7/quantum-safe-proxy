@@ -4,7 +4,8 @@
 //! It starts a simple HTTP server as the backend service and then starts
 //! the proxy to forward traffic to it.
 
-use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
+use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result};
+use quantum_safe_proxy::config::parse_socket_addr;
 use quantum_safe_proxy::tls::strategy::CertStrategy;
 use std::path::Path;
 use std::net::SocketAddr;

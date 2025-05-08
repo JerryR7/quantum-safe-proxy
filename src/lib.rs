@@ -16,8 +16,8 @@
 //! # Example
 //!
 //! ```no_run
-//! use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
-//! use quantum_safe_proxy::config::ClientCertMode;
+//! use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result};
+//! use quantum_safe_proxy::config::{parse_socket_addr, ClientCertMode};
 //! use quantum_safe_proxy::tls::strategy::CertStrategy;
 //! use std::path::Path;
 //!
@@ -71,7 +71,10 @@ pub use proxy::Proxy; // Legacy export
 pub use proxy::{ProxyService, StandardProxyService, ProxyHandle, ProxyMessage}; // New message-driven architecture
 pub use tls::create_tls_acceptor;
 pub use common::{ProxyError, Result};
-pub use config::{parse_socket_addr, strategy::CertificateStrategyBuilder, ProxyConfig};
+pub use config::ProxyConfig;
+pub use config::builder::auto_load_default as auto_load;
+pub use config::validator::{ConfigValidator, check_warnings};
+pub use tls::build_cert_strategy;
 use std::sync::Arc;
 
 // Buffer size moved to ProxyConfig
@@ -123,7 +126,7 @@ pub async fn reload_config(
     info!("Reloading configuration from {}", config_path.display());
 
     // Reload configuration from file using the singleton manager
-    let loaded_config = match config::reload_config(config_path) {
+    let loaded_config = match config::ProxyConfig::from_file(config_path.to_str().unwrap_or("config.json")) {
         Ok(config) => {
             info!("Configuration reloaded successfully from file");
             Arc::new(config)
@@ -131,12 +134,12 @@ pub async fn reload_config(
         Err(e) => {
             let err_msg = format!("Failed to reload configuration from file: {}", e);
             log::error!("{}", err_msg);
-            return Err(e);
+            return Err(e.into());
         }
     };
 
     // Build certificate strategy
-    let strategy = match config::strategy::CertificateStrategyBuilder::build_cert_strategy(&loaded_config) {
+    let strategy = match tls::build_cert_strategy(&loaded_config) {
         Ok(s) => {
             info!("Built certificate strategy successfully");
             s
@@ -144,16 +147,29 @@ pub async fn reload_config(
         Err(e) => {
             let err_msg = format!("Failed to build certificate strategy: {}", e);
             log::error!("{}", err_msg);
-            return Err(e);
+            return Err(e.into());
         }
     };
 
     // Create new TLS acceptor with system-detected TLS settings
-    let tls_acceptor = match create_tls_acceptor(
-        &loaded_config.client_ca_cert_path,
-        &loaded_config.client_cert_mode,
-        strategy,
-    ) {
+    let tls_acceptor = match {
+        // Extract the CertStrategy from the Box<dyn Any>
+        let cert_strategy = match strategy.downcast::<crate::tls::strategy::CertStrategy>() {
+            Ok(cs) => *cs,  // Unbox it
+            Err(_) => {
+                let err_msg = "Failed to downcast strategy to CertStrategy";
+                log::error!("{}", err_msg);
+                return Err(ProxyError::Config(err_msg.to_string()));
+            }
+        };
+
+        // Now call create_tls_acceptor with the correct types
+        create_tls_acceptor(
+            &loaded_config.client_ca_cert_path(),
+            &loaded_config.client_cert_mode(),
+            cert_strategy,
+        )
+    } {
         Ok(acceptor) => {
             info!("Created TLS acceptor successfully");
             acceptor
@@ -220,7 +236,7 @@ pub async fn reload_config_async(
     info!("Reloading configuration from {}", config_path.display());
 
     // Reload configuration from file using the singleton manager
-    let loaded_config = match config::reload_config(config_path) {
+    let loaded_config = match config::ProxyConfig::from_file(config_path.to_str().unwrap_or("config.json")) {
         Ok(config) => {
             info!("Configuration reloaded successfully from file");
             Arc::new(config)
@@ -228,12 +244,12 @@ pub async fn reload_config_async(
         Err(e) => {
             let err_msg = format!("Failed to reload configuration from file: {}", e);
             log::error!("{}", err_msg);
-            return Err(e);
+            return Err(e.into());
         }
     };
 
     // Build certificate strategy
-    let strategy = match config::strategy::CertificateStrategyBuilder::build_cert_strategy(&loaded_config) {
+    let strategy = match tls::build_cert_strategy(&loaded_config) {
         Ok(s) => {
             info!("Built certificate strategy successfully");
             s
@@ -241,16 +257,29 @@ pub async fn reload_config_async(
         Err(e) => {
             let err_msg = format!("Failed to build certificate strategy: {}", e);
             log::error!("{}", err_msg);
-            return Err(e);
+            return Err(e.into());
         }
     };
 
     // Create new TLS acceptor with system-detected TLS settings
-    let tls_acceptor = match create_tls_acceptor(
-        &loaded_config.client_ca_cert_path,
-        &loaded_config.client_cert_mode,
-        strategy,
-    ) {
+    let tls_acceptor = match {
+        // Extract the CertStrategy from the Box<dyn Any>
+        let cert_strategy = match strategy.downcast::<crate::tls::strategy::CertStrategy>() {
+            Ok(cs) => *cs,  // Unbox it
+            Err(_) => {
+                let err_msg = "Failed to downcast strategy to CertStrategy";
+                log::error!("{}", err_msg);
+                return Err(ProxyError::Config(err_msg.to_string()));
+            }
+        };
+
+        // Now call create_tls_acceptor with the correct types
+        create_tls_acceptor(
+            &loaded_config.client_ca_cert_path(),
+            &loaded_config.client_cert_mode(),
+            cert_strategy,
+        )
+    } {
         Ok(acceptor) => {
             info!("Created TLS acceptor successfully");
             acceptor

@@ -171,8 +171,8 @@ impl Proxy {
     /// Returns a result indicating success or failure
     pub async fn update_config(&self, tls_acceptor: SslAcceptor, config: &Arc<ProxyConfig>) -> Result<()> {
         if let Some(tx) = &self.message_tx {
-            // Resolve the target address from the config
-            let target_addr = config.resolve_target()?;
+            // Use the current target address
+            let target_addr = self.target_addr;
 
             info!("Sending configuration update message");
             info!("New target address: {}", target_addr);
@@ -364,7 +364,7 @@ mod tests {
         let acceptor = SslAcceptor::mozilla_modern(SslMethod::tls()).unwrap().build();
 
         // Test creating a proxy instance
-        let config = ProxyConfig::default();
+        let config = crate::config::ProxyConfig::default();
         let proxy = Proxy::new(
             "127.0.0.1:8443".parse::<SocketAddr>().unwrap(),
             "127.0.0.1:6000".parse::<SocketAddr>().unwrap(),

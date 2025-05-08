@@ -5,56 +5,72 @@
 //! starting the proxy service.
 
 use std::sync::Arc;
+// Removed unused import
 use log::{info, warn};
 use tokio::signal;
 use tokio::signal::unix::{signal, SignalKind};
 
 use quantum_safe_proxy::{
     StandardProxyService, ProxyService,
-    create_tls_acceptor, CertificateStrategyBuilder
+    create_tls_acceptor
 };
 use quantum_safe_proxy::common::{Result, init_logger};
-use quantum_safe_proxy::config::{ProxyConfig, ConfigLoader, ConfigValidator};
+use quantum_safe_proxy::config::{self, ProxyConfig};
+// Removed unused import
 use quantum_safe_proxy::crypto::initialize_openssl;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 1. Load configuration with proper priority using auto_load
+    // 1. Load configuration with proper priority
     // This handles: defaults -> config file -> env vars -> CLI args
-    let config = ProxyConfig::auto_load()?;
+    let args = std::env::args().collect::<Vec<String>>();
+    let initial_config = config::builder::auto_load(args)?;
 
     // 2. Initialize logger
-    init_logger(&config.log_level);
+    init_logger(initial_config.log_level());
 
-    // 3. Log warnings and configuration
-    let warnings = config.check();
-    for warning in warnings {
-        warn!("Configuration warning: {}", warning);
-    }
+    // 3. Initialize global configuration
+    config::initialize(initial_config)?;
     info!("Configuration loaded successfully");
-    quantum_safe_proxy::config::log_config(&config);
+
+    // 4. Get the global configuration
+    let config = config::get_config();
 
     // 4. Set OpenSSL directory if specified
-    if let Some(openssl_dir) = &config.openssl_dir {
-        std::env::set_var("OPENSSL_DIR", openssl_dir);
+    if let Some(openssl_dir) = config.openssl_dir() {
+        info!("Setting OpenSSL directory to: {}", openssl_dir.display());
+        std::env::set_var("OPENSSL_DIR", openssl_dir.to_string_lossy().to_string());
         initialize_openssl(openssl_dir);
     }
 
     // 5. Build certificate strategy and TLS acceptor
-    let strategy = config.build_cert_strategy()?;
+    // Use and_then to chain operations and handle errors more elegantly
+    let cert_strategy = quantum_safe_proxy::tls::build_cert_strategy(&config)
+        .and_then(|strategy| {
+            strategy.downcast::<quantum_safe_proxy::tls::strategy::CertStrategy>()
+                .map_err(|_| {
+                    let err_msg = "Failed to downcast strategy to CertStrategy";
+                    log::error!("{}", err_msg);
+                    quantum_safe_proxy::common::ProxyError::Config(err_msg.to_string())
+                })
+                .map(|boxed| *boxed)
+        })?;
+
     let tls_acceptor = create_tls_acceptor(
-        &config.client_ca_cert_path,
-        &config.client_cert_mode,
-        strategy,
+        config.client_ca_cert_path(),
+        &config.client_cert_mode(),
+        cert_strategy,
     )?;
 
     // 6. Start proxy service
-    info!("Starting proxy service on {}", config.listen);
+    let listen_addr = config.listen();
+    info!("Starting proxy service on {}", listen_addr);
+
     let proxy_service = StandardProxyService::new(
-        config.listen,
-        config.target,
+        listen_addr,
+        config.target(),
         tls_acceptor,
-        Arc::new(config),
+        config.clone(),
     );
     let proxy_handle = proxy_service.start()?;
 
@@ -63,10 +79,14 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         while let Some(_) = sighup.recv().await {
             info!("Received SIGHUP signal, reloading configuration...");
-            if let Err(e) = quantum_safe_proxy::config::manager::reload_config("config.json") {
-                warn!("Failed to reload configuration: {}", e);
+            if let Some(config_file) = config::get_config().config_file() {
+                if let Err(e) = config::reload_config(config_file) {
+                    warn!("Failed to reload configuration: {}", e);
+                } else {
+                    info!("Configuration reloaded successfully");
+                }
             } else {
-                info!("Configuration reloaded successfully");
+                warn!("No configuration file specified, cannot reload");
             }
         }
     });
@@ -81,3 +101,5 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
+
+

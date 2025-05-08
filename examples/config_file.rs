@@ -3,7 +3,7 @@
 //! This example demonstrates how to use a configuration file with Quantum Safe Proxy.
 
 use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result};
-use quantum_safe_proxy::config::ConfigLoader;
+use quantum_safe_proxy::config::ProxyConfig;
 use std::fs;
 
 #[tokio::main]
@@ -41,28 +41,50 @@ async fn main() -> Result<()> {
     // Load the configuration
     let config = quantum_safe_proxy::config::ProxyConfig::from_file(config_path)?;
     println!("Loaded configuration:");
-    println!("  Listen: {}", config.listen);
-    println!("  Target: {}", config.target);
-    println!("  Strategy: {:?}", config.strategy);
-    println!("  Traditional Certificate: {:?}", config.traditional_cert);
-    println!("  Hybrid Certificate: {:?}", config.hybrid_cert);
-    println!("  Buffer size: {} bytes", config.buffer_size);
-    println!("  Connection timeout: {} seconds", config.connection_timeout);
+    println!("  Listen: {:?}", config.listen());
+    println!("  Target: {:?}", config.target());
+    println!("  Strategy: {:?}", config.strategy());
+    println!("  Traditional Certificate: {:?}", config.traditional_cert());
+    println!("  Hybrid Certificate: {:?}", config.hybrid_cert());
+    println!("  Buffer size: {:?} bytes", config.buffer_size());
+    println!("  Connection timeout: {:?} seconds", config.connection_timeout());
 
     // Build certificate strategy
-    let strategy = config.build_cert_strategy()?;
+    let strategy = quantum_safe_proxy::tls::build_cert_strategy(&config)?;
 
     // Create TLS acceptor with system-detected TLS settings
+    // Extract the CertStrategy from the Box<dyn Any>
+    let cert_strategy = match strategy.downcast::<quantum_safe_proxy::tls::strategy::CertStrategy>() {
+        Ok(cs) => *cs,  // Unbox it
+        Err(_) => {
+            let err_msg = "Failed to downcast strategy to CertStrategy";
+            eprintln!("{}", err_msg);
+            return Err(quantum_safe_proxy::common::ProxyError::Config(err_msg.to_string()));
+        }
+    };
+
     let tls_acceptor = create_tls_acceptor(
-        &config.client_ca_cert_path,
-        &config.client_cert_mode,
-        strategy,
+        config.client_ca_cert_path(),
+        &config.client_cert_mode(),
+        cert_strategy,
     )?;
 
     // Create and start proxy
+    let listen_addr = if let Some(addr) = config.values.listen {
+        addr
+    } else {
+        return Err(quantum_safe_proxy::common::ProxyError::Config("Listen address not set".to_string()));
+    };
+
+    let target_addr = if let Some(addr) = config.values.target {
+        addr
+    } else {
+        return Err(quantum_safe_proxy::common::ProxyError::Config("Target address not set".to_string()));
+    };
+
     let mut proxy = Proxy::new(
-        config.listen,
-        config.target,
+        listen_addr,
+        target_addr,
         tls_acceptor,
         std::sync::Arc::new(config),  // Wrap ProxyConfig in Arc
     );

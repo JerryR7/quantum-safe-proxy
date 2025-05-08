@@ -5,15 +5,17 @@
 use std::path::{Path, PathBuf};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
+use std::collections::HashMap;
+use std::ops::Deref;
 use serde::{Deserialize, Serialize, Deserializer};
+use log::debug;
 
-use crate::config::traits::ConfigMerger;
-
-use crate::common::{ProxyError, Result};
-use crate::config::defaults;
+use crate::config::error::{ConfigError, Result};
+use crate::config::{LISTEN_STR, TARGET_STR, CERT_PATH_STR, KEY_PATH_STR, CA_CERT_PATH_STR, LOG_LEVEL_STR};
 
 /// Client certificate verification mode
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
 pub enum ClientCertMode {
     /// Require client certificate, connection fails if not provided
     Required,
@@ -23,194 +25,222 @@ pub enum ClientCertMode {
     None,
 }
 
-// Custom deserialization implementation to make it case-insensitive
-impl<'de> Deserialize<'de> for ClientCertMode {
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        ClientCertMode::from_str(&s).map_err(serde::de::Error::custom)
-    }
-}
-
 impl Default for ClientCertMode {
-    #[inline]
     fn default() -> Self {
-        defaults::client_cert_mode() // Use centralized defaults
+        ClientCertMode::Optional
     }
 }
 
 impl std::fmt::Display for ClientCertMode {
-    #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Required => write!(f, "required"),
-            Self::Optional => write!(f, "optional"),
-            Self::None => write!(f, "none"),
+            ClientCertMode::Required => write!(f, "required"),
+            ClientCertMode::Optional => write!(f, "optional"),
+            ClientCertMode::None => write!(f, "none"),
         }
     }
 }
 
 impl FromStr for ClientCertMode {
-    type Err = ProxyError;
+    type Err = ConfigError;
 
-    #[inline]
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "required" => Ok(Self::Required),
             "optional" => Ok(Self::Optional),
             "none" => Ok(Self::None),
-            _ => Err(ProxyError::Config(format!(
-                "Invalid client certificate mode: {}. Valid values are: required, optional, none",
-                s
-            ))),
+            _ => Err(ConfigError::InvalidValue(
+                "client_cert_mode".to_string(),
+                format!("Invalid client certificate mode: {}. Valid values are: required, optional, none", s)
+            )),
         }
     }
 }
 
 /// Certificate strategy type
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum CertStrategyType {
-    /// Single certificate strategy
+    /// Use a single certificate for all connections
     Single,
-    /// SigAlgs strategy
+    /// Use signature algorithms extension to select certificate
     SigAlgs,
-    /// Dynamic strategy
+    /// Dynamically select certificate based on client hello
     Dynamic,
 }
 
 impl Default for CertStrategyType {
-    #[inline]
     fn default() -> Self {
-        Self::Dynamic
+        CertStrategyType::Dynamic
+    }
+}
+
+impl std::fmt::Display for CertStrategyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CertStrategyType::Single => write!(f, "single"),
+            CertStrategyType::SigAlgs => write!(f, "sigalgs"),
+            CertStrategyType::Dynamic => write!(f, "dynamic"),
+        }
     }
 }
 
 impl FromStr for CertStrategyType {
-    type Err = ProxyError;
+    type Err = ConfigError;
 
-    #[inline]
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "single" => Ok(Self::Single),
             "sigalgs" => Ok(Self::SigAlgs),
             "dynamic" => Ok(Self::Dynamic),
-            _ => Err(ProxyError::Config(format!(
-                "Invalid certificate strategy: {}. Valid values are: single, sigalgs, dynamic",
-                s
-            ))),
+            _ => Err(ConfigError::InvalidValue(
+                "strategy".to_string(),
+                format!("Invalid certificate strategy: {}. Valid values are: single, sigalgs, dynamic", s)
+            )),
+        }
+    }
+}
+
+/// Source of a configuration value
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ValueSource {
+    /// Default value
+    Default,
+    /// From configuration file
+    File,
+    /// From environment variable
+    Environment,
+    /// From command line argument
+    CommandLine,
+}
+
+impl std::fmt::Display for ValueSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueSource::Default => write!(f, "default"),
+            ValueSource::File => write!(f, "file"),
+            ValueSource::Environment => write!(f, "environment"),
+            ValueSource::CommandLine => write!(f, "command line"),
         }
     }
 }
 
 /// Custom deserializer for socket addresses
-fn deserialize_socket_addr<'de, D>(deserializer: D) -> std::result::Result<SocketAddr, D::Error>
+fn deserialize_socket_addr<'de, D>(deserializer: D) -> std::result::Result<Option<SocketAddr>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let s = String::deserialize(deserializer)?;
-    parse_socket_addr(&s).map_err(serde::de::Error::custom)
+    let s = Option::<String>::deserialize(deserializer)?;
+    match s {
+        Some(addr_str) => parse_socket_addr(&addr_str)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        None => Ok(None),
+    }
 }
 
-/// Parse a socket address with optimized error handling
-///
-/// First tries direct parsing, then falls back to DNS resolution
-/// In Docker environments, service names like "backend:6000" are handled specially
-#[inline]
+/// Parse a socket address string
 pub fn parse_socket_addr(addr: &str) -> Result<SocketAddr> {
-    use log::{debug, warn};
-
-    debug!("Parsing socket address: {}", addr);
-
-    // Try direct parsing first (most efficient)
-    if let Ok(socket_addr) = SocketAddr::from_str(addr) {
-        debug!("Successfully parsed as direct socket address: {}", socket_addr);
-        return Ok(socket_addr);
+    // First try to parse as a socket address
+    if let Ok(addr) = addr.parse::<SocketAddr>() {
+        return Ok(addr);
     }
 
-    debug!("Not a direct socket address, trying to parse as host:port");
-
-    // Special handling for Docker service names (format: "service:port")
-    if let Some((host, port_str)) = addr.split_once(':') {
-        debug!("Split into host: '{}' and port: '{}'", host, port_str);
-
-        if let Ok(port) = port_str.parse::<u16>() {
-            debug!("Successfully parsed port: {}", port);
-
-            // For Docker environments, we'll use a placeholder IP that will be resolved at connection time
-            // This allows us to parse the address without actual DNS resolution
-            use std::net::{IpAddr, Ipv4Addr};
-            let ip = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
-            debug!("Using placeholder IP for Docker service name: {}:{}", ip, port);
-            return Ok(SocketAddr::new(ip, port));
-        } else {
-            warn!("Failed to parse port part '{}' as u16", port_str);
-        }
-    } else {
-        warn!("Address '{}' does not contain a colon separator", addr);
-    }
-
-    debug!("Trying standard DNS resolution for: {}", addr);
-
-    // Try using ToSocketAddrs trait for hostname resolution
+    // If that fails, try to resolve using ToSocketAddrs
     match addr.to_socket_addrs() {
         Ok(mut addrs) => {
-            if let Some(resolved) = addrs.next() {
-                debug!("Successfully resolved to: {}", resolved);
-                Ok(resolved)
+            if let Some(addr) = addrs.next() {
+                Ok(addr)
             } else {
-                let err = format!("Address resolved but no socket addresses returned: {}", addr);
-                warn!("{}", err);
-                Err(ProxyError::Network(err))
+                Err(ConfigError::InvalidValue(
+                    "socket_addr".to_string(),
+                    format!("Could not resolve address: {}", addr)
+                ))
             }
-        },
-        Err(e) => {
-            let err = format!("Failed to parse or resolve address {}: {}", addr, e);
-            warn!("{}", err);
-            Err(ProxyError::Network(err))
         }
+        Err(e) => Err(ConfigError::InvalidValue(
+            "socket_addr".to_string(),
+            format!("Invalid socket address '{}': {}", addr, e)
+        )),
     }
 }
 
-/// Parse a socket address string for clap
+/// Check if a file exists
+pub fn check_file_exists(path: &Path) -> bool {
+    path.exists() && path.is_file()
+}
+
+/// Configuration values
 ///
-/// This is a wrapper around parse_socket_addr that returns a clap-compatible error
-// pub fn parse_socket_addr_string(addr: &str) -> std::result::Result<SocketAddr, String> {
-//     parse_socket_addr(addr).map_err(|e| e.to_string())
-// }
+/// Contains all configuration values with their optional state.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigValues {
+    // --- Network settings ---
 
-// /// Parse a client certificate mode string for clap
-// ///
-// /// This is a wrapper around ClientCertMode::from_str that returns a clap-compatible error
-// pub fn parse_client_cert_mode(mode: &str) -> std::result::Result<ClientCertMode, String> {
-//     ClientCertMode::from_str(mode).map_err(|e| e.to_string())
-// }
+    /// Listen address (host:port)
+    #[serde(default, deserialize_with = "deserialize_socket_addr")]
+    pub listen: Option<SocketAddr>,
 
-// /// Parse a certificate strategy type string for clap
-// ///
-// /// This is a wrapper around CertStrategyType::from_str that returns a clap-compatible error
-// pub fn parse_cert_strategy_type(strategy: &str) -> std::result::Result<CertStrategyType, String> {
-//     CertStrategyType::from_str(strategy).map_err(|e| e.to_string())
-// }
+    /// Target address (host:port)
+    #[serde(default, deserialize_with = "deserialize_socket_addr")]
+    pub target: Option<SocketAddr>,
 
-/// Check if a file exists and is a valid file
-///
-/// This is an optimized version that uses a single path display call
-/// and returns more specific error types.
-#[inline]
-pub fn check_file_exists(path: &Path) -> Result<()> {
-    if !path.exists() {
-        return Err(ProxyError::FileNotFound(path.display().to_string()));
-    }
+    // --- General settings ---
 
-    if !path.is_file() {
-        return Err(ProxyError::Config(format!("Path is not a file: {}", path.display())));
-    }
+    /// Log level (error, warn, info, debug, trace)
+    #[serde(default)]
+    pub log_level: Option<String>,
 
-    Ok(())
+    /// Client certificate verification mode
+    #[serde(default)]
+    pub client_cert_mode: Option<ClientCertMode>,
+
+    /// Buffer size for data transfer (in bytes)
+    #[serde(default)]
+    pub buffer_size: Option<usize>,
+
+    /// Connection timeout in seconds
+    #[serde(default)]
+    pub connection_timeout: Option<u64>,
+
+    /// OpenSSL installation directory
+    #[serde(default)]
+    pub openssl_dir: Option<PathBuf>,
+
+    // --- Certificate strategy settings ---
+
+    /// Certificate strategy type (single, sigalgs, dynamic)
+    #[serde(default)]
+    pub strategy: Option<CertStrategyType>,
+
+    /// Traditional certificate path (for Dynamic and SigAlgs strategies)
+    #[serde(default)]
+    pub traditional_cert: Option<PathBuf>,
+
+    /// Traditional private key path (for Dynamic and SigAlgs strategies)
+    #[serde(default)]
+    pub traditional_key: Option<PathBuf>,
+
+    /// Hybrid certificate path (for Dynamic and SigAlgs strategies)
+    #[serde(default)]
+    pub hybrid_cert: Option<PathBuf>,
+
+    /// Hybrid private key path (for Dynamic and SigAlgs strategies)
+    #[serde(default)]
+    pub hybrid_key: Option<PathBuf>,
+
+    /// PQC-only certificate path (for Dynamic strategy, optional)
+    #[serde(default)]
+    pub pqc_only_cert: Option<PathBuf>,
+
+    /// PQC-only private key path (for Dynamic strategy, optional)
+    #[serde(default)]
+    pub pqc_only_key: Option<PathBuf>,
+
+    /// Client CA certificate path (for client certificate validation)
+    #[serde(default)]
+    pub client_ca_cert_path: Option<PathBuf>,
 }
 
 /// Proxy configuration
@@ -218,240 +248,396 @@ pub fn check_file_exists(path: &Path) -> Result<()> {
 /// Contains all configuration options needed for the proxy server.
 /// Supports loading from command-line arguments, environment variables,
 /// and configuration files.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProxyConfig {
-    // --- Network settings ---
-
-    /// Listen address (host:port)
-    #[serde(default = "defaults::listen", deserialize_with = "deserialize_socket_addr")]
-    pub listen: SocketAddr,
-
-    /// Target address (host:port)
-    #[serde(default = "defaults::target", deserialize_with = "deserialize_socket_addr")]
-    pub target: SocketAddr,
-
-    // --- General settings ---
-
-    /// Log level (error, warn, info, debug, trace)
-    #[serde(default = "defaults::log_level")]
-    pub log_level: String,
-
-    /// Client certificate verification mode
-    /// When set to Required, clients must provide a valid certificate
-    /// When set to Optional, clients may provide a certificate, which will be verified if present
-    /// When set to None, client certificates are not verified
-    #[serde(default)]
-    pub client_cert_mode: ClientCertMode,
-
-    /// Buffer size for data transfer (in bytes)
-    /// Larger buffers may improve throughput but increase memory usage
-    #[serde(default = "defaults::buffer_size")]
-    pub buffer_size: usize,
-
-    /// Connection timeout in seconds
-    /// How long to wait for connections to establish before giving up
-    #[serde(default = "defaults::connection_timeout")]
-    pub connection_timeout: u64,
-
-    /// OpenSSL installation directory
-    /// If specified, this will be used to locate OpenSSL libraries and headers
-    #[serde(default = "defaults::openssl_dir", skip_serializing_if = "Option::is_none")]
-    pub openssl_dir: Option<PathBuf>,
-
-    // --- Certificate strategy settings ---
-
-    /// Certificate strategy type (single, sigalgs, dynamic)
-    #[serde(default)]
-    pub strategy: CertStrategyType,
-
-    /// Traditional certificate path (for Dynamic and SigAlgs strategies)
-    #[serde(default = "defaults::classic_cert_path")]
-    pub traditional_cert: PathBuf,
-
-    /// Traditional private key path (for Dynamic and SigAlgs strategies)
-    #[serde(default = "defaults::classic_key_path")]
-    pub traditional_key: PathBuf,
-
-    /// Hybrid certificate path (for Dynamic and SigAlgs strategies)
-    #[serde(default = "defaults::cert_path")]
-    pub hybrid_cert: PathBuf,
-
-    /// Hybrid private key path (for Dynamic and SigAlgs strategies)
-    #[serde(default = "defaults::key_path")]
-    pub hybrid_key: PathBuf,
-
-    /// PQC-only certificate path (for Dynamic strategy, optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pqc_only_cert: Option<PathBuf>,
-
-    /// PQC-only private key path (for Dynamic strategy, optional)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pqc_only_key: Option<PathBuf>,
-
-    /// Client CA certificate path (for client certificate validation)
-    #[serde(default = "defaults::ca_cert_path")]
-    pub client_ca_cert_path: PathBuf,
+    /// Configuration values
+    pub values: ConfigValues,
 
     /// Configuration file path
-    #[serde(skip)]
     pub config_file: Option<PathBuf>,
 
-    /// Print version information and exit
-    #[serde(skip)]
-    pub show_version: bool,
+    /// Source tracking for configuration values
+    pub sources: HashMap<String, ValueSource>,
 }
 
-impl Default for ProxyConfig {
-    /// Create a default configuration using centralized defaults
-    #[inline]
+// Manual implementation of Hash for ProxyConfig that ignores sources
+impl std::hash::Hash for ProxyConfig {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.values.hash(state);
+        self.config_file.hash(state);
+        // Deliberately skip hashing sources as HashMap doesn't implement Hash
+    }
+}
+
+impl Deref for ProxyConfig {
+    type Target = ConfigValues;
+
+    fn deref(&self) -> &Self::Target {
+        &self.values
+    }
+}
+
+impl Serialize for ProxyConfig {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.values.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ProxyConfig {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let values = ConfigValues::deserialize(deserializer)?;
+        Ok(Self {
+            values,
+            config_file: None,
+            sources: HashMap::new(),
+        })
+    }
+}
+
+impl Default for ConfigValues {
     fn default() -> Self {
         Self {
-            // Network settings
-            listen: defaults::listen(),
-            target: defaults::target(),
-
-            // General settings
-            log_level: defaults::log_level(),
-            client_cert_mode: defaults::client_cert_mode(),
-            buffer_size: defaults::buffer_size(),
-            connection_timeout: defaults::connection_timeout(),
-            openssl_dir: defaults::openssl_dir(),
-
-            // Certificate strategy settings
-            strategy: CertStrategyType::default(),
-            traditional_cert: defaults::classic_cert_path(),
-            traditional_key: defaults::classic_key_path(),
-            hybrid_cert: defaults::cert_path(),
-            hybrid_key: defaults::key_path(),
+            // All fields are None by default
+            listen: None,
+            target: None,
+            log_level: None,
+            client_cert_mode: None,
+            buffer_size: None,
+            connection_timeout: None,
+            openssl_dir: None,
+            strategy: None,
+            traditional_cert: None,
+            traditional_key: None,
+            hybrid_cert: None,
+            hybrid_key: None,
             pqc_only_cert: None,
             pqc_only_key: None,
-            client_ca_cert_path: defaults::ca_cert_path(),
-
-            // Configuration file path
-            config_file: None,
-
-            // Command line flags
-            show_version: false,
+            client_ca_cert_path: None,
         }
     }
 }
 
+impl Default for ProxyConfig {
+    fn default() -> Self {
+        let mut config = Self {
+            values: ConfigValues::default(),
+            config_file: None,
+            sources: HashMap::new(),
+        };
+
+        // Apply default values and track their source
+        config.set_default_values();
+
+        config
+    }
+}
+
 impl ProxyConfig {
-    /// Resolve the target address string to a SocketAddr
-    ///
-    /// This method handles various formats including:
-    /// - IP:port (e.g., "127.0.0.1:6000")
-    /// - Hostname:port (e.g., "localhost:6000")
-    /// - Docker service name:port (e.g., "backend:6000")
-    pub fn resolve_target(&self) -> Result<SocketAddr> {
-        parse_socket_addr(&self.target.to_string())
+    /// Set default values for all configuration options
+    fn set_default_values(&mut self) {
+        // Network settings
+        if self.values.listen.is_none() {
+            self.values.listen = Some(parse_socket_addr(LISTEN_STR).unwrap_or_else(|_| {
+                panic!("Invalid default listen address: {}", LISTEN_STR)
+            }));
+            self.sources.insert("listen".to_string(), ValueSource::Default);
+        }
+
+        if self.values.target.is_none() {
+            self.values.target = Some(parse_socket_addr(TARGET_STR).unwrap_or_else(|_| {
+                panic!("Invalid default target address: {}", TARGET_STR)
+            }));
+            self.sources.insert("target".to_string(), ValueSource::Default);
+        }
+
+        // General settings
+        if self.values.log_level.is_none() {
+            self.values.log_level = Some(LOG_LEVEL_STR.to_string());
+            self.sources.insert("log_level".to_string(), ValueSource::Default);
+        }
+
+        if self.values.client_cert_mode.is_none() {
+            self.values.client_cert_mode = Some(ClientCertMode::default());
+            self.sources.insert("client_cert_mode".to_string(), ValueSource::Default);
+        }
+
+        if self.values.buffer_size.is_none() {
+            self.values.buffer_size = Some(8192);
+            self.sources.insert("buffer_size".to_string(), ValueSource::Default);
+        }
+
+        if self.values.connection_timeout.is_none() {
+            self.values.connection_timeout = Some(30);
+            self.sources.insert("connection_timeout".to_string(), ValueSource::Default);
+        }
+
+        // Certificate strategy settings
+        if self.values.strategy.is_none() {
+            self.values.strategy = Some(CertStrategyType::default());
+            self.sources.insert("strategy".to_string(), ValueSource::Default);
+        }
+
+        if self.values.traditional_cert.is_none() {
+            self.values.traditional_cert = Some(PathBuf::from("certs/traditional/rsa/server.crt"));
+            self.sources.insert("traditional_cert".to_string(), ValueSource::Default);
+        }
+
+        if self.values.traditional_key.is_none() {
+            self.values.traditional_key = Some(PathBuf::from("certs/traditional/rsa/server.key"));
+            self.sources.insert("traditional_key".to_string(), ValueSource::Default);
+        }
+
+        if self.values.hybrid_cert.is_none() {
+            self.values.hybrid_cert = Some(PathBuf::from(CERT_PATH_STR));
+            self.sources.insert("hybrid_cert".to_string(), ValueSource::Default);
+        }
+
+        if self.values.hybrid_key.is_none() {
+            self.values.hybrid_key = Some(PathBuf::from(KEY_PATH_STR));
+            self.sources.insert("hybrid_key".to_string(), ValueSource::Default);
+        }
+
+        if self.values.client_ca_cert_path.is_none() {
+            self.values.client_ca_cert_path = Some(PathBuf::from(CA_CERT_PATH_STR));
+            self.sources.insert("client_ca_cert_path".to_string(), ValueSource::Default);
+        }
     }
 
-    /// Apply command line arguments to the configuration
+    /// Get the listen address
+    pub fn listen(&self) -> SocketAddr {
+        // Log the actual value for debugging
+        if let Some(addr) = self.values.listen {
+            debug!("Using configured listen address: {}", addr);
+            return addr;
+        }
+
+        // Use default value
+        let default_addr = parse_socket_addr(LISTEN_STR).unwrap_or_else(|_| {
+            panic!("Invalid default listen address: {}", LISTEN_STR)
+        });
+        debug!("Using default listen address: {}", default_addr);
+        default_addr
+    }
+
+    /// Get the target address
+    pub fn target(&self) -> SocketAddr {
+        self.values.target.unwrap_or_else(|| {
+            parse_socket_addr(TARGET_STR).unwrap_or_else(|_| {
+                panic!("Invalid default target address: {}", TARGET_STR)
+            })
+        })
+    }
+
+    /// Get the log level
+    pub fn log_level(&self) -> &str {
+        self.values.log_level.as_deref().unwrap_or(LOG_LEVEL_STR)
+    }
+
+    /// Get the client certificate mode
+    pub fn client_cert_mode(&self) -> ClientCertMode {
+        self.values.client_cert_mode.unwrap_or_default()
+    }
+
+    /// Get the buffer size
+    pub fn buffer_size(&self) -> usize {
+        self.values.buffer_size.unwrap_or(8192)
+    }
+
+    /// Get the connection timeout
+    pub fn connection_timeout(&self) -> u64 {
+        self.values.connection_timeout.unwrap_or(30)
+    }
+
+    /// Get the OpenSSL directory
+    pub fn openssl_dir(&self) -> Option<&PathBuf> {
+        self.values.openssl_dir.as_ref()
+    }
+
+    /// Get the certificate strategy type
+    pub fn strategy(&self) -> CertStrategyType {
+        self.values.strategy.unwrap_or_default()
+    }
+
+    /// Get the traditional certificate path
+    pub fn traditional_cert(&self) -> &Path {
+        self.values.traditional_cert.as_deref().unwrap_or_else(|| {
+            Path::new("certs/traditional/rsa/server.crt")
+        })
+    }
+
+    /// Get the traditional private key path
+    pub fn traditional_key(&self) -> &Path {
+        self.values.traditional_key.as_deref().unwrap_or_else(|| {
+            Path::new("certs/traditional/rsa/server.key")
+        })
+    }
+
+    /// Get the hybrid certificate path
+    pub fn hybrid_cert(&self) -> &Path {
+        self.values.hybrid_cert.as_deref().unwrap_or_else(|| {
+            Path::new(CERT_PATH_STR)
+        })
+    }
+
+    /// Get the hybrid private key path
+    pub fn hybrid_key(&self) -> &Path {
+        self.values.hybrid_key.as_deref().unwrap_or_else(|| {
+            Path::new(KEY_PATH_STR)
+        })
+    }
+
+    /// Get the PQC-only certificate path
+    pub fn pqc_only_cert(&self) -> Option<&Path> {
+        self.values.pqc_only_cert.as_deref()
+    }
+
+    /// Get the PQC-only private key path
+    pub fn pqc_only_key(&self) -> Option<&Path> {
+        self.values.pqc_only_key.as_deref()
+    }
+
+    /// Get the client CA certificate path
+    pub fn client_ca_cert_path(&self) -> &Path {
+        self.values.client_ca_cert_path.as_deref().unwrap_or_else(|| {
+            Path::new(CA_CERT_PATH_STR)
+        })
+    }
+
+    /// Get the configuration file path
+    pub fn config_file(&self) -> Option<&Path> {
+        self.config_file.as_deref()
+    }
+
+    /// Load configuration from a file
+    pub fn from_file(path: &str) -> crate::config::error::Result<Self> {
+        crate::config::builder::ConfigBuilder::new()
+            .with_defaults()
+            .with_file(path)
+            .build()
+    }
+
+    /// Auto-load configuration from all sources
+    pub fn auto_load() -> crate::config::error::Result<Self> {
+        crate::config::builder::auto_load(std::env::args().collect())
+    }
+
+    /// Create a ProxyConfig from a Config
+    pub fn from_config(config: Self) -> Self {
+        config
+    }
+
+    /// Get the underlying Config
+    pub fn as_config(&self) -> &Self {
+        self
+    }
+
+    // check method moved to ConfigValidator trait implementation
+
+    // build_cert_strategy method removed - now using tls::strategy_builder::build_cert_strategy instead
+
+    /// Get the source of a configuration value
+    pub fn source(&self, name: &str) -> ValueSource {
+        self.sources.get(name).copied().unwrap_or(ValueSource::Default)
+    }
+
+    /// Merge two configurations
     ///
-    /// This method applies CLI arguments to the configuration, ensuring that
-    /// certificate strategy is updated when certificate paths are changed.
-    pub fn apply_cli_args(config: &mut Self, cli: &Self) {
-        use log::debug;
+    /// Values from `other` will override values in `self` only if they are Some.
+    /// The source of each value is tracked.
+    pub fn merge(&self, other: &Self, source: ValueSource) -> Self {
+        debug!("Merging configurations from source: {:?}", source);
+        let mut result = self.clone();
 
-        // Track certificate path changes for strategy auto-selection
-        let mut cert_paths_changed = false;
-        let mut pqc_changed = false;
-
-        // Helper macro to reduce repetitive code
-        macro_rules! override_if_changed {
-            ($field:ident, $default:expr) => {
-                if cli.$field != $default() {
-                    debug!("Overriding {} with {:?}", stringify!($field), cli.$field);
-                    config.$field = cli.$field.clone();
-                }
-            };
-            ($field:ident, $default:expr, $flag:ident) => {
-                if cli.$field != $default() {
-                    debug!("Overriding {} with {:?}", stringify!($field), cli.$field);
-                    config.$field = cli.$field.clone();
-                    $flag = true;
-                }
-            };
-            ($field:ident) => {
-                if cli.$field.is_some() {
-                    debug!("Overriding {} with {:?}", stringify!($field), cli.$field);
-                    config.$field = cli.$field.clone();
+        // Helper macro to merge a field
+        macro_rules! merge_field {
+            ($name:expr, $field:ident) => {
+                if let Some(value) = &other.values.$field {
+                    debug!("Merging field '{}' from {:?}: {:?}", $name, source, value);
+                    result.values.$field = Some(value.clone());
+                    result.sources.insert($name.to_string(), source);
                 }
             };
         }
 
         // Network settings
-        override_if_changed!(listen, defaults::listen);
-        override_if_changed!(target, defaults::target);
-
-        // Certificate paths
-        override_if_changed!(traditional_cert, defaults::classic_cert_path, cert_paths_changed);
-        override_if_changed!(traditional_key, defaults::classic_key_path, cert_paths_changed);
-        override_if_changed!(hybrid_cert, defaults::cert_path, cert_paths_changed);
-        override_if_changed!(hybrid_key, defaults::key_path, cert_paths_changed);
-        override_if_changed!(client_ca_cert_path, defaults::ca_cert_path);
-
-        // Optional PQC certificate fields
-        if cli.pqc_only_cert.is_some() || cli.pqc_only_key.is_some() {
-            config.pqc_only_cert = cli.pqc_only_cert.clone();
-            config.pqc_only_key = cli.pqc_only_key.clone();
-            pqc_changed = true;
-        }
+        merge_field!("listen", listen);
+        merge_field!("target", target);
 
         // General settings
-        override_if_changed!(log_level, defaults::log_level);
-        override_if_changed!(client_cert_mode, defaults::client_cert_mode);
-        override_if_changed!(buffer_size, defaults::buffer_size);
-        override_if_changed!(connection_timeout, defaults::connection_timeout);
-        override_if_changed!(openssl_dir);
-        override_if_changed!(config_file);
+        merge_field!("log_level", log_level);
+        merge_field!("client_cert_mode", client_cert_mode);
+        merge_field!("buffer_size", buffer_size);
+        merge_field!("connection_timeout", connection_timeout);
+        merge_field!("openssl_dir", openssl_dir);
 
-        // Strategy setting - update based on certificate changes if not explicitly set
-        if cli.strategy != CertStrategyType::default() {
-            config.strategy = cli.strategy.clone();
-        } else if cert_paths_changed || pqc_changed {
-            // Auto-select appropriate strategy based on certificate paths
-            config.strategy = if pqc_changed {
-                CertStrategyType::Dynamic
-            } else {
-                CertStrategyType::SigAlgs
-            };
+        // Certificate strategy settings
+        merge_field!("strategy", strategy);
+        merge_field!("traditional_cert", traditional_cert);
+        merge_field!("traditional_key", traditional_key);
+        merge_field!("hybrid_cert", hybrid_cert);
+        merge_field!("hybrid_key", hybrid_key);
+        merge_field!("pqc_only_cert", pqc_only_cert);
+        merge_field!("pqc_only_key", pqc_only_key);
+        merge_field!("client_ca_cert_path", client_ca_cert_path);
+
+        // Configuration file path
+        if let Some(path) = &other.config_file {
+            result.config_file = Some(path.clone());
         }
 
-        // Command line flags
-        config.show_version = cli.show_version;
-    }
-
-    /// Merge another configuration into this one
-    ///
-    /// Values from `other` will override values in `self` if they are not the default values.
-    /// This is used to implement the configuration priority system.
-    pub fn merge(&self, other: impl AsRef<ProxyConfig>) -> Self {
-        // Create a clone of self
-        let mut result = self.clone();
-
-        // Override with values from other
-        Self::apply_cli_args(&mut result, other.as_ref());
-
-        // Return the merged result
         result
     }
-}
 
-// Implement AsRef<ProxyConfig> for ProxyConfig to simplify operations
-impl AsRef<ProxyConfig> for ProxyConfig {
-    #[inline]
-    fn as_ref(&self) -> &ProxyConfig {
-        self
-    }
-}
+    /// Log the configuration
+    pub fn log(&self) {
+        debug!("=== Configuration ===");
+        debug!("Network settings:");
 
-// Implement ConfigMerger for ProxyConfig
-impl ConfigMerger for ProxyConfig {
-    fn merge(&self, other: impl AsRef<ProxyConfig>) -> Self {
-        self.merge(other)
+        // Log the raw listen address value
+        debug!("  Raw listen address value: {:?}", self.values.listen);
+
+        // Log the computed listen address
+        let listen_addr = self.listen();
+        debug!("  Listen address: {} (from {})", listen_addr, self.source("listen"));
+        debug!("  Target address: {} (from {})", self.target(), self.source("target"));
+
+        debug!("General settings:");
+        debug!("  Log level: {} (from {})", self.log_level(), self.source("log_level"));
+        debug!("  Client certificate mode: {} (from {})", self.client_cert_mode(), self.source("client_cert_mode"));
+        debug!("  Buffer size: {} bytes (from {})", self.buffer_size(), self.source("buffer_size"));
+        debug!("  Connection timeout: {} seconds (from {})", self.connection_timeout(), self.source("connection_timeout"));
+
+        if let Some(dir) = self.openssl_dir() {
+            debug!("  OpenSSL directory: {} (from {})", dir.display(), self.source("openssl_dir"));
+        }
+
+        debug!("Certificate strategy settings:");
+        debug!("  Strategy: {:?} (from {})", self.strategy(), self.source("strategy"));
+        debug!("  Traditional certificate: {} (from {})", self.traditional_cert().display(), self.source("traditional_cert"));
+        debug!("  Traditional key: {} (from {})", self.traditional_key().display(), self.source("traditional_key"));
+        debug!("  Hybrid certificate: {} (from {})", self.hybrid_cert().display(), self.source("hybrid_cert"));
+        debug!("  Hybrid key: {} (from {})", self.hybrid_key().display(), self.source("hybrid_key"));
+
+        if let Some(cert) = self.pqc_only_cert() {
+            debug!("  PQC-only certificate: {} (from {})", cert.display(), self.source("pqc_only_cert"));
+        }
+
+        if let Some(key) = self.pqc_only_key() {
+            debug!("  PQC-only key: {} (from {})", key.display(), self.source("pqc_only_key"));
+        }
+
+        debug!("  Client CA certificate: {} (from {})", self.client_ca_cert_path().display(), self.source("client_ca_cert_path"));
+
+        if let Some(file) = self.config_file() {
+            debug!("  Configuration file: {}", file.display());
+        }
+
+        debug!("=====================");
     }
 }

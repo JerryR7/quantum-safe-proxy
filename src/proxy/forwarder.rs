@@ -54,15 +54,16 @@ where
 pub async fn proxy_data<S>(
     tls_stream: S,
     target_stream: TcpStream,
-    config: &ProxyConfig,
+    _config: &ProxyConfig, // Unused but kept for future use
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    // Setup TCP keepalive
-    set_tcp_keepalive(&target_stream, config.connection_timeout)
+    // Setup TCP keepalive with default timeout of 30 seconds
+    let timeout = 30; // Default timeout
+    set_tcp_keepalive(&target_stream, timeout)
         .map(|_| debug!("TCP keepalive enabled: timeout={}s, interval={}s, retries={}",
-                      config.connection_timeout, KEEPALIVE_INTERVAL, KEEPALIVE_RETRIES))
+                      timeout, KEEPALIVE_INTERVAL, KEEPALIVE_RETRIES))
         .unwrap_or_else(|e| debug!("Failed to set TCP keepalive: {e}"));
 
     // Split and transfer bidirectionally

@@ -83,7 +83,7 @@ pub async fn handle_connection(
 
     // Setup TLS with client verification mode
     let mut ssl = openssl::ssl::Ssl::new(tls_acceptor.context()).map_err(ProxyError::Ssl)?;
-    ssl.set_verify(match config.client_cert_mode {
+    ssl.set_verify(match config.client_cert_mode() {
         ClientCertMode::Required => openssl::ssl::SslVerifyMode::PEER | openssl::ssl::SslVerifyMode::FAIL_IF_NO_PEER_CERT,
         ClientCertMode::Optional => openssl::ssl::SslVerifyMode::PEER,
         ClientCertMode::None => openssl::ssl::SslVerifyMode::NONE,

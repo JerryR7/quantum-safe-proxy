@@ -2,7 +2,8 @@
 //!
 //! This example demonstrates how to create a simple proxy using Quantum Safe Proxy.
 
-use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result, parse_socket_addr};
+use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result};
+use quantum_safe_proxy::config::parse_socket_addr;
 use quantum_safe_proxy::tls::strategy::CertStrategy;
 use std::path::Path;
 

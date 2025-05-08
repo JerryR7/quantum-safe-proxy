@@ -2,8 +2,10 @@
 use openssl::ssl::{SslAcceptorBuilder, SslFiletype, SslRef, ClientHelloResponse};
 use openssl::error::ErrorStack;
 use std::path::PathBuf;
+use std::any::Any;
 use log::{info, warn, error};
 use crate::common::{Result, ProxyError};
+use crate::config::{ProxyConfig, CertStrategyType};
 
 /// Certificate strategies for TLS connections
 #[derive(Debug)]
@@ -337,4 +339,55 @@ mod tests {
         // We expect this to fail because the test files don't exist
         assert!(result.is_err(), "Should fail when certificate files don't exist");
     }
+}
+
+/// Implement From<ProxyConfig> for CertStrategy
+impl From<&ProxyConfig> for CertStrategy {
+    fn from(config: &ProxyConfig) -> Self {
+        match config.strategy() {
+            CertStrategyType::Single => {
+                CertStrategy::Single {
+                    cert: config.hybrid_cert().to_path_buf(),
+                    key: config.hybrid_key().to_path_buf(),
+                }
+            }
+            CertStrategyType::SigAlgs => {
+                CertStrategy::SigAlgs {
+                    classic: (
+                        config.traditional_cert().to_path_buf(),
+                        config.traditional_key().to_path_buf()
+                    ),
+                    hybrid: (
+                        config.hybrid_cert().to_path_buf(),
+                        config.hybrid_key().to_path_buf()
+                    ),
+                }
+            }
+            CertStrategyType::Dynamic => {
+                CertStrategy::Dynamic {
+                    traditional: (
+                        config.traditional_cert().to_path_buf(),
+                        config.traditional_key().to_path_buf()
+                    ),
+                    hybrid: (
+                        config.hybrid_cert().to_path_buf(),
+                        config.hybrid_key().to_path_buf()
+                    ),
+                    pqc_only: config.pqc_only_cert().zip(config.pqc_only_key())
+                        .map(|(cert, key)| (cert.to_path_buf(), key.to_path_buf())),
+                }
+            }
+        }
+    }
+}
+
+/// Build certificate strategy from configuration
+///
+/// This function builds a certificate strategy based on the configuration.
+///
+/// Returns a boxed strategy that can be used with the TLS acceptor.
+pub fn build_cert_strategy(config: &ProxyConfig) -> Result<Box<dyn Any>> {
+    // Convert our strategy to the tls module's strategy using From trait
+    // This is more elegant thanks to the From trait implementation
+    Ok(Box::new(CertStrategy::from(config)))
 }

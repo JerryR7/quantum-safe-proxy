@@ -114,8 +114,11 @@ impl ProxyHandle {
         tls_acceptor: SslAcceptor,
         config: Arc<ProxyConfig>
     ) -> Result<()> {
-        // Resolve the target address from the config
-        let target_addr = config.resolve_target()?;
+        // Get the target address from the config
+        let target_addr = match config.values.target {
+            Some(addr) => addr,
+            None => return Err(ProxyError::Config("Target address not set".to_string())),
+        };
 
         self.send(ProxyMessage::UpdateConfig {
             target_addr,

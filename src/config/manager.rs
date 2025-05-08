@@ -1,20 +1,160 @@
-//! Configuration management functionality
+//! Configuration manager
 //!
 //! This module provides functionality for managing configuration at runtime,
 //! including reloading configuration from files and updating the global configuration.
 
+use std::sync::{Arc, RwLock};
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use once_cell::sync::Lazy;
-use log::{debug, info};
+use log::info;
 
-use crate::common::Result;
-use crate::config::ProxyConfig;
-use crate::config::traits::{ConfigLoader, ConfigValidator};
+use crate::config::types::{ProxyConfig, ClientCertMode, CertStrategyType, ValueSource};
+use crate::config::source::{ConfigSource, FileSource};
+use crate::config::validator::validate_config;
+use crate::config::error::Result;
 
-// Global configuration storage with improved locking
-static CONFIG: Lazy<RwLock<ProxyConfig>> = Lazy::new(|| {
-    RwLock::new(ProxyConfig::default())
+/// Configuration change event
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigChangeEvent {
+    /// Configuration was updated
+    Updated,
+    /// Configuration was reloaded from file
+    Reloaded,
+}
+
+/// Configuration change listener type
+pub type ConfigChangeListener = Box<dyn Fn(ConfigChangeEvent) + Send + Sync>;
+
+/// Global configuration manager
+pub struct ConfigManager {
+    /// Current configuration
+    config: RwLock<Arc<ProxyConfig>>,
+
+    /// Configuration change listeners
+    listeners: RwLock<Vec<ConfigChangeListener>>,
+
+    /// Cached value for client certificate required
+    client_cert_required: AtomicBool,
+
+    /// Cached value for signature algorithms enabled
+    sigalgs_enabled: AtomicBool,
+}
+
+impl ConfigManager {
+    /// Create a new configuration manager
+    fn new() -> Self {
+        let config = ProxyConfig::default();
+        let client_cert_required = config.client_cert_mode() == ClientCertMode::Required;
+        let sigalgs_enabled = config.strategy() == CertStrategyType::SigAlgs;
+
+        Self {
+            config: RwLock::new(Arc::new(config)),
+            listeners: RwLock::new(Vec::new()),
+            client_cert_required: AtomicBool::new(client_cert_required),
+            sigalgs_enabled: AtomicBool::new(sigalgs_enabled),
+        }
+    }
+
+    /// Get the current configuration
+    fn get_config(&self) -> Arc<ProxyConfig> {
+        let config = self.config.read().unwrap();
+        Arc::clone(&config)
+    }
+
+    /// Update the configuration
+    fn update_config(&self, config: ProxyConfig, event: ConfigChangeEvent) -> Result<()> {
+        // Validate the configuration
+        validate_config(&config)?;
+
+        // Update cached values
+        let client_cert_required = config.client_cert_mode() == ClientCertMode::Required;
+        let sigalgs_enabled = config.strategy() == CertStrategyType::SigAlgs;
+
+        // Update the configuration
+        {
+            let mut current_config = self.config.write().unwrap();
+            *current_config = Arc::new(config);
+        }
+
+        // Update cached values
+        self.client_cert_required.store(client_cert_required, Ordering::Relaxed);
+        self.sigalgs_enabled.store(sigalgs_enabled, Ordering::Relaxed);
+
+        // Notify listeners
+        self.notify_listeners(event);
+
+        Ok(())
+    }
+
+    /// Reload configuration from a file
+    fn reload_config<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let path = path.as_ref();
+        info!("Reloading configuration from {}", path.display());
+
+        // Load configuration from file
+        let source = FileSource::new(path);
+        let file_config = ConfigSource::load(&source)?;
+
+        // Get the current configuration
+        let current_config = self.get_config();
+
+        // Create a new configuration by merging the current and file configurations
+        // First clone the current config, then merge with the file config
+        let mut new_config = current_config.as_ref().clone();
+
+        // Merge with file config (file config has priority over current config)
+        new_config = new_config.merge(&file_config, ValueSource::File);
+
+        // Update the configuration file path
+        new_config.config_file = Some(path.to_path_buf());
+
+        // Update the configuration
+        self.update_config(new_config, ConfigChangeEvent::Reloaded)
+    }
+
+    /// Add a configuration change listener
+    fn add_listener<F>(&self, listener: F) -> Result<()>
+    where
+        F: Fn(ConfigChangeEvent) + Send + Sync + 'static,
+    {
+        let mut listeners = self.listeners.write().unwrap();
+        listeners.push(Box::new(listener));
+        Ok(())
+    }
+
+    /// Notify all listeners of a configuration change
+    fn notify_listeners(&self, event: ConfigChangeEvent) {
+        let listeners = self.listeners.read().unwrap();
+        for listener in listeners.iter() {
+            listener(event);
+        }
+    }
+
+    /// Check if client certificate is required
+    fn is_client_cert_required(&self) -> bool {
+        self.client_cert_required.load(Ordering::Relaxed)
+    }
+
+    /// Check if signature algorithms selection is enabled
+    fn is_sigalgs_enabled(&self) -> bool {
+        self.sigalgs_enabled.load(Ordering::Relaxed)
+    }
+
+    /// Get the buffer size
+    fn get_buffer_size(&self) -> usize {
+        self.get_config().buffer_size()
+    }
+
+    /// Get the connection timeout
+    fn get_connection_timeout(&self) -> u64 {
+        self.get_config().connection_timeout()
+    }
+}
+
+// Global instance
+static CONFIG_MANAGER: Lazy<ConfigManager> = Lazy::new(|| {
+    ConfigManager::new()
 });
 
 /// Initialize the global configuration
@@ -22,21 +162,15 @@ static CONFIG: Lazy<RwLock<ProxyConfig>> = Lazy::new(|| {
 /// This function initializes the global configuration with the provided configuration.
 /// It should be called once at application startup.
 pub fn initialize(config: ProxyConfig) -> Result<()> {
-    // Set the configuration in the global state
-    let mut global_config = CONFIG.write().unwrap();
-    *global_config = config;
-
-    debug!("Global configuration initialized");
-    Ok(())
+    // Update the global configuration
+    CONFIG_MANAGER.update_config(config, ConfigChangeEvent::Updated)
 }
 
 /// Get the current global configuration
 ///
 /// This function returns a clone of the current global configuration.
-pub fn get_config() -> ProxyConfig {
-    // Retrieve the config from the global state
-    let config = CONFIG.read().unwrap();
-    config.clone()
+pub fn get_config() -> Arc<ProxyConfig> {
+    CONFIG_MANAGER.get_config()
 }
 
 /// Update the global configuration
@@ -44,69 +178,51 @@ pub fn get_config() -> ProxyConfig {
 /// This function updates the global configuration with the provided configuration.
 /// It validates the configuration before updating.
 pub fn update_config(config: ProxyConfig) -> Result<()> {
-    // Validate the configuration before updating
-    config.validate()?;
-
-    // Update the configuration in the global state
-    let mut global_config = CONFIG.write().unwrap();
-    *global_config = config;
-
-    debug!("Global configuration updated");
-
-    Ok(())
+    CONFIG_MANAGER.update_config(config, ConfigChangeEvent::Updated)
 }
 
 /// Reload configuration from a file
 ///
 /// This function reloads the configuration from the specified file,
 /// merges it with the current configuration, and updates the global configuration.
-pub fn reload_config<P: AsRef<Path>>(path: P) -> Result<ProxyConfig> {
-    let path = path.as_ref();
-    info!("Reloading configuration from {}", path.display());
-
-    // Get the current configuration
-    let current_config = get_config();
-
-    // Load configuration from file
-    let file_config = ProxyConfig::from_file(path)?;
-    debug!("Loaded configuration from file");
-
-    // Merge with current configuration
-    let loaded_config = current_config.merge(file_config);
-    debug!("Merged with current configuration");
-
-    // Update the configuration in the global state
-    update_config(loaded_config.clone())?;
-    info!("Configuration updated successfully");
-
-    Ok(loaded_config)
+pub fn reload_config<P: AsRef<Path>>(path: P) -> Result<()> {
+    CONFIG_MANAGER.reload_config(path)
 }
 
-/// Configuration change event types
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConfigChangeEvent {
-    /// Configuration was updated
-    Updated,
-    /// Configuration was reloaded from a file
-    Reloaded,
+/// Add a configuration change listener
+///
+/// This function adds a listener that will be called when the configuration changes.
+pub fn add_listener<F>(listener: F) -> Result<()>
+where
+    F: Fn(ConfigChangeEvent) + Send + Sync + 'static,
+{
+    CONFIG_MANAGER.add_listener(listener)
 }
 
-/// Get the buffer size from the current configuration
-pub fn get_buffer_size() -> usize {
-    get_config().buffer_size
-}
-
-/// Get the connection timeout from the current configuration
-pub fn get_connection_timeout() -> u64 {
-    get_config().connection_timeout
-}
-
-/// Check if client certificates are required
+/// Check if client certificate is required
+///
+/// This function returns true if client certificate verification is required.
 pub fn is_client_cert_required() -> bool {
-    matches!(get_config().client_cert_mode, crate::config::ClientCertMode::Required)
+    CONFIG_MANAGER.is_client_cert_required()
 }
 
-/// Check if sigalgs are enabled
+/// Check if signature algorithms selection is enabled
+///
+/// This function returns true if signature algorithms selection is enabled.
 pub fn is_sigalgs_enabled() -> bool {
-    matches!(get_config().strategy, crate::config::CertStrategyType::SigAlgs)
+    CONFIG_MANAGER.is_sigalgs_enabled()
+}
+
+/// Get the buffer size
+///
+/// This function returns the buffer size from the current configuration.
+pub fn get_buffer_size() -> usize {
+    CONFIG_MANAGER.get_buffer_size()
+}
+
+/// Get the connection timeout
+///
+/// This function returns the connection timeout from the current configuration.
+pub fn get_connection_timeout() -> u64 {
+    CONFIG_MANAGER.get_connection_timeout()
 }
