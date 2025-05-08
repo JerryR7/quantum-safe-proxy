@@ -1,0 +1,22 @@
+{
+  "listen":              "0.0.0.0:7777",
+  "target":              "localhost:8014",
+  "log_level":           "debug",
+  "client_cert_mode":    "required",
+  "buffer_size":         8192,
+  "connection_timeout":  30,
+  "openssl_dir":         "/opt/openssl-3.5.0",
+
+  "strategy":            "dynamic",
+
+  "traditional_cert":    "certs/traditional/rsa/server.crt",
+  "traditional_key":     "certs/traditional/rsa/server.key",
+
+  "hybrid_cert":         "certs/hybrid/ml-dsa-87/server.crt",
+  "hybrid_key":          "certs/hybrid/ml-dsa-87/server.key",
+
+  "pqc_only_cert":       null,
+  "pqc_only_key":        null,
+
+  "client_ca_cert_path": "certs/traditional/rsa/ca.crt"
+}

@@ -356,7 +356,6 @@ struct ProxyState {
 mod tests {
     use super::*;
     use openssl::ssl::{SslMethod, SslAcceptor};
-    use crate::config::ProxyConfig;
 
     #[test]
     fn test_proxy_new() {

@@ -1,0 +1,9 @@
+{
+        "listen": "127.0.0.1:9000",
+        "target": "127.0.0.1:8000",
+        "log_level": "debug",
+        "client_cert_mode": "required",
+        "buffer_size": 16384,
+        "connection_timeout": 60,
+        "strategy": "sigalgs"
+    }

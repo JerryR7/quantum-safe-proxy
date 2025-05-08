@@ -48,6 +48,11 @@ impl ConfigManager {
         let client_cert_required = config.client_cert_mode() == ClientCertMode::Required;
         let sigalgs_enabled = config.strategy() == CertStrategyType::SigAlgs;
 
+        log::info!("Creating new ConfigManager with default configuration");
+        log::info!("Default listen address: {}", config.listen());
+        log::info!("Default target address: {}", config.target());
+        log::info!("Default log level: {}", config.log_level());
+
         Self {
             config: RwLock::new(Arc::new(config)),
             listeners: RwLock::new(Vec::new()),
@@ -162,6 +167,33 @@ static CONFIG_MANAGER: Lazy<ConfigManager> = Lazy::new(|| {
 /// This function initializes the global configuration with the provided configuration.
 /// It should be called once at application startup.
 pub fn initialize(config: ProxyConfig) -> Result<()> {
+    // Log the configuration being initialized
+    log::info!("Initializing global configuration");
+    log::info!("Listen address: {}", config.listen());
+    log::info!("Target address: {}", config.target());
+    log::info!("Log level: {}", config.log_level());
+
+    if let Some(file) = &config.config_file {
+        log::info!("Configuration file: {}", file.display());
+    } else {
+        log::info!("No configuration file specified");
+    }
+
+    // Log all configuration values
+    log::info!("Configuration values:");
+    if let Some(listen) = config.values.listen {
+        log::info!("  listen: {}", listen);
+    }
+    if let Some(target) = config.values.target {
+        log::info!("  target: {}", target);
+    }
+    if let Some(ref log_level) = config.values.log_level {
+        log::info!("  log_level: {}", log_level);
+    }
+    if let Some(ref strategy) = config.values.strategy {
+        log::info!("  strategy: {:?}", strategy);
+    }
+
     // Update the global configuration
     CONFIG_MANAGER.update_config(config, ConfigChangeEvent::Updated)
 }

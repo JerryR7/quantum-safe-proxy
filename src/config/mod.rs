@@ -17,6 +17,9 @@
 mod types;
 mod source;
 mod manager;
+mod actor;
+mod loader;
+mod traits;
 
 // Public modules
 pub mod error;
@@ -32,6 +35,8 @@ pub use manager::{
 };
 pub use builder::ConfigBuilder;
 pub use error::{ConfigError, Result};
+pub use actor::{ConfigActor, ConfigMessage};
+pub use traits::{ConfigLoader, ConfigValidator};
 
 // No compatibility layer needed
 

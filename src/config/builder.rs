@@ -3,9 +3,10 @@
 //! This module provides a builder pattern for constructing configuration.
 
 use std::path::{Path, PathBuf};
-use log::{debug, info};
+use std::collections::HashMap;
+use log::debug;
 
-use crate::config::types::ProxyConfig;
+use crate::config::types::{ProxyConfig, ConfigValues};
 use crate::config::source::{ConfigSource, DefaultSource, FileSource, EnvSource, CliSource};
 use crate::config::validator::validate_config;
 use crate::config::error::Result;
@@ -65,23 +66,37 @@ impl ConfigBuilder {
 
     /// Build the configuration
     pub fn build(self) -> Result<ProxyConfig> {
-        // Start with an empty configuration
-        let mut config = ProxyConfig::default();
+        // Start with an empty configuration (without defaults)
+        let mut config = ProxyConfig {
+            values: ConfigValues::default(),
+            config_file: None,
+            sources: HashMap::new(),
+        };
+
+        debug!("Building configuration from {} sources", self.sources.len());
 
         // Apply sources in order (lowest to highest priority)
         for source in self.sources {
+            let source_type = source.source_type();
+            debug!("Loading configuration from source: {:?}", source_type);
+
             let source_config = source.load()?;
 
             // Merge configurations
-            config = config.merge(&source_config, source.source_type());
+            config = config.merge(&source_config, source_type);
         }
+
+        // Apply default values for any fields that are still None
+        config.set_default_values();
 
         // Validate the configuration if enabled
         if self.validate {
+            debug!("Validating configuration");
             validate_config(&config)?;
         }
 
-        // Log the final configuration
+        // Log the final configuration at debug level
+        debug!("Final configuration:");
         config.log();
 
         Ok(config)
@@ -105,39 +120,6 @@ impl Default for ConfigBuilder {
 /// 3. Environment variables
 /// 4. Command line arguments (highest priority)
 pub fn auto_load(args: Vec<String>) -> Result<ProxyConfig> {
-    info!("Auto-loading configuration");
-    debug!("Command line arguments: {:?}", args);
-
-    // Extract config file path from command line arguments
-    let config_file = extract_config_file(&args)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_FILE));
-
-    debug!("Using configuration file: {}", config_file.display());
-
-    // Build configuration
-    let config = ConfigBuilder::new()
-        .with_defaults()
-        .with_file(&config_file)
-        .with_env(ENV_PREFIX)
-        .with_cli(args)
-        .build()?;
-
-    Ok(config)
-}
-
-/// Auto-load configuration using command line arguments
-///
-/// This function automatically collects command line arguments and loads configuration
-/// with proper priority:
-/// 1. Default values (lowest priority)
-/// 2. Configuration file (if exists)
-/// 3. Environment variables
-/// 4. Command line arguments (highest priority)
-///
-/// It also handles special arguments like --version and --help.
-pub fn auto_load_default() -> Result<ProxyConfig> {
-    let args: Vec<String> = std::env::args().collect();
-
     // Handle special arguments
     if args.contains(&"--version".to_string()) || args.contains(&"--show-version".to_string()) {
         println!("quantum-safe-proxy {}", env!("CARGO_PKG_VERSION"));
@@ -149,8 +131,67 @@ pub fn auto_load_default() -> Result<ProxyConfig> {
         std::process::exit(0);
     }
 
-    // Use the existing auto_load function
-    auto_load(args)
+    // Get config file path from command line arguments or environment
+    let config_file = extract_config_file(&args)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_FILE));
+
+    log::info!("Configuration file path: {}", config_file.display());
+
+    if !config_file.exists() {
+        log::warn!("Configuration file not found: {}", config_file.display());
+        log::warn!("Will use default values unless overridden by environment variables or command line arguments");
+    } else {
+        log::info!("Using configuration file: {}", config_file.display());
+    }
+
+    // Build configuration using the builder
+    debug!("Building configuration with file: {}", config_file.display());
+    let mut builder = ConfigBuilder::new();
+
+    // Add sources in order of priority
+    builder = builder.with_defaults();
+
+    if config_file.exists() {
+        debug!("Adding file source: {}", config_file.display());
+        builder = builder.with_file(&config_file);
+    }
+
+    builder = builder.with_env(ENV_PREFIX);
+    builder = builder.with_cli(args);
+
+    // Build the configuration
+    let config = builder.build()?;
+
+    // Log the final configuration
+    debug!("Configuration loaded successfully");
+    debug!("Listen address: {}", config.listen());
+    debug!("Target address: {}", config.target());
+    debug!("Log level: {}", config.log_level());
+
+    Ok(config)
+}
+
+/// Extract config file path from command line arguments
+fn extract_config_file(args: &[String]) -> Option<PathBuf> {
+    let mut args_iter = args.iter();
+
+    // Skip the program name
+    args_iter.next();
+
+    while let Some(arg) = args_iter.next() {
+        if arg == "--config-file" {
+            if let Some(value) = args_iter.next() {
+                return Some(PathBuf::from(value));
+            }
+        }
+    }
+
+    // Check environment variable
+    if let Ok(path) = std::env::var(format!("{}CONFIG_FILE", ENV_PREFIX)) {
+        return Some(PathBuf::from(path));
+    }
+
+    None
 }
 
 /// Print help information
@@ -176,27 +217,4 @@ fn print_help() {
     println!("  --show-version                Print version information and exit");
     println!("  --version                     Print version information and exit");
     println!("  --help                        Print help information");
-}
-
-/// Extract config file path from command line arguments
-pub fn extract_config_file(args: &[String]) -> Option<PathBuf> {
-    let mut args_iter = args.iter();
-
-    // Skip the program name
-    args_iter.next();
-
-    while let Some(arg) = args_iter.next() {
-        if arg == "--config-file" {
-            if let Some(value) = args_iter.next() {
-                return Some(PathBuf::from(value));
-            }
-        }
-    }
-
-    // Check environment variable
-    if let Ok(path) = std::env::var(format!("{}CONFIG_FILE", ENV_PREFIX)) {
-        return Some(PathBuf::from(path));
-    }
-
-    None
 }

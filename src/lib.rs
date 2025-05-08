@@ -72,7 +72,7 @@ pub use proxy::{ProxyService, StandardProxyService, ProxyHandle, ProxyMessage}; 
 pub use tls::create_tls_acceptor;
 pub use common::{ProxyError, Result};
 pub use config::ProxyConfig;
-pub use config::builder::auto_load_default as auto_load;
+pub use config::builder::auto_load;
 pub use config::validator::{ConfigValidator, check_warnings};
 pub use tls::build_cert_strategy;
 use std::sync::Arc;

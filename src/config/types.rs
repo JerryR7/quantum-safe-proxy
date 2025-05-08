@@ -340,7 +340,7 @@ impl Default for ProxyConfig {
 
 impl ProxyConfig {
     /// Set default values for all configuration options
-    fn set_default_values(&mut self) {
+    pub fn set_default_values(&mut self) {
         // Network settings
         if self.values.listen.is_none() {
             self.values.listen = Some(parse_socket_addr(LISTEN_STR).unwrap_or_else(|_| {

@@ -7,13 +7,11 @@ use std::path::{Path, PathBuf};
 use std::fs::File;
 use std::io::Read;
 use std::env;
-use std::net::SocketAddr;
 use std::collections::HashMap;
 use log::{debug, warn};
 
 use crate::config::types::{ProxyConfig, ConfigValues, ValueSource, ClientCertMode, CertStrategyType, parse_socket_addr};
 use crate::config::error::{ConfigError, Result};
-use crate::config::ENV_PREFIX;
 
 /// Configuration source trait
 pub trait ConfigSource {
@@ -58,35 +56,41 @@ impl ConfigSource for FileSource {
 
         // Check if file exists
         if !self.path.exists() {
-            debug!("Configuration file not found: {}", self.path.display());
+            warn!("Configuration file not found: {}", self.path.display());
+            warn!("Will use default values unless overridden by environment variables or command line arguments");
             // Return an empty configuration instead of an error
-            return Ok(ProxyConfig::default());
+            return Ok(ProxyConfig {
+                values: ConfigValues::default(),
+                config_file: None,
+                sources: HashMap::new(),
+            });
         }
 
-        // Open and read file
-        let mut file = File::open(&self.path)
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => ConfigError::FileNotFound(self.path.clone()),
-                std::io::ErrorKind::PermissionDenied => ConfigError::FilePermissionDenied(self.path.clone()),
-                _ => ConfigError::FileReadError(self.path.clone(), e.to_string()),
-            })?;
-
+        // Read file contents
         let mut contents = String::new();
-        file.read_to_string(&mut contents)
-            .map_err(|e| ConfigError::FileReadError(self.path.clone(), e.to_string()))?;
+        let mut file = match File::open(&self.path) {
+            Ok(f) => f,
+            Err(e) => {
+                let err_msg = format!("Failed to open configuration file {}: {}", self.path.display(), e);
+                warn!("{}", err_msg);
+                return Err(ConfigError::FileReadError(self.path.clone(), e.to_string()));
+            }
+        };
+
+        if let Err(e) = file.read_to_string(&mut contents) {
+            let err_msg = format!("Failed to read configuration file {}: {}", self.path.display(), e);
+            warn!("{}", err_msg);
+            return Err(ConfigError::FileReadError(self.path.clone(), e.to_string()));
+        }
 
         // Parse JSON
         debug!("Parsing JSON from file: {}", self.path.display());
-        debug!("File contents: {}", contents);
 
         let values: ConfigValues = match serde_json::from_str::<ConfigValues>(&contents) {
-            Ok(v) => {
-                debug!("Successfully parsed JSON from file");
-                v
-            },
+            Ok(v) => v,
             Err(e) => {
                 let err_msg = format!("Error parsing {}: {}", self.path.display(), e);
-                debug!("{}", err_msg);
+                warn!("{}", err_msg);
                 return Err(ConfigError::ParseError(err_msg));
             }
         };
@@ -155,45 +159,130 @@ impl EnvSource {
             prefix: prefix.to_string(),
         }
     }
-
-    /// Create a new environment source with default prefix
-    pub fn default() -> Self {
-        Self::new(ENV_PREFIX)
-    }
 }
 
 impl ConfigSource for EnvSource {
     fn load(&self) -> Result<ProxyConfig> {
         debug!("Loading configuration from environment variables with prefix: {}", self.prefix);
 
-        let mut config = ProxyConfig::default();
+        let mut config = ProxyConfig {
+            values: ConfigValues::default(),
+            config_file: None,
+            sources: HashMap::new(),
+        };
 
         // Helper function to get environment variable
         let get_env = |name: &str| -> Option<String> {
             // Try with underscore format (QUANTUM_SAFE_PROXY_LISTEN)
             let env_name_underscore = format!("{}_{}", self.prefix, name.to_uppercase());
 
-            // Try with no separator (QUANTUMSAFEPROXYLISTEN)
-            let env_name_no_sep = format!("{}{}", self.prefix, name.to_uppercase());
-
-            // Try with underscore format first
+            // Try with an underscore format
             match env::var(&env_name_underscore) {
-                Ok(value) => {
-                    debug!("Found environment variable: {}={}", env_name_underscore, value);
-                    Some(value)
-                }
-                Err(_) => {
-                    // Try with no separator
-                    match env::var(&env_name_no_sep) {
-                        Ok(value) => {
-                            debug!("Found environment variable: {}={}", env_name_no_sep, value);
-                            Some(value)
-                        }
-                        Err(_) => None,
-                    }
-                },
+                Ok(value) => Some(value),
+                Err(_) => None
             }
         };
+
+        // Directly check for all environment variables
+        let direct_env_vars = [
+            ("QUANTUM_SAFE_PROXY_LISTEN", "listen"),
+            ("QUANTUM_SAFE_PROXY_TARGET", "target"),
+            ("QUANTUM_SAFE_PROXY_LOG_LEVEL", "log_level"),
+            ("QUANTUM_SAFE_PROXY_CLIENT_CERT_MODE", "client_cert_mode"),
+            ("QUANTUM_SAFE_PROXY_BUFFER_SIZE", "buffer_size"),
+            ("QUANTUM_SAFE_PROXY_CONNECTION_TIMEOUT", "connection_timeout"),
+            ("QUANTUM_SAFE_PROXY_OPENSSL_DIR", "openssl_dir"),
+            ("QUANTUM_SAFE_PROXY_STRATEGY", "strategy"),
+            ("QUANTUM_SAFE_PROXY_TRADITIONAL_CERT", "traditional_cert"),
+            ("QUANTUM_SAFE_PROXY_TRADITIONAL_KEY", "traditional_key"),
+            ("QUANTUM_SAFE_PROXY_HYBRID_CERT", "hybrid_cert"),
+            ("QUANTUM_SAFE_PROXY_HYBRID_KEY", "hybrid_key"),
+            ("QUANTUM_SAFE_PROXY_PQC_ONLY_CERT", "pqc_only_cert"),
+            ("QUANTUM_SAFE_PROXY_PQC_ONLY_KEY", "pqc_only_key"),
+            ("QUANTUM_SAFE_PROXY_CLIENT_CA_CERT_PATH", "client_ca_cert_path"),
+        ];
+
+        for (env_name, config_name) in direct_env_vars {
+            if let Ok(value) = env::var(env_name) {
+                debug!("Found environment variable {}={}", env_name, value);
+
+                match config_name {
+                    "listen" | "target" => {
+                        if let Ok(addr) = parse_socket_addr(&value) {
+                            config.values.listen = if config_name == "listen" {
+                                Some(addr)
+                            } else {
+                                config.values.listen
+                            };
+
+                            config.values.target = if config_name == "target" {
+                                Some(addr)
+                            } else {
+                                config.values.target
+                            };
+
+                            config.sources.insert(config_name.to_string(), self.source_type());
+                        } else {
+                            warn!("Invalid {} in environment: {}", config_name, value);
+                        }
+                    },
+                    "log_level" => {
+                        config.values.log_level = Some(value);
+                        config.sources.insert(config_name.to_string(), self.source_type());
+                    },
+                    "client_cert_mode" => {
+                        if let Ok(mode) = value.parse::<ClientCertMode>() {
+                            config.values.client_cert_mode = Some(mode);
+                            config.sources.insert(config_name.to_string(), self.source_type());
+                        } else {
+                            warn!("Invalid {} in environment: {}", config_name, value);
+                        }
+                    },
+                    "buffer_size" => {
+                        if let Ok(size) = value.parse::<usize>() {
+                            config.values.buffer_size = Some(size);
+                            config.sources.insert(config_name.to_string(), self.source_type());
+                        } else {
+                            warn!("Invalid {} in environment: {}", config_name, value);
+                        }
+                    },
+                    "connection_timeout" => {
+                        if let Ok(timeout) = value.parse::<u64>() {
+                            config.values.connection_timeout = Some(timeout);
+                            config.sources.insert(config_name.to_string(), self.source_type());
+                        } else {
+                            warn!("Invalid {} in environment: {}", config_name, value);
+                        }
+                    },
+                    "strategy" => {
+                        if let Ok(strategy) = value.parse::<CertStrategyType>() {
+                            config.values.strategy = Some(strategy);
+                            config.sources.insert(config_name.to_string(), self.source_type());
+                        } else {
+                            warn!("Invalid {} in environment: {}", config_name, value);
+                        }
+                    },
+                    // Path fields
+                    "openssl_dir" | "traditional_cert" | "traditional_key" | "hybrid_cert" |
+                    "hybrid_key" | "pqc_only_cert" | "pqc_only_key" | "client_ca_cert_path" => {
+                        let path = PathBuf::from(&value);
+                        match config_name {
+                            "openssl_dir" => config.values.openssl_dir = Some(path),
+                            "traditional_cert" => config.values.traditional_cert = Some(path),
+                            "traditional_key" => config.values.traditional_key = Some(path),
+                            "hybrid_cert" => config.values.hybrid_cert = Some(path),
+                            "hybrid_key" => config.values.hybrid_key = Some(path),
+                            "pqc_only_cert" => config.values.pqc_only_cert = Some(path),
+                            "pqc_only_key" => config.values.pqc_only_key = Some(path),
+                            "client_ca_cert_path" => config.values.client_ca_cert_path = Some(path),
+                            _ => {} // Should never happen
+                        }
+                        config.sources.insert(config_name.to_string(), self.source_type());
+                    },
+                    _ => {} // Should never happen
+                }
+            }
+        }
 
         // Process all environment variables
         for name in [
@@ -314,7 +403,11 @@ impl ConfigSource for CliSource {
     fn load(&self) -> Result<ProxyConfig> {
         debug!("Loading configuration from command line arguments");
 
-        let mut config = ProxyConfig::default();
+        let mut config = ProxyConfig {
+            values: ConfigValues::default(),
+            config_file: None,
+            sources: HashMap::new(),
+        };
         let args = &self.args;
 
         // Skip the program name
