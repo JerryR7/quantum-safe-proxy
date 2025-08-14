@@ -2,6 +2,8 @@
 
 use log::{debug, info};
 use openssl::ssl::{SslAcceptor, SslVerifyMode, SslMethod};
+use openssl::stack::Stack;
+use openssl::x509::{X509, X509Name};
 use std::path::Path;
 
 use crate::common::Result;
@@ -63,10 +65,6 @@ pub fn create_tls_acceptor(
     strategy.apply(&mut acceptor)?;
     debug!("Applied certificate strategy");
 
-    // Apply the CA certificate
-    acceptor.set_ca_file(ca_cert_path)?;
-    debug!("Set CA certificate file: {:?}", ca_cert_path);
-
     // We no longer hardcode supported signature algorithms and groups, letting OpenSSL choose automatically
     // This ensures we use algorithms and groups supported by the OpenSSL version
     debug!("Using OpenSSL's default signature algorithms and groups");
@@ -91,12 +89,55 @@ pub fn create_tls_acceptor(
             let verify_mode = SslVerifyMode::PEER;
             info!("Client certificates optional (will be verified if provided)");
             acceptor.set_verify(verify_mode);
+
+            // Set verification depth for optional mode as well
+            acceptor.set_verify_depth(10);
         },
         ClientCertMode::None => {
             let verify_mode = SslVerifyMode::NONE;
             info!("Client certificates not required (no verification)");
             acceptor.set_verify(verify_mode);
         },
+    }
+
+    // Configure CA certificates and client CA list when client certificates are needed
+    if !matches!(client_cert_mode, ClientCertMode::None) {
+        // 1) Set CA file for certificate verification
+        acceptor.set_ca_file(ca_cert_path)?;
+        debug!("Set CA certificate file: {:?}", ca_cert_path);
+
+        // 2) Read all certificates from the CA file (may contain multiple PEM certificates)
+        let ca_pem = std::fs::read(ca_cert_path)?;
+        let ca_chain = X509::stack_from_pem(&ca_pem)?;
+        debug!("Loaded {} CA certificate(s) from file", ca_chain.len());
+
+        let store = acceptor.cert_store_mut();
+
+        // 3) Build client CA list (the list of acceptable CAs sent to the client)
+        let mut ca_names = Stack::<X509Name>::new()?;
+
+        for ca in &ca_chain {
+            // Add each CA to the trust store for verification
+            store.add_cert(ca.to_owned())?;
+
+            // Check if this is a self-signed root certificate
+            // Compare the DER-encoded bytes since X509NameRef doesn't implement PartialEq
+            let issuer_der = ca.issuer_name().to_der()?;
+            let subject_der = ca.subject_name().to_der()?;
+            let is_self_signed = issuer_der == subject_der;
+
+            if !is_self_signed {
+                // Only add intermediate CAs to the client CA list (not root CAs)
+                ca_names.push(ca.subject_name().to_owned()?)?;
+                debug!("Added intermediate CA to client list: {:?}", ca.subject_name());
+            } else {
+                debug!("Skipped self-signed root CA from client list: {:?}", ca.subject_name());
+            }
+        }
+
+        // 4) Set the client CA list (this fixes "No client certificate CA names sent")
+        acceptor.set_client_ca_list(ca_names);
+        info!("Configured client CA list from {:?}", ca_cert_path);
     }
 
     Ok(acceptor.build())
