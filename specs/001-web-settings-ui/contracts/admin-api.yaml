@@ -1,0 +1,802 @@
+openapi: 3.0.3
+info:
+  title: Quantum Safe Proxy - Admin API
+  version: 0.1.0
+  description: |
+    Web-based settings management API for Quantum Safe Proxy.
+
+    Provides configuration visibility, modification, import/export,
+    and audit logging capabilities with role-based access control.
+
+    **Authentication**: All endpoints require Bearer token authentication.
+
+    **Authorization**:
+    - Viewer: Read-only access to config, status, audit log
+    - Operator: Can modify non-security settings
+    - Admin: Can modify all settings, import/export configs
+
+servers:
+  - url: http://127.0.0.1:8443/api
+    description: Local admin API (default)
+
+security:
+  - bearerAuth: []
+
+paths:
+  /config:
+    get:
+      summary: Get effective configuration
+      description: Returns the currently active configuration with source tracking for each setting
+      operationId: getConfig
+      tags:
+        - Configuration
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Effective configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolvedConfig'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    patch:
+      summary: Modify configuration settings
+      description: |
+        Update one or more configuration settings.
+
+        - Validates all changes before applying
+        - Detects security-affecting changes and requires confirmation
+        - Returns whether restart is required
+        - Logs all changes to audit log
+      operationId: patchConfig
+      tags:
+        - Configuration
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpdateRequest'
+      responses:
+        '200':
+          description: Configuration change processed (may not be applied if restart required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationChange'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Forbidden - insufficient permissions for security-affecting change
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /config/rollback:
+    post:
+      summary: Rollback to previous configuration
+      description: Reverts configuration to the previous version
+      operationId: rollbackConfig
+      tags:
+        - Configuration
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Configuration rolled back successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationChange'
+        '400':
+          description: No previous configuration available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /config/export:
+    post:
+      summary: Export current configuration
+      description: Download current configuration in JSON or YAML format
+      operationId: exportConfig
+      tags:
+        - Configuration
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  enum: [json, yaml]
+                  default: json
+      responses:
+        '200':
+          description: Configuration exported successfully
+          content:
+            application/json:
+              schema:
+                type: object
+            application/x-yaml:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /config/import:
+    post:
+      summary: Import and preview configuration
+      description: |
+        Upload configuration file for validation and preview.
+
+        - Does NOT auto-apply (dry-run mode)
+        - Validates against current QSP version
+        - Returns diff comparing imported vs. current config
+      operationId: importConfig
+      tags:
+        - Configuration
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - config
+              properties:
+                config:
+                  type: object
+                  description: Configuration to import (JSON)
+                dry_run:
+                  type: boolean
+                  default: true
+                  description: If false, apply after validation
+      responses:
+        '200':
+          description: Import preview generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportPreview'
+        '400':
+          description: Invalid configuration or version incompatibility
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /status:
+    get:
+      summary: Get operational status
+      description: Returns proxy runtime status including TLS mode statistics and handshake metrics
+      operationId: getStatus
+      tags:
+        - Status
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationalStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /audit:
+    get:
+      summary: Query audit log
+      description: |
+        Retrieve audit log entries with optional filtering.
+
+        Supports filtering by:
+        - Date range (start_time, end_time)
+        - Operator name
+        - Setting name
+        - Action type
+
+        Results are paginated with limit/offset.
+      operationId: getAuditLog
+      tags:
+        - Audit
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: start_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter entries after this timestamp
+        - name: end_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter entries before this timestamp
+        - name: operator
+          in: query
+          schema:
+            type: string
+          description: Filter by operator name
+        - name: setting
+          in: query
+          schema:
+            type: string
+          description: Filter by setting name
+        - name: action
+          in: query
+          schema:
+            type: string
+            enum: [ConfigChange, ConfigExport, ConfigImportPreview, ConfigImportApply, ConfigRollback, AuthFailure, AuthzFailure]
+          description: Filter by action type
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+          description: Maximum number of entries to return
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Number of entries to skip
+      responses:
+        '200':
+          description: Audit log retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEntry'
+                  total:
+                    type: integer
+                    description: Total matching entries
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /audit/{id}:
+    get:
+      summary: Get audit entry details
+      description: Retrieve a specific audit log entry by ID
+      operationId: getAuditEntry
+      tags:
+        - Audit
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Audit entry retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEntry'
+        '404':
+          description: Audit entry not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /audit/export:
+    post:
+      summary: Export audit log for compliance
+      description: Download audit log entries matching filters in JSONL format
+      operationId: exportAuditLog
+      tags:
+        - Audit
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                start_time:
+                  type: string
+                  format: date-time
+                end_time:
+                  type: string
+                  format: date-time
+                operator:
+                  type: string
+                setting:
+                  type: string
+      responses:
+        '200':
+          description: Audit log exported successfully
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+      description: |
+        API key authentication using Bearer token.
+
+        Example: `Authorization: Bearer <base64-api-key>`
+
+  schemas:
+    ResolvedConfig:
+      type: object
+      required:
+        - settings
+        - status
+        - resolved_at
+        - version
+      properties:
+        settings:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResolvedSetting'
+        status:
+          $ref: '#/components/schemas/OperationalStatus'
+        resolved_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: uint64
+
+    ResolvedSetting:
+      type: object
+      required:
+        - name
+        - value
+        - source
+        - hot_reloadable
+        - category
+        - security_affecting
+      properties:
+        name:
+          type: string
+        value:
+          type: object
+          description: JSON value (flexible type)
+        source:
+          $ref: '#/components/schemas/ConfigSource'
+        hot_reloadable:
+          type: boolean
+        category:
+          $ref: '#/components/schemas/SettingCategory'
+        description:
+          type: string
+          nullable: true
+        security_affecting:
+          type: boolean
+
+    ConfigSource:
+      type: string
+      enum:
+        - CommandLine
+        - Environment
+        - UI
+        - File
+        - Default
+
+    SettingCategory:
+      type: string
+      enum:
+        - Network
+        - Security
+        - Performance
+        - Observability
+        - Authentication
+
+    OperationalStatus:
+      type: object
+      required:
+        - uptime_seconds
+        - total_connections
+        - active_connections
+        - tls_mode_stats
+        - handshake_stats
+      properties:
+        uptime_seconds:
+          type: integer
+          format: uint64
+        total_connections:
+          type: integer
+          format: uint64
+        active_connections:
+          type: integer
+          format: uint64
+        tls_mode_stats:
+          $ref: '#/components/schemas/TlsModeStats'
+        handshake_stats:
+          $ref: '#/components/schemas/HandshakeStats'
+
+    TlsModeStats:
+      type: object
+      required:
+        - classical_count
+        - hybrid_count
+        - pqc_count
+        - last_updated
+      properties:
+        classical_count:
+          type: integer
+          format: uint64
+        hybrid_count:
+          type: integer
+          format: uint64
+        pqc_count:
+          type: integer
+          format: uint64
+        last_updated:
+          type: string
+          format: date-time
+
+    HandshakeStats:
+      type: object
+      required:
+        - recent_success_count
+        - recent_failure_count
+        - avg_duration_ms
+        - success_rate
+      properties:
+        recent_success_count:
+          type: integer
+          format: uint64
+        recent_failure_count:
+          type: integer
+          format: uint64
+        avg_duration_ms:
+          type: number
+          format: float64
+        success_rate:
+          type: number
+          format: float64
+          minimum: 0.0
+          maximum: 1.0
+
+    ConfigUpdateRequest:
+      type: object
+      required:
+        - changes
+      properties:
+        changes:
+          type: array
+          items:
+            type: object
+            required:
+              - name
+              - value
+            properties:
+              name:
+                type: string
+              value:
+                type: object
+        confirmed:
+          type: boolean
+          default: false
+          description: Set to true to confirm security warnings
+
+    ConfigurationChange:
+      type: object
+      required:
+        - id
+        - operator
+        - role
+        - timestamp
+        - changes
+        - validation
+        - requires_restart
+        - applied
+        - warnings
+        - confirmed
+      properties:
+        id:
+          type: string
+          format: uuid
+        operator:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        timestamp:
+          type: string
+          format: date-time
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SettingChange'
+        validation:
+          $ref: '#/components/schemas/ValidationResult'
+        requires_restart:
+          type: boolean
+        applied:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityWarning'
+        confirmed:
+          type: boolean
+
+    SettingChange:
+      type: object
+      required:
+        - name
+        - before
+        - after
+        - security_affecting
+      properties:
+        name:
+          type: string
+        before:
+          type: object
+        after:
+          type: object
+        security_affecting:
+          type: boolean
+
+    ValidationResult:
+      type: object
+      required:
+        - valid
+        - errors
+        - warnings
+        - constitution_violations
+      properties:
+        valid:
+          type: boolean
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationError'
+        warnings:
+          type: array
+          items:
+            type: string
+        constitution_violations:
+          type: array
+          items:
+            type: string
+
+    ValidationError:
+      type: object
+      required:
+        - setting
+        - message
+        - actual
+      properties:
+        setting:
+          type: string
+        message:
+          type: string
+        expected:
+          type: string
+          nullable: true
+        actual:
+          type: string
+
+    SecurityWarning:
+      type: object
+      required:
+        - level
+        - message
+        - affected_setting
+        - risk_explanation
+      properties:
+        level:
+          $ref: '#/components/schemas/WarningLevel'
+        message:
+          type: string
+        affected_setting:
+          type: string
+        risk_explanation:
+          type: string
+        alternative:
+          type: string
+          nullable: true
+
+    WarningLevel:
+      type: string
+      enum:
+        - Info
+        - Low
+        - Medium
+        - High
+        - Critical
+
+    ImportPreview:
+      type: object
+      required:
+        - validation
+        - diff
+        - requires_restart
+        - warnings
+      properties:
+        validation:
+          $ref: '#/components/schemas/ValidationResult'
+        diff:
+          type: array
+          items:
+            $ref: '#/components/schemas/SettingChange'
+        requires_restart:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityWarning'
+
+    AuditEntry:
+      type: object
+      required:
+        - id
+        - timestamp
+        - operator
+        - role
+        - action
+        - changes
+        - applied
+        - warnings_shown
+        - prev_hash
+        - hash
+      properties:
+        id:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        operator:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        action:
+          $ref: '#/components/schemas/AuditAction'
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SettingChange'
+        applied:
+          type: boolean
+        warnings_shown:
+          type: array
+          items:
+            type: string
+        confirmation:
+          type: string
+          nullable: true
+        prev_hash:
+          type: string
+          description: SHA256 hash of previous entry (empty for first entry)
+        hash:
+          type: string
+          description: SHA256 hash of this entry
+
+    AuditAction:
+      type: string
+      enum:
+        - ConfigChange
+        - ConfigExport
+        - ConfigImportPreview
+        - ConfigImportApply
+        - ConfigRollback
+        - AuthFailure
+        - AuthzFailure
+
+    Role:
+      type: string
+      enum:
+        - Viewer
+        - Operator
+        - Admin
+
+    Error:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+        details:
+          type: string
+          nullable: true
+
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Unauthorized: invalid or missing API key"
+
+    Forbidden:
+      description: Insufficient permissions for this operation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Forbidden: admin role required for this operation"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Internal server error"
+            details: "Failed to read configuration"

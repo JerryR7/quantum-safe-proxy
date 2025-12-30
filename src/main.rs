@@ -71,7 +71,45 @@ async fn main() -> Result<()> {
     );
     let proxy_handle = proxy_service.start()?;
 
-    // 8. Wait for shutdown or reload signal
+    // 8. Start admin server (if enabled via environment variable)
+    let admin_server_handle = if std::env::var("ADMIN_API_ENABLED").is_ok() {
+        info!("Admin API is enabled");
+
+        // Get admin server configuration from environment
+        let admin_addr = std::env::var("ADMIN_API_ADDR")
+            .unwrap_or_else(|_| "127.0.0.1:8443".to_string());
+
+        let audit_log_path = std::env::var("ADMIN_AUDIT_LOG")
+            .unwrap_or_else(|_| "/var/log/quantum-safe-proxy/admin-audit.jsonl".to_string());
+
+        // Parse API keys from environment (format: "name:key:role,name:key:role")
+        let api_keys = parse_api_keys_from_env();
+
+        if api_keys.is_empty() {
+            log::warn!("No API keys configured for admin server. Admin API will not accept any requests.");
+        }
+
+        let admin_config = quantum_safe_proxy::admin::server::AdminServerConfig {
+            listen_addr: admin_addr.parse()
+                .expect("Invalid ADMIN_API_ADDR format"),
+            api_keys,
+            audit_log_path,
+        };
+
+        // Spawn admin server in background task
+        let handle = tokio::spawn(async move {
+            if let Err(e) = quantum_safe_proxy::admin::start_admin_server(admin_config).await {
+                log::error!("Admin server error: {}", e);
+            }
+        });
+
+        Some(handle)
+    } else {
+        info!("Admin API is disabled (set ADMIN_API_ENABLED=1 to enable)");
+        None
+    };
+
+    // 9. Wait for shutdown or reload signal
     let mut sighup = signal(SignalKind::hangup())?;
     tokio::spawn(async move {
         while let Some(_) = sighup.recv().await {
@@ -86,7 +124,57 @@ async fn main() -> Result<()> {
 
     // Shutdown gracefully
     proxy_handle.shutdown().await?;
+
+    // Shutdown admin server if running
+    if let Some(handle) = admin_server_handle {
+        handle.abort();
+        info!("Admin server stopped");
+    }
+
     info!("Proxy service stopped");
 
     Ok(())
+}
+
+/// Parse API keys from environment variable
+fn parse_api_keys_from_env() -> Vec<quantum_safe_proxy::admin::types::ApiKey> {
+    use quantum_safe_proxy::admin::types::{ApiKey, Role};
+
+    let api_keys_str = match std::env::var("ADMIN_API_KEYS") {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut api_keys = Vec::new();
+
+    for entry in api_keys_str.split(',') {
+        let parts: Vec<&str> = entry.split(':').collect();
+        if parts.len() != 3 {
+            log::warn!("Invalid API key entry format: {}", entry);
+            continue;
+        }
+
+        let name = parts[0].trim().to_string();
+        let key = parts[1].trim().to_string();
+        let role_str = parts[2].trim().to_lowercase();
+
+        let role = match role_str.as_str() {
+            "admin" => Role::Admin,
+            "operator" => Role::Operator,
+            "viewer" => Role::Viewer,
+            _ => {
+                log::warn!("Invalid role '{}' for API key '{}', skipping", role_str, name);
+                continue;
+            }
+        };
+
+        api_keys.push(ApiKey {
+            key,
+            role,
+            name,
+            expires_at: None,
+        });
+    }
+
+    api_keys
 }

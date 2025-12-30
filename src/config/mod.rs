@@ -11,7 +11,7 @@
 //! 4. Default values (lowest priority)
 //!
 //! ## Certificate Strategy
-//! 
+//!
 //! The certificate strategy is now automatically determined:
 //! - **Single mode**: Only primary certificate (`cert`/`key`) is configured
 //! - **Dynamic mode**: Both primary and fallback certificates are configured
@@ -19,7 +19,6 @@
 //! This eliminates the need for explicit `strategy` configuration.
 
 // Internal modules
-mod types;
 mod source;
 mod manager;
 mod actor;
@@ -27,6 +26,7 @@ mod loader;
 mod traits;
 
 // Public modules
+pub mod types;
 pub mod error;
 pub mod validator;
 pub mod builder;

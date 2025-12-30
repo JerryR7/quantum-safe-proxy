@@ -14,5 +14,21 @@
   "fallback_cert":       "certs/traditional/rsa/server.crt",       // 備用憑證路徑
   "fallback_key":        "certs/traditional/rsa/server.key",       // 備用金鑰路徑
 
-  "client_ca_cert":      "certs/hybrid/ml-dsa-65/ca.crt"           // 客戶端 CA 憑證
+  "client_ca_cert":      "certs/hybrid/ml-dsa-65/ca.crt",          // 客戶端 CA 憑證
+
+  // ---------- Admin API 設定 (選用) ----------
+  // 注意：Admin API 主要透過環境變數配置，以下為參考說明
+  // 啟用 Admin API:
+  //   export ADMIN_API_ENABLED=1
+  //   export ADMIN_API_ADDR="127.0.0.1:8443"
+  //   export ADMIN_AUDIT_LOG="/var/log/quantum-safe-proxy/admin-audit.jsonl"
+  //   export ADMIN_API_KEYS="admin:your-secret-key:admin,viewer:readonly-key:viewer"
+  //
+  // API Keys 格式: "name:key:role" (role: viewer, operator, admin)
+  // 建議使用 openssl rand -base64 32 生成安全的 API key
+  //
+  // 啟用後可透過瀏覽器訪問: http://127.0.0.1:8443/
+  // - Status 頁面: 查看運行狀態和 TLS 模式統計
+  // - Configuration 頁面: 修改設定（支援熱重載）
+  // - Audit Log 頁面: 查看配置變更審計日誌
 }

@@ -37,11 +37,20 @@ socket2 = "0.5"
 futures = "0.3"
 metrics = "0.24.2"
 foreign-types-shared = "0.1"
+# Admin API dependencies
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+http = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+sha2 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 mockall = "0.12"
 serial_test = "3.0"
 tempfile = "3.10"
+reqwest = { version = "0.11", features = ["json"] }
 
 [profile.release]
 opt-level = 3
