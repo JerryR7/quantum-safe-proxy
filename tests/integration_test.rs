@@ -5,8 +5,6 @@
 use quantum_safe_proxy::config::ProxyConfig;
 use quantum_safe_proxy::tls::{is_hybrid_cert, get_cert_subject, get_cert_fingerprint};
 use std::path::PathBuf;
-use std::net::SocketAddr;
-use std::str::FromStr;
 
 // Define a local ConnectionInfo struct for testing
 #[derive(Debug, Clone)]
@@ -32,6 +30,40 @@ fn test_config_creation() {
     let warnings = quantum_safe_proxy::ConfigValidator::check_warnings(&config);
     // Default config may have warnings, but it should not panic
     println!("Config warnings: {:?}", warnings);
+
+    // Test auto-detection of certificate mode
+    println!("Has fallback (Dynamic mode): {}", config.has_fallback());
+}
+
+#[test]
+fn test_config_with_fallback() {
+    // Test creating configuration with fallback (Dynamic mode)
+    let mut config = ProxyConfig::default();
+    config.values.cert = Some(PathBuf::from("certs/hybrid/server.crt"));
+    config.values.key = Some(PathBuf::from("certs/hybrid/server.key"));
+    config.values.fallback_cert = Some(PathBuf::from("certs/traditional/server.crt"));
+    config.values.fallback_key = Some(PathBuf::from("certs/traditional/server.key"));
+
+    // Should be in Dynamic mode
+    assert!(config.has_fallback());
+
+    // Test accessors
+    assert_eq!(config.cert(), PathBuf::from("certs/hybrid/server.crt"));
+    assert_eq!(config.fallback_cert(), Some(PathBuf::from("certs/traditional/server.crt").as_path()));
+}
+
+#[test]
+fn test_config_without_fallback() {
+    // Test creating configuration without fallback (Single mode)
+    let mut config = ProxyConfig::default();
+    config.values.cert = Some(PathBuf::from("certs/hybrid/server.crt"));
+    config.values.key = Some(PathBuf::from("certs/hybrid/server.key"));
+
+    // Should be in Single mode
+    assert!(!config.has_fallback());
+
+    // Fallback should be None
+    assert!(config.fallback_cert().is_none());
 }
 
 #[test]
@@ -79,5 +111,57 @@ fn test_common_types() {
     assert!(cert_info.is_hybrid);
 }
 
-// We've removed the test_utils function as it's no longer needed
-// The functionality is now tested directly in the modules where it's implemented
+#[test]
+fn test_backward_compat_accessors() {
+    // Test that backward compatibility accessors work
+    let mut config = ProxyConfig::default();
+    config.values.cert = Some(PathBuf::from("certs/hybrid/server.crt"));
+    config.values.key = Some(PathBuf::from("certs/hybrid/server.key"));
+    config.values.fallback_cert = Some(PathBuf::from("certs/traditional/server.crt"));
+    config.values.fallback_key = Some(PathBuf::from("certs/traditional/server.key"));
+    config.values.client_ca_cert = Some(PathBuf::from("certs/ca.crt"));
+
+    // New accessors
+    assert_eq!(config.cert(), PathBuf::from("certs/hybrid/server.crt"));
+    assert_eq!(config.key(), PathBuf::from("certs/hybrid/server.key"));
+    assert_eq!(config.client_ca_cert(), PathBuf::from("certs/ca.crt"));
+
+    // Backward compat accessors
+    assert_eq!(config.hybrid_cert(), PathBuf::from("certs/hybrid/server.crt"));
+    assert_eq!(config.hybrid_key(), PathBuf::from("certs/hybrid/server.key"));
+    assert_eq!(config.client_ca_cert_path(), PathBuf::from("certs/ca.crt"));
+}
+
+#[test]
+fn test_build_cert_strategy() {
+    // Test building certificate strategy from config
+    let mut config = ProxyConfig::default();
+    config.values.cert = Some(PathBuf::from("certs/hybrid/server.crt"));
+    config.values.key = Some(PathBuf::from("certs/hybrid/server.key"));
+
+    // Build strategy (Single mode since no fallback)
+    let strategy = quantum_safe_proxy::tls::build_cert_strategy(&config);
+    assert!(strategy.is_ok());
+
+    let strategy = strategy.unwrap();
+    assert!(strategy.is::<quantum_safe_proxy::tls::strategy::CertStrategy>());
+}
+
+#[test]
+fn test_build_dynamic_cert_strategy() {
+    // Test building dynamic certificate strategy from config
+    let mut config = ProxyConfig::default();
+    config.values.cert = Some(PathBuf::from("certs/hybrid/server.crt"));
+    config.values.key = Some(PathBuf::from("certs/hybrid/server.key"));
+    config.values.fallback_cert = Some(PathBuf::from("certs/traditional/server.crt"));
+    config.values.fallback_key = Some(PathBuf::from("certs/traditional/server.key"));
+
+    // Build strategy (Dynamic mode since has fallback)
+    assert!(config.has_fallback());
+
+    let strategy = quantum_safe_proxy::tls::build_cert_strategy(&config);
+    assert!(strategy.is_ok());
+
+    let strategy = strategy.unwrap();
+    assert!(strategy.is::<quantum_safe_proxy::tls::strategy::CertStrategy>());
+}

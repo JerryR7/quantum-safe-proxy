@@ -3,8 +3,8 @@
 //! This example demonstrates how to use a configuration file with Quantum Safe Proxy.
 
 use quantum_safe_proxy::{Proxy, create_tls_acceptor, Result};
-use quantum_safe_proxy::config::ProxyConfig;
 use std::fs;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
 
     println!("Starting Quantum Safe Proxy with configuration file...");
 
-    // Create a configuration file
+    // Create a configuration file with new field names
     let config_content = r#"{
         "listen": "0.0.0.0:8443",
         "target": "127.0.0.1:6000",
@@ -22,15 +22,13 @@ async fn main() -> Result<()> {
         "buffer_size": 8192,
         "connection_timeout": 30,
 
-        "strategy": "dynamic",
+        "cert": "certs/hybrid/dilithium3/server.crt",
+        "key": "certs/hybrid/dilithium3/server.key",
 
-        "traditional_cert": "certs/traditional/rsa/server.crt",
-        "traditional_key": "certs/traditional/rsa/server.key",
+        "fallback_cert": "certs/traditional/rsa/server.crt",
+        "fallback_key": "certs/traditional/rsa/server.key",
 
-        "hybrid_cert": "certs/hybrid/dilithium3/server.crt",
-        "hybrid_key": "certs/hybrid/dilithium3/server.key",
-
-        "client_ca_cert_path": "certs/hybrid/dilithium3/ca.crt"
+        "client_ca_cert": "certs/hybrid/dilithium3/ca.crt"
     }"#;
 
     // Write the configuration to a temporary file
@@ -43,19 +41,18 @@ async fn main() -> Result<()> {
     println!("Loaded configuration:");
     println!("  Listen: {:?}", config.listen());
     println!("  Target: {:?}", config.target());
-    println!("  Strategy: {:?}", config.strategy());
-    println!("  Traditional Certificate: {:?}", config.traditional_cert());
-    println!("  Hybrid Certificate: {:?}", config.hybrid_cert());
+    println!("  Certificate mode: {}", if config.has_fallback() { "Dynamic" } else { "Single" });
+    println!("  Primary Certificate: {:?}", config.cert());
+    println!("  Fallback Certificate: {:?}", config.fallback_cert());
     println!("  Buffer size: {:?} bytes", config.buffer_size());
     println!("  Connection timeout: {:?} seconds", config.connection_timeout());
 
-    // Build certificate strategy
+    // Build certificate strategy (auto-detected from config)
     let strategy = quantum_safe_proxy::tls::build_cert_strategy(&config)?;
 
-    // Create TLS acceptor with system-detected TLS settings
-    // Extract the CertStrategy from the Box<dyn Any>
+    // Create TLS acceptor
     let cert_strategy = match strategy.downcast::<quantum_safe_proxy::tls::strategy::CertStrategy>() {
-        Ok(cs) => *cs,  // Unbox it
+        Ok(cs) => *cs,
         Err(_) => {
             let err_msg = "Failed to downcast strategy to CertStrategy";
             eprintln!("{}", err_msg);
@@ -64,34 +61,23 @@ async fn main() -> Result<()> {
     };
 
     let tls_acceptor = create_tls_acceptor(
-        config.client_ca_cert_path(),
+        config.client_ca_cert(),
         &config.client_cert_mode(),
         cert_strategy,
     )?;
 
-    // Create and start proxy
-    let listen_addr = if let Some(addr) = config.values.listen {
-        addr
-    } else {
-        return Err(quantum_safe_proxy::common::ProxyError::Config("Listen address not set".to_string()));
-    };
-
-    let target_addr = if let Some(addr) = config.values.target {
-        addr
-    } else {
-        return Err(quantum_safe_proxy::common::ProxyError::Config("Target address not set".to_string()));
-    };
-
+    // Create and start the proxy
     let mut proxy = Proxy::new(
-        listen_addr,
-        target_addr,
+        config.listen(),
+        config.target(),
         tls_acceptor,
-        std::sync::Arc::new(config),  // Wrap ProxyConfig in Arc
+        Arc::new(config),
     );
 
-    println!("Proxy service is ready, press Ctrl+C to stop");
+    println!("Proxy started successfully");
+    println!("Press Ctrl+C to stop");
 
-    // Run proxy service
+    // Run the proxy
     proxy.run().await?;
 
     // Clean up

@@ -6,23 +6,13 @@
   "client_cert_mode":    "optional",               // 客戶端憑證模式
   "buffer_size":         8192,                     // 緩衝區大小
   "connection_timeout":  30,                       // 連線逾時（秒）
-  "openssl_dir":         "/opt/openssl35",         // OpenSSL 3.5 安裝路徑
 
-  // ---------- TLS 策略 ----------  
-  "strategy":            "dynamic",                // 證書策略：dynamic, sigalgs, single
+  // ---------- 憑證與金鑰設定 ----------
+  "cert":                "certs/hybrid/ml-dsa-65/server.crt",      // 主憑證路徑
+  "key":                 "certs/hybrid/ml-dsa-65/server.key",      // 主金鑰路徑
 
-  // 傳統 (fallback) 憑證──leaf + intermediate 已合併
-  "traditional_cert":    "certs/traditional/rsa/server.crt",
-  "traditional_key":     "certs/traditional/rsa/server.key",
+  "fallback_cert":       "certs/traditional/rsa/server.crt",       // 備用憑證路徑
+  "fallback_key":        "certs/traditional/rsa/server.key",       // 備用金鑰路徑
 
-  // Hybrid 憑證──leaf + intermediate 已合併
-  "hybrid_cert":         "certs/hybrid/ml-dsa-65/server.crt",
-  "hybrid_key":          "certs/hybrid/ml-dsa-65/server.key",
-
-  // （選填）純 PQC-only，如果不需要可留 null
-  "pqc_only_cert":       null,
-  "pqc_only_key":        null,
-
-  // 驗客戶端用的 CA 根憑證，client_cert_mode = Optional / Require 時必填
-  "client_ca_cert_path": "certs/hybrid/ml-dsa-65/ca.crt"
+  "client_ca_cert":      "certs/hybrid/ml-dsa-65/ca.crt"           // 客戶端 CA 憑證
 }

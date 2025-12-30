@@ -5,7 +5,7 @@
 use std::path::Path;
 use log::warn;
 
-use crate::config::types::{ProxyConfig, CertStrategyType, check_file_exists};
+use crate::config::types::{ProxyConfig, check_file_exists};
 use crate::config::error::{ConfigError, Result};
 
 /// Validate the configuration
@@ -24,8 +24,6 @@ pub fn validate_config(config: &ProxyConfig) -> Result<()> {
 
 /// Validate network settings
 fn validate_network_settings(config: &ProxyConfig) -> Result<()> {
-    // Listen and target addresses are already validated during parsing
-
     // Check that listen and target addresses are different
     if config.listen() == config.target() {
         return Err(ConfigError::InvalidCombination(
@@ -38,50 +36,23 @@ fn validate_network_settings(config: &ProxyConfig) -> Result<()> {
 
 /// Validate certificate settings
 fn validate_certificate_settings(config: &ProxyConfig) -> Result<()> {
-    match config.strategy() {
-        CertStrategyType::Single => {
-            // For Single strategy, we need either traditional or hybrid certificate
-            let has_traditional = check_file_exists(config.traditional_cert()) && check_file_exists(config.traditional_key());
-            let has_hybrid = check_file_exists(config.hybrid_cert()) && check_file_exists(config.hybrid_key());
+    // Primary certificate is always required
+    validate_file_exists(config.cert(), "Primary certificate")?;
+    validate_file_exists(config.key(), "Primary private key")?;
 
-            if !has_traditional && !has_hybrid {
-                return Err(ConfigError::InvalidCombination(
-                    "Single strategy requires either traditional or hybrid certificate and key".to_string()
-                ));
-            }
+    // If fallback is configured, both cert and key must exist
+    if config.has_fallback() {
+        if let Some(cert) = config.fallback_cert() {
+            validate_file_exists(cert, "Fallback certificate")?;
         }
-
-        CertStrategyType::SigAlgs | CertStrategyType::Dynamic => {
-            // For SigAlgs and Dynamic strategies, we need both traditional and hybrid certificates
-            validate_file_exists(config.traditional_cert(), "Traditional certificate")?;
-            validate_file_exists(config.traditional_key(), "Traditional private key")?;
-            validate_file_exists(config.hybrid_cert(), "Hybrid certificate")?;
-            validate_file_exists(config.hybrid_key(), "Hybrid private key")?;
-
-            // For Dynamic strategy, PQC-only certificate is optional but if specified, both cert and key must exist
-            if config.strategy() == CertStrategyType::Dynamic {
-                if let Some(cert_path) = config.pqc_only_cert() {
-                    validate_file_exists(cert_path, "PQC-only certificate")?;
-
-                    if let Some(key_path) = config.pqc_only_key() {
-                        validate_file_exists(key_path, "PQC-only private key")?;
-                    } else {
-                        return Err(ConfigError::MissingRequiredValue(
-                            "PQC-only private key is required when PQC-only certificate is specified".to_string()
-                        ));
-                    }
-                } else if config.pqc_only_key().is_some() {
-                    return Err(ConfigError::MissingRequiredValue(
-                        "PQC-only certificate is required when PQC-only private key is specified".to_string()
-                    ));
-                }
-            }
+        if let Some(key) = config.fallback_key() {
+            validate_file_exists(key, "Fallback private key")?;
         }
     }
 
     // Validate client CA certificate if client certificate verification is enabled
     if config.client_cert_mode().to_string() != "none" {
-        validate_file_exists(config.client_ca_cert_path(), "Client CA certificate")?;
+        validate_file_exists(config.client_ca_cert(), "Client CA certificate")?;
     }
 
     Ok(())
@@ -138,9 +109,6 @@ fn validate_file_exists(path: &Path, _description: &str) -> Result<()> {
 /// Configuration validator trait
 pub trait ConfigValidator {
     /// Check configuration for warnings
-    ///
-    /// This method checks the configuration and returns a list of warnings.
-    /// Unlike validate_config, this method does not return an error if the configuration is invalid.
     fn check_warnings(&self) -> Vec<String>;
 }
 
@@ -148,33 +116,53 @@ impl ConfigValidator for ProxyConfig {
     fn check_warnings(&self) -> Vec<String> {
         let mut warnings = Vec::new();
 
-        // Check certificate paths
-        if !Path::new(self.traditional_cert()).exists() {
-            warnings.push(format!("Traditional certificate file not found: {}", self.traditional_cert().display()));
+        // Check log level
+        match self.log_level() {
+            "error" | "warn" | "info" | "debug" | "trace" => {}
+            level => {
+                warnings.push(format!("Invalid log level '{}', using default 'info'", level));
+            }
         }
 
-        if !Path::new(self.traditional_key()).exists() {
-            warnings.push(format!("Traditional key file not found: {}", self.traditional_key().display()));
+        // Check if primary certificate files exist
+        if !check_file_exists(self.cert()) {
+            warnings.push(format!(
+                "Primary certificate file not found: {}",
+                self.cert().display()
+            ));
         }
 
-        if !Path::new(self.hybrid_cert()).exists() {
-            warnings.push(format!("Hybrid certificate file not found: {}", self.hybrid_cert().display()));
+        if !check_file_exists(self.key()) {
+            warnings.push(format!(
+                "Primary key file not found: {}",
+                self.key().display()
+            ));
         }
 
-        if !Path::new(self.hybrid_key()).exists() {
-            warnings.push(format!("Hybrid key file not found: {}", self.hybrid_key().display()));
+        // Check fallback certificates if configured
+        if let Some(cert) = self.fallback_cert() {
+            if !check_file_exists(cert) {
+                warnings.push(format!(
+                    "Fallback certificate file not found: {}",
+                    cert.display()
+                ));
+            }
         }
 
-        // Check if client CA certificate exists when client cert mode is not None
-        if self.client_cert_mode().to_string() != "none" && !Path::new(self.client_ca_cert_path()).exists() {
-            warnings.push(format!("Client CA certificate file not found: {}", self.client_ca_cert_path().display()));
+        if let Some(key) = self.fallback_key() {
+            if !check_file_exists(key) {
+                warnings.push(format!(
+                    "Fallback key file not found: {}",
+                    key.display()
+                ));
+            }
         }
 
         warnings
     }
 }
 
-/// Backward compatibility function for check_warnings
+/// Check configuration for warnings (standalone function for backward compatibility)
 pub fn check_warnings(config: &ProxyConfig) -> Vec<String> {
     ConfigValidator::check_warnings(config)
 }

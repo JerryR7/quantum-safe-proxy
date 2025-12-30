@@ -1,29 +1,35 @@
 // src/tls/strategy.rs
+//!
+//! Certificate strategy for TLS connections.
+//!
+//! The proxy automatically determines the strategy based on configuration:
+//! - Single mode: Only primary certificate configured
+//! - Dynamic mode: Both primary and fallback certificates configured
+
 use openssl::ssl::{SslAcceptorBuilder, SslFiletype, SslRef, ClientHelloResponse};
 use openssl::error::ErrorStack;
 use std::path::PathBuf;
 use std::any::Any;
 use log::{info, warn, error};
 use crate::common::{Result, ProxyError};
-use crate::config::{ProxyConfig, CertStrategyType};
+use crate::config::ProxyConfig;
 
 /// Certificate strategies for TLS connections
 #[derive(Debug)]
 pub enum CertStrategy {
     /// Single certificate strategy (uses one certificate for all connections)
-    Single { cert: PathBuf, key: PathBuf },
-
-    /// SigAlgs strategy (uses classic or hybrid based on client capabilities)
-    SigAlgs {
-        classic: (PathBuf, PathBuf),
-        hybrid:  (PathBuf, PathBuf),
+    Single { 
+        cert: PathBuf, 
+        key: PathBuf,
     },
 
     /// Dynamic callback strategy (examines client hello to determine certificate)
+    /// Automatically selects between primary (PQC/hybrid) and fallback (traditional)
     Dynamic {
-        traditional: (PathBuf, PathBuf),
-        hybrid: (PathBuf, PathBuf),
-        pqc_only: Option<(PathBuf, PathBuf)>,
+        /// Primary certificate (typically hybrid/PQC)
+        primary: (PathBuf, PathBuf),
+        /// Fallback certificate for non-PQC clients (traditional RSA/ECDSA)
+        fallback: (PathBuf, PathBuf),
     },
 }
 
@@ -43,119 +49,65 @@ impl CertStrategy {
     pub fn apply(&self, builder: &mut SslAcceptorBuilder) -> Result<()> {
         match self {
             CertStrategy::Single { cert, key } => {
-                info!("Using single certificate strategy");
-                Self::verify_cert_key_exist(cert, key, "Single")?;
+                info!("Using single certificate mode");
+                Self::verify_cert_key_exist(cert, key, "Primary")?;
 
                 builder.set_certificate_file(cert, SslFiletype::PEM)?;
                 builder.set_private_key_file(key, SslFiletype::PEM)?;
             }
 
-            CertStrategy::SigAlgs { classic, hybrid } => {
-                info!("Using SigAlgs certificate strategy");
-                Self::verify_cert_key_exist(&classic.0, &classic.1, "Classic")?;
-
-                // Set classic certificate as base
-                builder.set_certificate_file(&classic.0, SslFiletype::PEM)?;
-                builder.set_private_key_file(&classic.1, SslFiletype::PEM)?;
-
-                // Try to add hybrid certificate if available
-                if !hybrid.0.exists() || !hybrid.1.exists() {
-                    info!("Using only classic certificate due to missing hybrid certificate or key");
-                    return Ok(());
-                }
-
-                // Load and add hybrid certificate to chain
-                match openssl::x509::X509::from_pem(&std::fs::read(&hybrid.0)?) {
-                    Ok(cert) => {
-                        if let Err(e) = builder.add_extra_chain_cert(cert) {
-                            warn!("Failed to add hybrid certificate to chain: {}", e);
-                            return Ok(());
-                        }
-                        info!("Using both classic and hybrid certificates for compatibility");
-                    },
-                    Err(e) => {
-                        warn!("Failed to load hybrid certificate: {}", e);
-                        return Ok(());
-                    }
-                };
-            }
-
-            CertStrategy::Dynamic { traditional, hybrid, pqc_only } => {
-                info!("Using dynamic certificate strategy with client hello callback");
+            CertStrategy::Dynamic { primary, fallback } => {
+                info!("Using dynamic certificate mode (auto-select based on client capabilities)");
 
                 // Verify all certificate and key files exist
-                Self::verify_cert_key_exist(&traditional.0, &traditional.1, "Traditional")?;
-                Self::verify_cert_key_exist(&hybrid.0, &hybrid.1, "Hybrid")?;
-
-                if let Some(pqc) = pqc_only {
-                    Self::verify_cert_key_exist(&pqc.0, &pqc.1, "PQC-only")?;
-                }
+                Self::verify_cert_key_exist(&primary.0, &primary.1, "Primary")?;
+                Self::verify_cert_key_exist(&fallback.0, &fallback.1, "Fallback")?;
 
                 // Preload all certificates and keys
-                let trad_cert_key = load_cert_and_key(&traditional.0, &traditional.1)
-                    .map_err(|e| ProxyError::Config(format!("Failed to load traditional certificate and key: {}", e)))?;
+                let primary_cert_key = load_cert_and_key(&primary.0, &primary.1)
+                    .map_err(|e| ProxyError::Config(format!("Failed to load primary certificate: {}", e)))?;
 
-                let hybrid_cert_key = load_cert_and_key(&hybrid.0, &hybrid.1)
-                    .map_err(|e| ProxyError::Config(format!("Failed to load hybrid certificate and key: {}", e)))?;
+                let fallback_cert_key = load_cert_and_key(&fallback.0, &fallback.1)
+                    .map_err(|e| ProxyError::Config(format!("Failed to load fallback certificate: {}", e)))?;
 
-                let pqc_cert_key = if let Some(pqc) = pqc_only {
-                    Some(load_cert_and_key(&pqc.0, &pqc.1)
-                        .map_err(|e| ProxyError::Config(format!("Failed to load PQC-only certificate and key: {}", e)))?)
-                } else {
-                    None
-                };
-
-                // Set traditional certificate as default
-                builder.set_certificate(&trad_cert_key.0)?;
-                builder.set_private_key(&trad_cert_key.1)?;
+                // Set fallback certificate as default (for non-PQC clients)
+                builder.set_certificate(&fallback_cert_key.0)?;
+                builder.set_private_key(&fallback_cert_key.1)?;
 
                 // Use Arc to share ownership with the callback closure
                 use std::sync::Arc;
-                let trad_cert = Arc::new(trad_cert_key.0);
-                let trad_key = Arc::new(trad_cert_key.1);
-                let hybrid_cert = Arc::new(hybrid_cert_key.0);
-                let hybrid_key = Arc::new(hybrid_cert_key.1);
-                let pqc_cert_key = pqc_cert_key.map(|(cert, key)| (Arc::new(cert), Arc::new(key)));
+                let primary_cert = Arc::new(primary_cert_key.0);
+                let primary_key = Arc::new(primary_cert_key.1);
+                let fallback_cert = Arc::new(fallback_cert_key.0);
+                let fallback_key = Arc::new(fallback_cert_key.1);
 
                 // Set client hello callback for dynamic certificate selection
                 builder.set_client_hello_callback(move |ssl, _alert| {
                     if detect_client_pqc_support(ssl) {
-                        // Try PQC-only certificate for fully PQC-capable clients
-                        if let Some((pqc_cert, pqc_key)) = &pqc_cert_key {
-                            if detect_client_full_pqc_support(ssl) {
-                                info!("Using PQC-only certificate for fully PQC-capable client");
-                                if ssl.set_certificate(&**pqc_cert).is_ok() &&
-                                   ssl.set_private_key(&**pqc_key).is_ok() {
-                                    return Ok(ClientHelloResponse::SUCCESS);
-                                }
-                                warn!("Failed to set PQC-only certificate, falling back to hybrid");
-                            }
-                        }
-
-                        // Try hybrid certificate for PQC-capable clients
-                        info!("Using hybrid certificate for PQC-capable client");
-                        if ssl.set_certificate(&*hybrid_cert).is_ok() &&
-                           ssl.set_private_key(&*hybrid_key).is_ok() {
+                        // Use primary (PQC/hybrid) certificate for PQC-capable clients
+                        info!("Client supports PQC, using primary certificate");
+                        if ssl.set_certificate(&*primary_cert).is_ok() &&
+                           ssl.set_private_key(&*primary_key).is_ok() {
                             return Ok(ClientHelloResponse::SUCCESS);
                         }
-                        warn!("Failed to set hybrid certificate, falling back to traditional");
+                        warn!("Failed to set primary certificate, falling back");
                     }
 
-                    // Fallback to traditional certificate
-                    info!("Using traditional certificate");
-                    if let Err(e) = ssl.set_certificate(&*trad_cert) {
-                        error!("Failed to set traditional certificate: {}", e);
+                    // Use fallback (traditional) certificate
+                    info!("Using fallback certificate for traditional client");
+                    if let Err(e) = ssl.set_certificate(&*fallback_cert) {
+                        error!("Failed to set fallback certificate: {}", e);
                         return Err(e);
                     }
-                    if let Err(e) = ssl.set_private_key(&*trad_key) {
-                        error!("Failed to set traditional key: {}", e);
+                    if let Err(e) = ssl.set_private_key(&*fallback_key) {
+                        error!("Failed to set fallback key: {}", e);
                         return Err(e);
                     }
 
                     Ok(ClientHelloResponse::SUCCESS)
                 });
 
-                info!("Dynamic certificate selection callback registered");
+                info!("Dynamic certificate selection enabled");
             }
         }
 
@@ -247,50 +199,48 @@ fn is_pqc_signature_algorithm(id: u16) -> bool {
     (id >= PQC_SIG_ALG_RANGE.0 && id <= PQC_SIG_ALG_RANGE.1)
 }
 
-/// Detect if client fully supports pure PQC (no hybrid)
-fn detect_client_full_pqc_support(ssl: &mut SslRef) -> bool {
-    // First check if client supports PQC at all
-    if !detect_client_pqc_support(ssl) {
-        return false;
-    }
-
-    // Check for full PQC support based on supported groups
-    if let Some(group_ids) = get_extension_ids(ssl, TLSEXT_TYPE_SUPPORTED_GROUPS) {
-        let (pqc, non_pqc) = count_pqc_ids(&group_ids, is_pqc_group);
-        if pqc > 0 && pqc > non_pqc {
-            return true;
-        }
-    }
-
-    // Check for full PQC support based on signature algorithms
-    if let Some(sig_ids) = get_extension_ids(ssl, TLSEXT_TYPE_SIGNATURE_ALGORITHMS) {
-        let (pqc, non_pqc) = count_pqc_ids(&sig_ids, is_pqc_signature_algorithm);
-        if pqc > 0 && pqc > non_pqc / 2 {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Count PQC and non-PQC IDs in a list
-#[inline]
-fn count_pqc_ids<F>(ids: &[u16], is_pqc_id: F) -> (usize, usize)
-where
-    F: Fn(u16) -> bool
-{
-    ids.iter().fold((0, 0), |(pqc, non_pqc), &id| {
-        if is_pqc_id(id) { (pqc + 1, non_pqc) } else { (pqc, non_pqc + 1) }
-    })
-}
-
 /// Helper function to load certificate and private key from files
 fn load_cert_and_key(cert_path: &PathBuf, key_path: &PathBuf) -> std::result::Result<(openssl::x509::X509, openssl::pkey::PKey<openssl::pkey::Private>), ErrorStack> {
-    // Load certificate and key in a more concise way
     let cert = openssl::x509::X509::from_pem(&std::fs::read(cert_path).map_err(|_| ErrorStack::get())?)?;
     let key = openssl::pkey::PKey::private_key_from_pem(&std::fs::read(key_path).map_err(|_| ErrorStack::get())?)?;
 
     Ok((cert, key))
+}
+
+/// Build certificate strategy from configuration
+///
+/// Automatically determines the strategy based on configuration:
+/// - If fallback certificates are configured → Dynamic mode
+/// - Otherwise → Single mode
+impl From<&ProxyConfig> for CertStrategy {
+    fn from(config: &ProxyConfig) -> Self {
+        if config.has_fallback() {
+            // Dynamic mode: auto-select based on client capabilities
+            CertStrategy::Dynamic {
+                primary: (
+                    config.cert().to_path_buf(),
+                    config.key().to_path_buf(),
+                ),
+                fallback: (
+                    config.fallback_cert().unwrap().to_path_buf(),
+                    config.fallback_key().unwrap().to_path_buf(),
+                ),
+            }
+        } else {
+            // Single mode: use primary certificate for all clients
+            CertStrategy::Single {
+                cert: config.cert().to_path_buf(),
+                key: config.key().to_path_buf(),
+            }
+        }
+    }
+}
+
+/// Build certificate strategy from configuration
+///
+/// Returns a boxed strategy that can be used with the TLS acceptor.
+pub fn build_cert_strategy(config: &ProxyConfig) -> Result<Box<dyn Any>> {
+    Ok(Box::new(CertStrategy::from(config)))
 }
 
 #[cfg(test)]
@@ -299,95 +249,64 @@ mod tests {
     use openssl::ssl::{SslMethod, SslAcceptor};
 
     #[test]
-    fn sigalgs_callback_registers() {
+    fn single_strategy_requires_cert_files() {
         let mut builder = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
-        let classic = ("c.crt".into(), "c.key".into());
-        let hybrid  = ("h.crt".into(), "h.key".into());
-        let strat   = CertStrategy::SigAlgs { classic: classic.clone(), hybrid: hybrid.clone() };
+        let strat = CertStrategy::Single { 
+            cert: "nonexistent.crt".into(), 
+            key: "nonexistent.key".into(),
+        };
 
-        // This test just confirms that callback registration doesn't crash
-        // In reality, since we don't have real certificate files, apply would fail
-        // But we just want to confirm that the code structure is correct
         let result = strat.apply(&mut builder);
-        // We expect this to fail because the test files don't exist
-        assert!(result.is_err(), "Should fail when certificate files don't exist");
-
-        // Test single certificate strategy
-        let single_strat = CertStrategy::Single { cert: "c.crt".into(), key: "c.key".into() };
-        let result = single_strat.apply(&mut builder);
-        // We expect this to fail because the test files don't exist
         assert!(result.is_err(), "Should fail when certificate files don't exist");
     }
 
     #[test]
-    fn dynamic_callback_registers() {
+    fn dynamic_strategy_requires_all_cert_files() {
         let mut builder = SslAcceptor::mozilla_intermediate_v5(SslMethod::tls()).unwrap();
-        let traditional = ("t.crt".into(), "t.key".into());
-        let hybrid = ("h.crt".into(), "h.key".into());
-        let pqc_only = Some(("p.crt".into(), "p.key".into()));
-
         let strat = CertStrategy::Dynamic {
-            traditional: traditional.clone(),
-            hybrid: hybrid.clone(),
-            pqc_only: pqc_only.clone()
+            primary: ("primary.crt".into(), "primary.key".into()),
+            fallback: ("fallback.crt".into(), "fallback.key".into()),
         };
 
-        // This test just confirms that callback registration doesn't crash
-        // In reality, since we don't have real certificate files, apply would fail
-        // But we just want to confirm that the code structure is correct
         let result = strat.apply(&mut builder);
-        // We expect this to fail because the test files don't exist
         assert!(result.is_err(), "Should fail when certificate files don't exist");
     }
-}
 
-/// Implement From<ProxyConfig> for CertStrategy
-impl From<&ProxyConfig> for CertStrategy {
-    fn from(config: &ProxyConfig) -> Self {
-        match config.strategy() {
-            CertStrategyType::Single => {
-                CertStrategy::Single {
-                    cert: config.hybrid_cert().to_path_buf(),
-                    key: config.hybrid_key().to_path_buf(),
-                }
+    #[test]
+    fn test_strategy_from_config_single() {
+        // Create a config without fallback (Single mode)
+        let mut config = crate::config::ProxyConfig::default();
+        config.values.cert = Some("certs/hybrid/server.crt".into());
+        config.values.key = Some("certs/hybrid/server.key".into());
+
+        let strategy = CertStrategy::from(&config);
+        
+        match strategy {
+            CertStrategy::Single { cert, key } => {
+                assert_eq!(cert.to_string_lossy(), "certs/hybrid/server.crt");
+                assert_eq!(key.to_string_lossy(), "certs/hybrid/server.key");
             }
-            CertStrategyType::SigAlgs => {
-                CertStrategy::SigAlgs {
-                    classic: (
-                        config.traditional_cert().to_path_buf(),
-                        config.traditional_key().to_path_buf()
-                    ),
-                    hybrid: (
-                        config.hybrid_cert().to_path_buf(),
-                        config.hybrid_key().to_path_buf()
-                    ),
-                }
-            }
-            CertStrategyType::Dynamic => {
-                CertStrategy::Dynamic {
-                    traditional: (
-                        config.traditional_cert().to_path_buf(),
-                        config.traditional_key().to_path_buf()
-                    ),
-                    hybrid: (
-                        config.hybrid_cert().to_path_buf(),
-                        config.hybrid_key().to_path_buf()
-                    ),
-                    pqc_only: config.pqc_only_cert().zip(config.pqc_only_key())
-                        .map(|(cert, key)| (cert.to_path_buf(), key.to_path_buf())),
-                }
-            }
+            _ => panic!("Expected Single strategy"),
         }
     }
-}
 
-/// Build certificate strategy from configuration
-///
-/// This function builds a certificate strategy based on the configuration.
-///
-/// Returns a boxed strategy that can be used with the TLS acceptor.
-pub fn build_cert_strategy(config: &ProxyConfig) -> Result<Box<dyn Any>> {
-    // Convert our strategy to the tls module's strategy using From trait
-    // This is more elegant thanks to the From trait implementation
-    Ok(Box::new(CertStrategy::from(config)))
+    #[test]
+    fn test_strategy_from_config_dynamic() {
+        // Create a config with fallback (Dynamic mode)
+        let mut config = crate::config::ProxyConfig::default();
+        config.values.cert = Some("certs/hybrid/server.crt".into());
+        config.values.key = Some("certs/hybrid/server.key".into());
+        config.values.fallback_cert = Some("certs/traditional/server.crt".into());
+        config.values.fallback_key = Some("certs/traditional/server.key".into());
+
+        let strategy = CertStrategy::from(&config);
+        
+        match strategy {
+            CertStrategy::Dynamic { primary, fallback } => {
+                assert_eq!(primary.0.to_string_lossy(), "certs/hybrid/server.crt");
+                assert_eq!(fallback.0.to_string_lossy(), "certs/traditional/server.crt");
+            }
+            _ => panic!("Expected Dynamic strategy"),
+        }
+    }
 }

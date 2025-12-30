@@ -1,7 +1,7 @@
 services:
   quantum-safe-proxy:
     image: quantum-safe-proxy:openssl35
-#    image: quantum-safe-proxy:oqs
+    #    image: quantum-safe-proxy:oqs
     ports:
       - "8444:8443"
     volumes:
@@ -20,17 +20,15 @@ services:
     command: [
       "--listen", "0.0.0.0:8443",
       "--target", "backend:6001",
-      "--strategy", "dynamic",
-      "--hybrid-cert", "/app/certs/hybrid-server/server.crt",
-      "--hybrid-key", "/app/certs/hybrid-server/server.key",
-      "--traditional-cert", "/app/certs/hybrid-server/server.crt",
-      "--traditional-key", "/app/certs/hybrid-server/server.key",
-      "--client-ca-cert", "/app/certs/hybrid-ca/ca.crt",
+      "--cert", "/app/certs/server-pqc.crt",
+      "--key", "/app/certs/server-pqc.key",
+      "--fallback-cert", "/app/certs/edr-server-hybrid.pem",
+      "--fallback-key", "/app/certs/edr-server-hybrid.pem",
+      "--client-ca-cert", "/app/certs/pqc-full-chain.crt",
       "--log-level", "debug",
       "--client-cert-mode", "required",
       "--buffer-size", "8192",
-      "--connection-timeout", "60",
-      "--openssl-dir", "/opt/openssl35"
+      "--connection-timeout", "60"
     ]
     networks:
       - proxy-network

@@ -66,7 +66,6 @@ impl ConfigBuilder {
 
     /// Build the configuration
     pub fn build(self) -> Result<ProxyConfig> {
-        // Start with an empty configuration (without defaults)
         let mut config = ProxyConfig {
             values: ConfigValues::default(),
             config_file: None,
@@ -81,8 +80,6 @@ impl ConfigBuilder {
             debug!("Loading configuration from source: {:?}", source_type);
 
             let source_config = source.load()?;
-
-            // Merge configurations
             config = config.merge(&source_config, source_type);
         }
 
@@ -148,7 +145,6 @@ pub fn auto_load(args: Vec<String>) -> Result<ProxyConfig> {
     debug!("Building configuration with file: {}", config_file.display());
     let mut builder = ConfigBuilder::new();
 
-    // Add sources in order of priority
     builder = builder.with_defaults();
 
     if config_file.exists() {
@@ -159,14 +155,12 @@ pub fn auto_load(args: Vec<String>) -> Result<ProxyConfig> {
     builder = builder.with_env(ENV_PREFIX);
     builder = builder.with_cli(args);
 
-    // Build the configuration
     let config = builder.build()?;
 
-    // Log the final configuration
     debug!("Configuration loaded successfully");
     debug!("Listen address: {}", config.listen());
     debug!("Target address: {}", config.target());
-    debug!("Log level: {}", config.log_level());
+    debug!("Certificate mode: {}", if config.has_fallback() { "Dynamic" } else { "Single" });
 
     Ok(config)
 }
@@ -174,9 +168,7 @@ pub fn auto_load(args: Vec<String>) -> Result<ProxyConfig> {
 /// Extract config file path from command line arguments
 fn extract_config_file(args: &[String]) -> Option<PathBuf> {
     let mut args_iter = args.iter();
-
-    // Skip the program name
-    args_iter.next();
+    args_iter.next(); // Skip program name
 
     while let Some(arg) = args_iter.next() {
         if arg == "--config-file" {
@@ -197,24 +189,39 @@ fn extract_config_file(args: &[String]) -> Option<PathBuf> {
 /// Print help information
 fn print_help() {
     println!("Usage: quantum-safe-proxy [OPTIONS]");
+    println!();
+    println!("A quantum-safe TLS proxy with automatic certificate selection.");
+    println!();
     println!("Options:");
-    println!("  --listen ADDR                 Listen address (host:port)");
-    println!("  --target ADDR                 Target address (host:port)");
-    println!("  --log-level LEVEL             Log level (error, warn, info, debug, trace)");
-    println!("  --client-cert-mode MODE       Client certificate verification mode (required, optional, none)");
-    println!("  --buffer-size SIZE            Buffer size for data transfer (in bytes)");
-    println!("  --connection-timeout SECONDS  Connection timeout in seconds");
-    println!("  --openssl-dir DIR             OpenSSL installation directory");
-    println!("  --strategy STRATEGY           Certificate strategy type (single, sigalgs, dynamic)");
-    println!("  --traditional-cert FILE       Traditional certificate path");
-    println!("  --traditional-key FILE        Traditional private key path");
-    println!("  --hybrid-cert FILE            Hybrid certificate path");
-    println!("  --hybrid-key FILE             Hybrid private key path");
-    println!("  --pqc-only-cert FILE          PQC-only certificate path");
-    println!("  --pqc-only-key FILE           PQC-only private key path");
-    println!("  --client-ca-cert FILE         Client CA certificate path");
-    println!("  --config-file FILE            Configuration file path");
-    println!("  --show-version                Print version information and exit");
-    println!("  --version                     Print version information and exit");
-    println!("  --help                        Print help information");
+    println!("  --listen ADDR              Listen address (host:port)");
+    println!("  --target ADDR              Target address (host:port)");
+    println!("  --log-level LEVEL          Log level (error, warn, info, debug, trace)");
+    println!("  --client-cert-mode MODE    Client certificate mode (required, optional, none)");
+    println!("  --buffer-size SIZE         Buffer size for data transfer (in bytes)");
+    println!("  --connection-timeout SEC   Connection timeout in seconds");
+    println!("  --openssl-dir DIR          OpenSSL installation directory");
+    println!();
+    println!("Certificate options:");
+    println!("  --cert FILE                Primary certificate (typically hybrid/PQC)");
+    println!("  --key FILE                 Primary private key");
+    println!("  --fallback-cert FILE       Fallback certificate for non-PQC clients");
+    println!("  --fallback-key FILE        Fallback private key");
+    println!("  --client-ca-cert FILE      Client CA certificate for verification");
+    println!();
+    println!("Backward compatibility aliases:");
+    println!("  --hybrid-cert              Alias for --cert");
+    println!("  --hybrid-key               Alias for --key");
+    println!("  --traditional-cert         Alias for --fallback-cert");
+    println!("  --traditional-key          Alias for --fallback-key");
+    println!();
+    println!("Other options:");
+    println!("  --config-file FILE         Configuration file path");
+    println!("  --version                  Print version information");
+    println!("  --help                     Print this help message");
+    println!();
+    println!("Certificate Strategy:");
+    println!("  The proxy automatically determines the certificate strategy:");
+    println!("  - Single mode: Only --cert/--key provided (one certificate for all)");
+    println!("  - Dynamic mode: Both primary and fallback certs provided");
+    println!("                  (auto-selects based on client PQC support)");
 }

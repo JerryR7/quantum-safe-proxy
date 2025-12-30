@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use once_cell::sync::Lazy;
 use log::info;
 
-use crate::config::types::{ProxyConfig, ClientCertMode, CertStrategyType, ValueSource};
+use crate::config::types::{ProxyConfig, ClientCertMode, ValueSource};
 use crate::config::source::{ConfigSource, FileSource};
 use crate::config::validator::validate_config;
 use crate::config::error::Result;
@@ -37,8 +37,8 @@ pub struct ConfigManager {
     /// Cached value for client certificate required
     client_cert_required: AtomicBool,
 
-    /// Cached value for signature algorithms enabled
-    sigalgs_enabled: AtomicBool,
+    /// Cached value for dynamic certificate selection enabled
+    dynamic_cert_enabled: AtomicBool,
 }
 
 impl ConfigManager {
@@ -46,7 +46,8 @@ impl ConfigManager {
     fn new() -> Self {
         let config = ProxyConfig::default();
         let client_cert_required = config.client_cert_mode() == ClientCertMode::Required;
-        let sigalgs_enabled = config.strategy() == CertStrategyType::SigAlgs;
+        // Dynamic mode is enabled when fallback certificates are configured
+        let dynamic_cert_enabled = config.has_fallback();
 
         log::info!("Creating new ConfigManager with default configuration");
         log::info!("Default listen address: {}", config.listen());
@@ -57,7 +58,7 @@ impl ConfigManager {
             config: RwLock::new(Arc::new(config)),
             listeners: RwLock::new(Vec::new()),
             client_cert_required: AtomicBool::new(client_cert_required),
-            sigalgs_enabled: AtomicBool::new(sigalgs_enabled),
+            dynamic_cert_enabled: AtomicBool::new(dynamic_cert_enabled),
         }
     }
 
@@ -74,7 +75,7 @@ impl ConfigManager {
 
         // Update cached values
         let client_cert_required = config.client_cert_mode() == ClientCertMode::Required;
-        let sigalgs_enabled = config.strategy() == CertStrategyType::SigAlgs;
+        let dynamic_cert_enabled = config.has_fallback();
 
         // Update the configuration
         {
@@ -84,7 +85,7 @@ impl ConfigManager {
 
         // Update cached values
         self.client_cert_required.store(client_cert_required, Ordering::Relaxed);
-        self.sigalgs_enabled.store(sigalgs_enabled, Ordering::Relaxed);
+        self.dynamic_cert_enabled.store(dynamic_cert_enabled, Ordering::Relaxed);
 
         // Notify listeners
         self.notify_listeners(event);
@@ -105,7 +106,6 @@ impl ConfigManager {
         let current_config = self.get_config();
 
         // Create a new configuration by merging the current and file configurations
-        // First clone the current config, then merge with the file config
         let mut new_config = current_config.as_ref().clone();
 
         // Merge with file config (file config has priority over current config)
@@ -141,9 +141,9 @@ impl ConfigManager {
         self.client_cert_required.load(Ordering::Relaxed)
     }
 
-    /// Check if signature algorithms selection is enabled
-    fn is_sigalgs_enabled(&self) -> bool {
-        self.sigalgs_enabled.load(Ordering::Relaxed)
+    /// Check if dynamic certificate selection is enabled
+    fn is_dynamic_cert_enabled(&self) -> bool {
+        self.dynamic_cert_enabled.load(Ordering::Relaxed)
     }
 
     /// Get the buffer size
@@ -172,6 +172,7 @@ pub fn initialize(config: ProxyConfig) -> Result<()> {
     log::info!("Listen address: {}", config.listen());
     log::info!("Target address: {}", config.target());
     log::info!("Log level: {}", config.log_level());
+    log::info!("Certificate mode: {}", if config.has_fallback() { "Dynamic" } else { "Single" });
 
     if let Some(file) = &config.config_file {
         log::info!("Configuration file: {}", file.display());
@@ -190,8 +191,11 @@ pub fn initialize(config: ProxyConfig) -> Result<()> {
     if let Some(ref log_level) = config.values.log_level {
         log::info!("  log_level: {}", log_level);
     }
-    if let Some(ref strategy) = config.values.strategy {
-        log::info!("  strategy: {:?}", strategy);
+    if let Some(ref cert) = config.values.cert {
+        log::info!("  cert: {}", cert.display());
+    }
+    if let Some(ref fallback_cert) = config.values.fallback_cert {
+        log::info!("  fallback_cert: {}", fallback_cert.display());
     }
 
     // Update the global configuration
@@ -238,11 +242,12 @@ pub fn is_client_cert_required() -> bool {
     CONFIG_MANAGER.is_client_cert_required()
 }
 
-/// Check if signature algorithms selection is enabled
+/// Check if dynamic certificate selection is enabled
 ///
-/// This function returns true if signature algorithms selection is enabled.
-pub fn is_sigalgs_enabled() -> bool {
-    CONFIG_MANAGER.is_sigalgs_enabled()
+/// This function returns true if dynamic certificate selection is enabled
+/// (i.e., fallback certificates are configured).
+pub fn is_dynamic_cert_enabled() -> bool {
+    CONFIG_MANAGER.is_dynamic_cert_enabled()
 }
 
 /// Get the buffer size

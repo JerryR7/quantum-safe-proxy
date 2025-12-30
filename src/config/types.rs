@@ -57,50 +57,6 @@ impl FromStr for ClientCertMode {
     }
 }
 
-/// Certificate strategy type
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "lowercase")]
-pub enum CertStrategyType {
-    /// Use a single certificate for all connections
-    Single,
-    /// Use signature algorithms extension to select certificate
-    SigAlgs,
-    /// Dynamically select certificate based on client hello
-    Dynamic,
-}
-
-impl Default for CertStrategyType {
-    fn default() -> Self {
-        CertStrategyType::Dynamic
-    }
-}
-
-impl std::fmt::Display for CertStrategyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CertStrategyType::Single => write!(f, "single"),
-            CertStrategyType::SigAlgs => write!(f, "sigalgs"),
-            CertStrategyType::Dynamic => write!(f, "dynamic"),
-        }
-    }
-}
-
-impl FromStr for CertStrategyType {
-    type Err = ConfigError;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "single" => Ok(Self::Single),
-            "sigalgs" => Ok(Self::SigAlgs),
-            "dynamic" => Ok(Self::Dynamic),
-            _ => Err(ConfigError::InvalidValue(
-                "strategy".to_string(),
-                format!("Invalid certificate strategy: {}. Valid values are: single, sigalgs, dynamic", s)
-            )),
-        }
-    }
-}
-
 /// Source of a configuration value
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValueSource {
@@ -173,6 +129,15 @@ pub fn check_file_exists(path: &Path) -> bool {
 /// Configuration values
 ///
 /// Contains all configuration values with their optional state.
+/// 
+/// # Certificate Configuration
+/// 
+/// The proxy automatically determines the certificate strategy based on which
+/// certificates are provided:
+/// 
+/// - If only `cert`/`key` are provided: Single certificate mode
+/// - If both `cert`/`key` and `fallback_cert`/`fallback_key` are provided: 
+///   Dynamic mode (automatically selects based on client PQC support)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigValues {
@@ -204,43 +169,39 @@ pub struct ConfigValues {
     #[serde(default)]
     pub connection_timeout: Option<u64>,
 
-    /// OpenSSL installation directory
+    /// OpenSSL installation directory (advanced option)
+    /// 
+    /// NOTE: This setting primarily affects compile-time linking.
+    /// For runtime, use environment variables instead:
+    ///   - OPENSSL_DIR
+    ///   - LD_LIBRARY_PATH
+    /// 
+    /// In Docker containers, this is typically not needed as the
+    /// environment is pre-configured via Dockerfile ENV.
     #[serde(default)]
     pub openssl_dir: Option<PathBuf>,
 
-    // --- Certificate strategy settings ---
+    // --- Certificate settings (simplified) ---
 
-    /// Certificate strategy type (single, sigalgs, dynamic)
-    #[serde(default)]
-    pub strategy: Option<CertStrategyType>,
+    /// Primary certificate path (typically hybrid/PQC certificate)
+    #[serde(default, alias = "hybrid_cert")]
+    pub cert: Option<PathBuf>,
 
-    /// Traditional certificate path (for Dynamic and SigAlgs strategies)
-    #[serde(default)]
-    pub traditional_cert: Option<PathBuf>,
+    /// Primary private key path
+    #[serde(default, alias = "hybrid_key")]
+    pub key: Option<PathBuf>,
 
-    /// Traditional private key path (for Dynamic and SigAlgs strategies)
-    #[serde(default)]
-    pub traditional_key: Option<PathBuf>,
+    /// Fallback certificate path for non-PQC clients (traditional RSA/ECDSA)
+    #[serde(default, alias = "traditional_cert")]
+    pub fallback_cert: Option<PathBuf>,
 
-    /// Hybrid certificate path (for Dynamic and SigAlgs strategies)
-    #[serde(default)]
-    pub hybrid_cert: Option<PathBuf>,
-
-    /// Hybrid private key path (for Dynamic and SigAlgs strategies)
-    #[serde(default)]
-    pub hybrid_key: Option<PathBuf>,
-
-    /// PQC-only certificate path (for Dynamic strategy, optional)
-    #[serde(default)]
-    pub pqc_only_cert: Option<PathBuf>,
-
-    /// PQC-only private key path (for Dynamic strategy, optional)
-    #[serde(default)]
-    pub pqc_only_key: Option<PathBuf>,
+    /// Fallback private key path
+    #[serde(default, alias = "traditional_key")]
+    pub fallback_key: Option<PathBuf>,
 
     /// Client CA certificate path (for client certificate validation)
-    #[serde(default)]
-    pub client_ca_cert_path: Option<PathBuf>,
+    #[serde(default, alias = "client_ca_cert_path")]
+    pub client_ca_cert: Option<PathBuf>,
 }
 
 /// Proxy configuration
@@ -311,14 +272,11 @@ impl Default for ConfigValues {
             buffer_size: None,
             connection_timeout: None,
             openssl_dir: None,
-            strategy: None,
-            traditional_cert: None,
-            traditional_key: None,
-            hybrid_cert: None,
-            hybrid_key: None,
-            pqc_only_cert: None,
-            pqc_only_key: None,
-            client_ca_cert_path: None,
+            cert: None,
+            key: None,
+            fallback_cert: None,
+            fallback_key: None,
+            client_ca_cert: None,
         }
     }
 }
@@ -377,60 +335,87 @@ impl ProxyConfig {
             self.sources.insert("connection_timeout".to_string(), ValueSource::Default);
         }
 
-        // Certificate strategy settings
-        if self.values.strategy.is_none() {
-            self.values.strategy = Some(CertStrategyType::default());
-            self.sources.insert("strategy".to_string(), ValueSource::Default);
+        // Certificate settings
+        if self.values.cert.is_none() {
+            self.values.cert = Some(PathBuf::from(CERT_PATH_STR));
+            self.sources.insert("cert".to_string(), ValueSource::Default);
         }
 
-        if self.values.traditional_cert.is_none() {
-            self.values.traditional_cert = Some(PathBuf::from("certs/traditional/rsa/server.crt"));
-            self.sources.insert("traditional_cert".to_string(), ValueSource::Default);
+        if self.values.key.is_none() {
+            self.values.key = Some(PathBuf::from(KEY_PATH_STR));
+            self.sources.insert("key".to_string(), ValueSource::Default);
         }
 
-        if self.values.traditional_key.is_none() {
-            self.values.traditional_key = Some(PathBuf::from("certs/traditional/rsa/server.key"));
-            self.sources.insert("traditional_key".to_string(), ValueSource::Default);
+        if self.values.client_ca_cert.is_none() {
+            self.values.client_ca_cert = Some(PathBuf::from(CA_CERT_PATH_STR));
+            self.sources.insert("client_ca_cert".to_string(), ValueSource::Default);
+        }
+    }
+
+    /// Load configuration from a specific file
+    pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> crate::common::Result<Self> {
+        use crate::config::{ENV_PREFIX, builder::ConfigBuilder};
+        use log::{debug, warn};
+
+        let path = path.as_ref();
+
+        if !path.exists() {
+            warn!("Configuration file not found: {}", path.display());
+            warn!("Will use default values unless overridden by environment variables");
+        } else {
+            debug!("Using configuration file: {}", path.display());
         }
 
-        if self.values.hybrid_cert.is_none() {
-            self.values.hybrid_cert = Some(PathBuf::from(CERT_PATH_STR));
-            self.sources.insert("hybrid_cert".to_string(), ValueSource::Default);
-        }
+        let config = ConfigBuilder::new()
+            .with_defaults()
+            .with_file(path)
+            .with_env(ENV_PREFIX)
+            .build()?;
 
-        if self.values.hybrid_key.is_none() {
-            self.values.hybrid_key = Some(PathBuf::from(KEY_PATH_STR));
-            self.sources.insert("hybrid_key".to_string(), ValueSource::Default);
-        }
+        debug!("Configuration validated successfully");
+        Ok(config)
+    }
 
-        if self.values.client_ca_cert_path.is_none() {
-            self.values.client_ca_cert_path = Some(PathBuf::from(CA_CERT_PATH_STR));
-            self.sources.insert("client_ca_cert_path".to_string(), ValueSource::Default);
+    /// Auto-detect and load configuration from the best available source
+    pub fn auto_load() -> crate::common::Result<Self> {
+        let args: Vec<String> = std::env::args().collect();
+        crate::config::builder::auto_load(args).map_err(|e| e.into())
+    }
+
+    /// Create a new configuration from an existing one
+    pub fn from_config(config: ProxyConfig) -> Self {
+        config
+    }
+
+    /// Get the underlying configuration
+    pub fn as_config(&self) -> &ProxyConfig {
+        self
+    }
+
+    /// Get the source of a configuration value
+    pub fn source(&self, name: &str) -> &str {
+        match self.sources.get(name) {
+            Some(source) => match source {
+                ValueSource::Default => "default",
+                ValueSource::File => "file",
+                ValueSource::Environment => "environment",
+                ValueSource::CommandLine => "command line",
+            },
+            None => "unknown",
         }
     }
 
     /// Get the listen address
     pub fn listen(&self) -> SocketAddr {
-        // Log the actual value for debugging
-        if let Some(addr) = self.values.listen {
-            debug!("Using configured listen address: {}", addr);
-            return addr;
-        }
-
-        // Use default value
-        let default_addr = parse_socket_addr(LISTEN_STR).unwrap_or_else(|_| {
-            panic!("Invalid default listen address: {}", LISTEN_STR)
-        });
-        debug!("Using default listen address: {}", default_addr);
-        default_addr
+        self.values.listen.unwrap_or_else(|| {
+            parse_socket_addr(LISTEN_STR).expect("Invalid default listen address")
+        })
     }
 
     /// Get the target address
     pub fn target(&self) -> SocketAddr {
         self.values.target.unwrap_or_else(|| {
-            parse_socket_addr(TARGET_STR).unwrap_or_else(|_| {
-                panic!("Invalid default target address: {}", TARGET_STR)
-            })
+            parse_socket_addr(TARGET_STR).expect("Invalid default target address")
         })
     }
 
@@ -455,58 +440,38 @@ impl ProxyConfig {
     }
 
     /// Get the OpenSSL directory
-    pub fn openssl_dir(&self) -> Option<&PathBuf> {
-        self.values.openssl_dir.as_ref()
+    pub fn openssl_dir(&self) -> Option<&Path> {
+        self.values.openssl_dir.as_deref()
     }
 
-    /// Get the certificate strategy type
-    pub fn strategy(&self) -> CertStrategyType {
-        self.values.strategy.unwrap_or_default()
+    /// Get the primary certificate path
+    pub fn cert(&self) -> &Path {
+        self.values.cert.as_deref().unwrap_or_else(|| Path::new(CERT_PATH_STR))
     }
 
-    /// Get the traditional certificate path
-    pub fn traditional_cert(&self) -> &Path {
-        self.values.traditional_cert.as_deref().unwrap_or_else(|| {
-            Path::new("certs/traditional/rsa/server.crt")
-        })
+    /// Get the primary private key path
+    pub fn key(&self) -> &Path {
+        self.values.key.as_deref().unwrap_or_else(|| Path::new(KEY_PATH_STR))
     }
 
-    /// Get the traditional private key path
-    pub fn traditional_key(&self) -> &Path {
-        self.values.traditional_key.as_deref().unwrap_or_else(|| {
-            Path::new("certs/traditional/rsa/server.key")
-        })
+    /// Get the fallback certificate path (for non-PQC clients)
+    pub fn fallback_cert(&self) -> Option<&Path> {
+        self.values.fallback_cert.as_deref()
     }
 
-    /// Get the hybrid certificate path
-    pub fn hybrid_cert(&self) -> &Path {
-        self.values.hybrid_cert.as_deref().unwrap_or_else(|| {
-            Path::new(CERT_PATH_STR)
-        })
-    }
-
-    /// Get the hybrid private key path
-    pub fn hybrid_key(&self) -> &Path {
-        self.values.hybrid_key.as_deref().unwrap_or_else(|| {
-            Path::new(KEY_PATH_STR)
-        })
-    }
-
-    /// Get the PQC-only certificate path
-    pub fn pqc_only_cert(&self) -> Option<&Path> {
-        self.values.pqc_only_cert.as_deref()
-    }
-
-    /// Get the PQC-only private key path
-    pub fn pqc_only_key(&self) -> Option<&Path> {
-        self.values.pqc_only_key.as_deref()
+    /// Get the fallback private key path
+    pub fn fallback_key(&self) -> Option<&Path> {
+        self.values.fallback_key.as_deref()
     }
 
     /// Get the client CA certificate path
-    pub fn client_ca_cert_path(&self) -> &Path {
-        self.values.client_ca_cert_path.as_deref().unwrap_or_else(|| {
-            Path::new(CA_CERT_PATH_STR)
-        })
+    pub fn client_ca_cert(&self) -> &Path {
+        self.values.client_ca_cert.as_deref().unwrap_or_else(|| Path::new(CA_CERT_PATH_STR))
+    }
+
+    /// Check if fallback certificates are configured (enables dynamic mode)
+    pub fn has_fallback(&self) -> bool {
+        self.values.fallback_cert.is_some() && self.values.fallback_key.is_some()
     }
 
     /// Get the configuration file path
@@ -514,53 +479,42 @@ impl ProxyConfig {
         self.config_file.as_deref()
     }
 
-    /// Load configuration from a file
-    pub fn from_file(path: &str) -> crate::config::error::Result<Self> {
-        crate::config::builder::ConfigBuilder::new()
-            .with_defaults()
-            .with_file(path)
-            .build()
+    // --- Backward compatibility aliases ---
+
+    /// Alias for cert() - backward compatibility
+    pub fn hybrid_cert(&self) -> &Path {
+        self.cert()
     }
 
-    /// Auto-load configuration from all sources
-    pub fn auto_load() -> crate::config::error::Result<Self> {
-        crate::config::builder::auto_load(std::env::args().collect())
+    /// Alias for key() - backward compatibility
+    pub fn hybrid_key(&self) -> &Path {
+        self.key()
     }
 
-    /// Create a ProxyConfig from a Config
-    pub fn from_config(config: Self) -> Self {
-        config
+    /// Alias for fallback_cert() - backward compatibility
+    pub fn traditional_cert(&self) -> &Path {
+        self.fallback_cert().unwrap_or_else(|| self.cert())
     }
 
-    /// Get the underlying Config
-    pub fn as_config(&self) -> &Self {
-        self
+    /// Alias for fallback_key() - backward compatibility
+    pub fn traditional_key(&self) -> &Path {
+        self.fallback_key().unwrap_or_else(|| self.key())
     }
 
-    // check method moved to ConfigValidator trait implementation
-
-    // build_cert_strategy method removed - now using tls::strategy_builder::build_cert_strategy instead
-
-    /// Get the source of a configuration value
-    pub fn source(&self, name: &str) -> ValueSource {
-        self.sources.get(name).copied().unwrap_or(ValueSource::Default)
+    /// Alias for client_ca_cert() - backward compatibility
+    pub fn client_ca_cert_path(&self) -> &Path {
+        self.client_ca_cert()
     }
 
     /// Merge two configurations
-    ///
-    /// Values from `other` will override values in `self` only if they are Some.
-    /// The source of each value is tracked.
-    pub fn merge(&self, other: &Self, source: ValueSource) -> Self {
-        debug!("Merging configurations from source: {:?}", source);
+    pub fn merge(&self, other: &ProxyConfig, source: ValueSource) -> Self {
         let mut result = self.clone();
 
-        // Helper macro to merge a field
         macro_rules! merge_field {
-            ($name:expr, $field:ident) => {
-                if let Some(value) = &other.values.$field {
-                    debug!("Merging field '{}' from {:?}: {:?}", $name, source, value);
-                    result.values.$field = Some(value.clone());
-                    result.sources.insert($name.to_string(), source);
+            ($field:expr, $name:ident) => {
+                if other.values.$name.is_some() {
+                    result.values.$name = other.values.$name.clone();
+                    result.sources.insert($field.to_string(), source);
                 }
             };
         }
@@ -576,15 +530,12 @@ impl ProxyConfig {
         merge_field!("connection_timeout", connection_timeout);
         merge_field!("openssl_dir", openssl_dir);
 
-        // Certificate strategy settings
-        merge_field!("strategy", strategy);
-        merge_field!("traditional_cert", traditional_cert);
-        merge_field!("traditional_key", traditional_key);
-        merge_field!("hybrid_cert", hybrid_cert);
-        merge_field!("hybrid_key", hybrid_key);
-        merge_field!("pqc_only_cert", pqc_only_cert);
-        merge_field!("pqc_only_key", pqc_only_key);
-        merge_field!("client_ca_cert_path", client_ca_cert_path);
+        // Certificate settings
+        merge_field!("cert", cert);
+        merge_field!("key", key);
+        merge_field!("fallback_cert", fallback_cert);
+        merge_field!("fallback_key", fallback_key);
+        merge_field!("client_ca_cert", client_ca_cert);
 
         // Configuration file path
         if let Some(path) = &other.config_file {
@@ -598,13 +549,7 @@ impl ProxyConfig {
     pub fn log(&self) {
         debug!("=== Configuration ===");
         debug!("Network settings:");
-
-        // Log the raw listen address value
-        debug!("  Raw listen address value: {:?}", self.values.listen);
-
-        // Log the computed listen address
-        let listen_addr = self.listen();
-        debug!("  Listen address: {} (from {})", listen_addr, self.source("listen"));
+        debug!("  Listen address: {} (from {})", self.listen(), self.source("listen"));
         debug!("  Target address: {} (from {})", self.target(), self.source("target"));
 
         debug!("General settings:");
@@ -617,22 +562,19 @@ impl ProxyConfig {
             debug!("  OpenSSL directory: {} (from {})", dir.display(), self.source("openssl_dir"));
         }
 
-        debug!("Certificate strategy settings:");
-        debug!("  Strategy: {:?} (from {})", self.strategy(), self.source("strategy"));
-        debug!("  Traditional certificate: {} (from {})", self.traditional_cert().display(), self.source("traditional_cert"));
-        debug!("  Traditional key: {} (from {})", self.traditional_key().display(), self.source("traditional_key"));
-        debug!("  Hybrid certificate: {} (from {})", self.hybrid_cert().display(), self.source("hybrid_cert"));
-        debug!("  Hybrid key: {} (from {})", self.hybrid_key().display(), self.source("hybrid_key"));
+        debug!("Certificate settings:");
+        debug!("  Mode: {}", if self.has_fallback() { "Dynamic (auto-select)" } else { "Single" });
+        debug!("  Primary certificate: {} (from {})", self.cert().display(), self.source("cert"));
+        debug!("  Primary key: {} (from {})", self.key().display(), self.source("key"));
 
-        if let Some(cert) = self.pqc_only_cert() {
-            debug!("  PQC-only certificate: {} (from {})", cert.display(), self.source("pqc_only_cert"));
+        if let Some(cert) = self.fallback_cert() {
+            debug!("  Fallback certificate: {} (from {})", cert.display(), self.source("fallback_cert"));
+        }
+        if let Some(key) = self.fallback_key() {
+            debug!("  Fallback key: {} (from {})", key.display(), self.source("fallback_key"));
         }
 
-        if let Some(key) = self.pqc_only_key() {
-            debug!("  PQC-only key: {} (from {})", key.display(), self.source("pqc_only_key"));
-        }
-
-        debug!("  Client CA certificate: {} (from {})", self.client_ca_cert_path().display(), self.source("client_ca_cert_path"));
+        debug!("  Client CA certificate: {} (from {})", self.client_ca_cert().display(), self.source("client_ca_cert"));
 
         if let Some(file) = self.config_file() {
             debug!("  Configuration file: {}", file.display());

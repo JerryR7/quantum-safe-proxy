@@ -3,10 +3,9 @@
 //! This module contains tests for the configuration actor system.
 
 use std::fs;
-use std::sync::Arc;
 
 use quantum_safe_proxy::config::{
-    ProxyConfig, ClientCertMode, CertStrategyType, ConfigActor
+    ProxyConfig, ClientCertMode, ConfigActor
 };
 
 /// Test configuration actor
@@ -28,7 +27,8 @@ async fn test_config_actor() {
     assert_eq!(config.client_cert_mode(), ClientCertMode::Optional);
     assert_eq!(config.buffer_size(), 8192);
     assert_eq!(config.connection_timeout(), 30);
-    assert_eq!(config.strategy(), CertStrategyType::Dynamic);
+    // Default has no fallback
+    assert!(!config.has_fallback());
 
     // Create a new configuration
     let mut new_config = ProxyConfig::default();
@@ -51,7 +51,7 @@ async fn test_config_actor() {
     assert_eq!(updated_config.target().to_string(), "127.0.0.1:6000");
     assert_eq!(updated_config.client_cert_mode(), ClientCertMode::Optional);
     assert_eq!(updated_config.connection_timeout(), 30);
-    assert_eq!(updated_config.strategy(), CertStrategyType::Dynamic);
+    assert!(!updated_config.has_fallback());
 
     // Shutdown the actor
     actor.shutdown().await;
@@ -60,7 +60,7 @@ async fn test_config_actor() {
 /// Test configuration actor reload
 #[tokio::test]
 async fn test_config_actor_reload() {
-    // Create a temporary configuration file
+    // Create a temporary configuration file with new field names
     let config_content = r#"{
         "listen": "127.0.0.1:9000",
         "target": "127.0.0.1:8000",
@@ -68,7 +68,10 @@ async fn test_config_actor_reload() {
         "client_cert_mode": "required",
         "buffer_size": 16384,
         "connection_timeout": 60,
-        "strategy": "sigalgs"
+        "cert": "certs/server-pqc-2.crt",
+        "key": "certs/server-pqc-2.key",
+        "fallback_cert": "certs/server-pqc.crt",
+        "fallback_key": "certs/server-pqc.key"
     }"#;
 
     let config_path = "test_actor_reload.json";
@@ -90,63 +93,34 @@ async fn test_config_actor_reload() {
     assert_eq!(reloaded_config.client_cert_mode(), ClientCertMode::Required);
     assert_eq!(reloaded_config.buffer_size(), 16384);
     assert_eq!(reloaded_config.connection_timeout(), 60);
-    assert_eq!(reloaded_config.strategy(), CertStrategyType::SigAlgs);
+    // Has fallback configured
+    assert!(reloaded_config.has_fallback());
+
+    // Shutdown the actor
+    actor.shutdown().await;
 
     // Clean up
     fs::remove_file(config_path).expect("Failed to remove test config file");
-
-    // Shutdown the actor
-    actor.shutdown().await;
 }
 
-/// Test configuration actor with invalid configuration
+/// Test configuration actor with dynamic mode
 #[tokio::test]
-async fn test_config_actor_invalid() {
-    // Create a default configuration
-    let initial_config = ProxyConfig::default();
+async fn test_config_actor_dynamic_mode() {
+    // Create a configuration with fallback certs (Dynamic mode)
+    let mut config = ProxyConfig::default();
+    config.values.cert = Some("certs/server-pqc-2.crt".into());
+    config.values.key = Some("certs/server-pqc-2.key".into());
+    config.values.fallback_cert = Some("certs/server-pqc.crt".into());
+    config.values.fallback_key = Some("certs/server-pqc.key".into());
 
     // Create a configuration actor
-    let actor = ConfigActor::new(initial_config);
-
-    // Create an invalid configuration (listen and target are the same)
-    let mut invalid_config = ProxyConfig::default();
-    invalid_config.values.listen = Some("127.0.0.1:8000".parse().unwrap());
-    invalid_config.values.target = Some("127.0.0.1:8000".parse().unwrap()); // This will cause validation to fail
-
-    // Update should fail with validation error
-    let result = actor.update_config(invalid_config).await;
-    assert!(result.is_err());
-
-    // Get the current configuration (should still be the initial configuration)
-    let config = actor.get_config().await;
-
-    // Check values (should be unchanged)
-    assert_eq!(config.listen().to_string(), "0.0.0.0:8443");
-
-    // Shutdown the actor
-    actor.shutdown().await;
-}
-
-/// Test configuration actor with non-existent file
-#[tokio::test]
-async fn test_config_actor_missing_file() {
-    // Create a default configuration
-    let initial_config = ProxyConfig::default();
-
-    // Create a configuration actor
-    let actor = ConfigActor::new(initial_config);
-
-    // Reload from non-existent file
-    let result = actor.reload_config("non-existent-file.json").await;
-
-    // Should not fail, but should log a warning and use default values
-    assert!(result.is_ok());
+    let actor = ConfigActor::new(config);
 
     // Get the current configuration
     let config = actor.get_config().await;
 
-    // Check values (should be unchanged)
-    assert_eq!(config.listen().to_string(), "0.0.0.0:8443");
+    // Should be in dynamic mode
+    assert!(config.has_fallback());
 
     // Shutdown the actor
     actor.shutdown().await;

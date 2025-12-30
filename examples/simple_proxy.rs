@@ -14,19 +14,19 @@ async fn main() -> Result<()> {
     println!("Starting simple proxy example...");
 
     // Create certificate strategy
+    // Dynamic mode: auto-selects based on client PQC support
     let strategy = CertStrategy::Dynamic {
-        traditional: (
-            Path::new("certs/traditional/rsa/server.crt").to_path_buf(),
-            Path::new("certs/traditional/rsa/server.key").to_path_buf(),
-        ),
-        hybrid: (
+        primary: (
             Path::new("certs/hybrid/dilithium3/server.crt").to_path_buf(),
             Path::new("certs/hybrid/dilithium3/server.key").to_path_buf(),
         ),
-        pqc_only: None,
+        fallback: (
+            Path::new("certs/traditional/rsa/server.crt").to_path_buf(),
+            Path::new("certs/traditional/rsa/server.key").to_path_buf(),
+        ),
     };
 
-    // Create TLS acceptor with system-detected TLS settings
+    // Create TLS acceptor
     let tls_acceptor = create_tls_acceptor(
         Path::new("certs/hybrid/dilithium3/ca.crt"),
         &quantum_safe_proxy::config::ClientCertMode::Optional,
@@ -37,19 +37,17 @@ async fn main() -> Result<()> {
     let listen_addr = parse_socket_addr("0.0.0.0:8443")?;
     let target_addr = parse_socket_addr("127.0.0.1:6000")?;
 
-    // Create default config and wrap in Arc
     let config = std::sync::Arc::new(quantum_safe_proxy::config::ProxyConfig::default());
 
     let mut proxy = Proxy::new(
         listen_addr,
         target_addr,
         tls_acceptor,
-        config,  // Use Arc<ProxyConfig>
+        config,
     );
 
     println!("Proxy service started, press Ctrl+C to stop");
 
-    // Run proxy service
     proxy.run().await?;
 
     Ok(())

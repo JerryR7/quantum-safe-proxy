@@ -5,7 +5,7 @@
 use std::fs;
 
 use quantum_safe_proxy::config::{
-    ProxyConfig, ClientCertMode, CertStrategyType,
+    ProxyConfig, ClientCertMode,
     ConfigBuilder
 };
 
@@ -22,13 +22,14 @@ fn test_default_config() {
     assert_eq!(config.client_cert_mode(), ClientCertMode::Optional);
     assert_eq!(config.buffer_size(), 8192);
     assert_eq!(config.connection_timeout(), 30);
-    assert_eq!(config.strategy(), CertStrategyType::Dynamic);
+    // Default has no fallback configured, so it's Single mode
+    assert!(!config.has_fallback());
 }
 
 /// Test configuration from file
 #[test]
 fn test_file_config() {
-    // Create a temporary configuration file
+    // Create a temporary configuration file with new field names
     let config_content = r#"{
         "listen": "127.0.0.1:9000",
         "target": "127.0.0.1:8000",
@@ -36,14 +37,22 @@ fn test_file_config() {
         "client_cert_mode": "required",
         "buffer_size": 16384,
         "connection_timeout": 60,
-        "strategy": "sigalgs"
+        "cert": "certs/hybrid/server.crt",
+        "key": "certs/hybrid/server.key",
+        "fallback_cert": "certs/traditional/server.crt",
+        "fallback_key": "certs/traditional/server.key"
     }"#;
 
     let config_path = "test_config.json";
     fs::write(config_path, config_content).expect("Failed to write test config file");
 
-    // Load configuration from file
-    let config = ProxyConfig::from_file(config_path).expect("Failed to load config from file");
+    // Load configuration from file (without validation to avoid file not found errors)
+    let config = ConfigBuilder::new()
+        .with_defaults()
+        .with_file(config_path)
+        .without_validation()
+        .build()
+        .expect("Failed to load config from file");
 
     // Check values from file
     assert_eq!(config.listen().to_string(), "127.0.0.1:9000");
@@ -52,7 +61,8 @@ fn test_file_config() {
     assert_eq!(config.client_cert_mode(), ClientCertMode::Required);
     assert_eq!(config.buffer_size(), 16384);
     assert_eq!(config.connection_timeout(), 60);
-    assert_eq!(config.strategy(), CertStrategyType::SigAlgs);
+    // Has fallback configured, so it's Dynamic mode
+    assert!(config.has_fallback());
 
     // Clean up
     fs::remove_file(config_path).expect("Failed to remove test config file");
@@ -71,7 +81,7 @@ fn test_env_config() {
     config.values.client_cert_mode = Some(ClientCertMode::None);
     config.values.buffer_size = Some(4096);
     config.values.connection_timeout = Some(15);
-    config.values.strategy = Some(CertStrategyType::Single);
+    // No fallback = Single mode
 
     // Check values
     assert_eq!(config.listen().to_string(), "127.0.0.1:7000");
@@ -80,13 +90,13 @@ fn test_env_config() {
     assert_eq!(config.client_cert_mode(), ClientCertMode::None);
     assert_eq!(config.buffer_size(), 4096);
     assert_eq!(config.connection_timeout(), 15);
-    assert_eq!(config.strategy(), CertStrategyType::Single);
+    assert!(!config.has_fallback());
 }
 
 /// Test configuration from command line arguments
 #[test]
 fn test_cli_config() {
-    // Create command line arguments
+    // Create command line arguments with new field names
     let args = vec![
         "program".to_string(),
         "--listen".to_string(), "127.0.0.1:6000".to_string(),
@@ -95,13 +105,17 @@ fn test_cli_config() {
         "--client-cert-mode".to_string(), "required".to_string(),
         "--buffer-size".to_string(), "2048".to_string(),
         "--connection-timeout".to_string(), "10".to_string(),
-        "--strategy".to_string(), "dynamic".to_string(),
+        "--cert".to_string(), "certs/hybrid/server.crt".to_string(),
+        "--key".to_string(), "certs/hybrid/server.key".to_string(),
+        "--fallback-cert".to_string(), "certs/traditional/server.crt".to_string(),
+        "--fallback-key".to_string(), "certs/traditional/server.key".to_string(),
     ];
 
     // Build configuration with command line arguments
     let config = ConfigBuilder::new()
         .with_defaults()
         .with_cli(args)
+        .without_validation()
         .build()
         .expect("Failed to build config with command line arguments");
 
@@ -112,7 +126,8 @@ fn test_cli_config() {
     assert_eq!(config.client_cert_mode(), ClientCertMode::Required);
     assert_eq!(config.buffer_size(), 2048);
     assert_eq!(config.connection_timeout(), 10);
-    assert_eq!(config.strategy(), CertStrategyType::Dynamic);
+    // Has fallback configured
+    assert!(config.has_fallback());
 }
 
 /// Test configuration priority
@@ -126,7 +141,6 @@ fn test_config_priority() {
     file_config.values.client_cert_mode = Some(ClientCertMode::Required);
     file_config.values.buffer_size = Some(16384);
     file_config.values.connection_timeout = Some(60);
-    file_config.values.strategy = Some(CertStrategyType::SigAlgs);
 
     // Create a configuration with environment values (should override file)
     let mut env_config = file_config.clone();
@@ -141,12 +155,40 @@ fn test_config_priority() {
     cli_config.values.buffer_size = Some(2048);
 
     // Check values with proper priority
-    // Command line should override environment and file
     assert_eq!(cli_config.listen().to_string(), "127.0.0.1:6000");  // From CLI
     assert_eq!(cli_config.target().to_string(), "127.0.0.1:7000");  // From CLI
     assert_eq!(cli_config.log_level(), "warn");                     // From env
     assert_eq!(cli_config.client_cert_mode(), ClientCertMode::Required);  // From file
     assert_eq!(cli_config.buffer_size(), 2048);                     // From CLI
     assert_eq!(cli_config.connection_timeout(), 60);                // From file
-    assert_eq!(cli_config.strategy(), CertStrategyType::SigAlgs);   // From file
+}
+
+/// Test backward compatibility aliases
+#[test]
+fn test_backward_compat_aliases() {
+    // Create command line arguments with old field names
+    let args = vec![
+        "program".to_string(),
+        "--hybrid-cert".to_string(), "certs/hybrid/server.crt".to_string(),
+        "--hybrid-key".to_string(), "certs/hybrid/server.key".to_string(),
+        "--traditional-cert".to_string(), "certs/traditional/server.crt".to_string(),
+        "--traditional-key".to_string(), "certs/traditional/server.key".to_string(),
+    ];
+
+    // Build configuration with command line arguments
+    let config = ConfigBuilder::new()
+        .with_defaults()
+        .with_cli(args)
+        .without_validation()
+        .build()
+        .expect("Failed to build config with backward compat arguments");
+
+    // Check that old names map to new names
+    assert_eq!(config.cert().to_string_lossy(), "certs/hybrid/server.crt");
+    assert_eq!(config.key().to_string_lossy(), "certs/hybrid/server.key");
+    assert_eq!(config.fallback_cert().unwrap().to_string_lossy(), "certs/traditional/server.crt");
+    assert_eq!(config.fallback_key().unwrap().to_string_lossy(), "certs/traditional/server.key");
+    
+    // Has fallback configured
+    assert!(config.has_fallback());
 }
