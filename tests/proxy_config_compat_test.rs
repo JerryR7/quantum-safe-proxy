@@ -115,20 +115,30 @@ fn test_build_cert_strategy() {
     // Build strategy should succeed (returns Box<dyn Any>)
     let strategy = quantum_safe_proxy::tls::build_cert_strategy(&config)
         .expect("Failed to build certificate strategy");
-    
+
     // Should be a CertStrategy
     assert!(strategy.is::<quantum_safe_proxy::tls::strategy::CertStrategy>());
 }
 
-/// Test check_warnings function
+/// Test check_warnings function with non-existent certificate files
 #[test]
 fn test_check_warnings() {
-    let config = ProxyConfig::default();
-    
+    // Create config with non-existent certificate paths
+    let mut config = ProxyConfig::default();
+    config.values.cert = Some("nonexistent/cert.crt".into());
+    config.values.key = Some("nonexistent/key.key".into());
+
     // check_warnings should return warnings for missing cert files
     let warnings = quantum_safe_proxy::check_warnings(&config);
-    
-    // Should have warnings since default cert paths don't exist
+
+    // Should have warnings since cert paths don't exist
     println!("Warnings: {:?}", warnings);
-    assert!(!warnings.is_empty());
+    assert!(!warnings.is_empty(), "Should have warnings for non-existent certificate files");
+
+    // Check that warnings contain expected messages
+    let has_cert_warning = warnings.iter().any(|w| w.contains("Primary certificate file not found"));
+    let has_key_warning = warnings.iter().any(|w| w.contains("Primary key file not found"));
+
+    assert!(has_cert_warning, "Should warn about missing certificate file");
+    assert!(has_key_warning, "Should warn about missing key file");
 }

@@ -28,7 +28,7 @@ fn test_hot_reload() {
     let config = config::builder::ConfigBuilder::new()
         .with_defaults()
         .with_file(config_file)
-        .without_validation()  // Disable validation to avoid file not found errors
+        .without_validation()
         .build()
         .expect("Failed to build configuration");
 
@@ -141,11 +141,11 @@ fn test_hot_reload_backward_compat() {
     // Test that old field names work during hot reload
     let config_file = "test_hot_reload_compat.json";
 
-    // Use old field names
+    // Use old field names - 修復：添加缺失的引號
     let config_content = r#"{
         "listen": "127.0.0.1:9444",
         "target": "127.0.0.1:7001",
-        "hybrid_cert": certs/server-pqc.crt",
+        "hybrid_cert": "certs/server-pqc.crt",
         "hybrid_key": "certs/server-pqc.key",
         "traditional_cert": "certs/server-pqc.crt",
         "traditional_key": "certs/server-pqc.key"
@@ -160,8 +160,16 @@ fn test_hot_reload_backward_compat() {
         .expect("Failed to build configuration");
 
     // Old names should map to new accessors
-    assert_eq!(config.cert().to_string_lossy(), "certs/hybrid/server.crt");
-    assert_eq!(config.fallback_cert().unwrap().to_string_lossy(), "certs/traditional/server.crt");
+    assert_eq!(config.cert().to_string_lossy(), "certs/server-pqc.crt");
+    assert_eq!(config.key().to_string_lossy(), "certs/server-pqc.key");
+    assert_eq!(
+        config.fallback_cert().unwrap().to_string_lossy(),
+        "certs/server-pqc.crt"
+    );
+    assert_eq!(
+        config.fallback_key().unwrap().to_string_lossy(),
+        "certs/server-pqc.key"
+    );
 
     // Has fallback = Dynamic mode
     assert!(config.has_fallback());
