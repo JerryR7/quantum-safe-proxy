@@ -3,12 +3,15 @@ services:
     image: quantum-safe-proxy:openssl35
     #    image: quantum-safe-proxy:oqs
     ports:
-      - "8444:8443"
+      - "8444:8443"     # Proxy TLS 端口
+      - "9443:9443"     # Admin API 端口 (新增)
     volumes:
       - ./certs:/app/certs
-      - ./config.json:/app/config.json
+      - ./config.json:/app/config.json:rw  # Read-write for Admin API changes
       - ./scripts:/app/scripts
+      - ./logs:/var/log/quantum-safe-proxy  # 審計日誌目錄 (新增)
     environment:
+      # Proxy 設定
       - RUST_LOG=quantum_safe_proxy=debug
       - QUANTUM_SAFE_PROXY_LOG_LEVEL=debug
       - LD_LIBRARY_PATH=/opt/openssl35/lib64:/opt/openssl35/lib
@@ -17,19 +20,29 @@ services:
       - OPENSSL_INCLUDE_DIR=/opt/openssl35/include
       - RUST_BACKTRACE=1
       - AUTO_GENERATE_CERTS=true
+
+      # Admin API 設定 (新增)
+      - ADMIN_API_ENABLED=0
+      - ADMIN_API_ADDR=0.0.0.0:9443
+      - ADMIN_AUDIT_LOG=/var/log/quantum-safe-proxy/admin-audit.jsonl
+      # ⚠️ 重要: API Keys 已自動生成並設定（詳見 .api-keys.txt）
+      - ADMIN_API_KEYS=admin:V1IC+TSEgQlVAjGU7OGmbyOw132BK5RzSx1R6L+lj4s=:admin,operator:jFPEHSKcsNym2AtGND+ghK5pdUJbfGp/xOEgxxLFmeQ=:operator,viewer:nddEC+3BCittRLrq2Yt1znsDo9XR9J9u/OI4hW8h5D4=:viewer
+
+    working_dir: /app
+
     command: [
-      "--listen", "0.0.0.0:8443",
-      "--target", "backend:6001",
-      "--cert", "/app/certs/server-pqc.crt",
-      "--key", "/app/certs/server-pqc.key",
-      "--fallback-cert", "/app/certs/edr-server-hybrid.pem",
-      "--fallback-key", "/app/certs/edr-server-hybrid.pem",
-      "--client-ca-cert", "/app/certs/pqc-full-chain.crt",
-      "--log-level", "debug",
-      "--client-cert-mode", "required",
-      "--buffer-size", "8192",
-      "--connection-timeout", "60"
+      "--config", "/app/config.json",
+#      "--listen", "0.0.0.0:8443",
+#      "--target", "backend:6001",
+#      "--cert", "/app/certs/server-pqc.crt",
+#      "--key", "/app/certs/server-pqc.key",
+#      "--fallback-cert", "/app/certs/server-pqc.crt",
+#      "--fallback-key", "/app/certs/server-pqc.key",
+#      "--client-ca-cert", "/app/certs/pqc-full-chain.crt",
+#      "--client-cert-mode", "required"
     ]
+    # Note: log_level, buffer_size, and connection_timeout are managed via config.json
+    # and can be changed through the Admin API (hot-reload for new connections)
     networks:
       - proxy-network
     restart: unless-stopped

@@ -11,7 +11,7 @@
 //! 4. Default values (lowest priority)
 //!
 //! ## Certificate Strategy
-//! 
+//!
 //! The certificate strategy is now automatically determined:
 //! - **Single mode**: Only primary certificate (`cert`/`key`) is configured
 //! - **Dynamic mode**: Both primary and fallback certificates are configured
@@ -19,7 +19,6 @@
 //! This eliminates the need for explicit `strategy` configuration.
 
 // Internal modules
-mod types;
 mod source;
 mod manager;
 mod actor;
@@ -27,6 +26,7 @@ mod loader;
 mod traits;
 
 // Public modules
+pub mod types;
 pub mod error;
 pub mod validator;
 pub mod builder;
@@ -36,7 +36,7 @@ pub use types::{ProxyConfig, ClientCertMode, parse_socket_addr};
 pub use manager::{
     initialize, get_config, update_config, reload_config, add_listener,
     ConfigChangeEvent, get_buffer_size, get_connection_timeout,
-    is_client_cert_required, is_dynamic_cert_enabled
+    is_client_cert_required, is_dynamic_cert_enabled, save_config
 };
 pub use builder::ConfigBuilder;
 pub use error::{ConfigError, Result};

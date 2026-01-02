@@ -793,7 +793,210 @@ quantum-safe-proxy check-environment
 
 This will display detailed information about your OpenSSL installation, including version, supported algorithms, and any detected issues.
 
-## 13. Future Roadmap
+## 13. Admin API and Web-Based Settings Management
+
+The Quantum Safe Proxy includes a web-based settings management UI and REST API for runtime configuration management. This allows administrators to view and modify proxy settings without editing configuration files.
+
+### Enabling the Admin API
+
+The Admin API can be enabled via environment variables:
+
+```bash
+# Enable admin API
+export ADMIN_API_ENABLED=1
+
+# Configure admin API address (default: 127.0.0.1:8443)
+export ADMIN_API_ADDR="127.0.0.1:8443"
+
+# Configure audit log location
+export ADMIN_AUDIT_LOG="/var/log/quantum-safe-proxy/admin-audit.jsonl"
+
+# Configure API keys (format: name:key:role)
+export ADMIN_API_KEYS="admin:your-secret-key-here:admin,viewer:readonly-key:viewer"
+
+# Start the proxy with admin API enabled
+cargo run -- --config config.toml
+```
+
+### Accessing the Web UI
+
+Once enabled, access the admin interface at `http://127.0.0.1:8443/`:
+
+1. Enter your API key when prompted
+2. View operational status and TLS mode statistics on the **Status** tab
+3. Modify configuration settings on the **Configuration** tab
+4. Review audit trail on the **Audit Log** tab
+
+### API Endpoints
+
+The admin API provides the following REST endpoints:
+
+| Endpoint | Method | Description | Auth Required |
+|----------|--------|-------------|---------------|
+| `/` | GET | Serve web UI | Yes |
+| `/health` | GET | Health check | No |
+| `/api/status` | GET | Get operational status | Yes |
+| `/api/config` | GET | Get current configuration | Yes |
+| `/api/config` | PATCH | Update configuration settings | Yes (Operator+) |
+| `/api/config/rollback` | POST | Rollback to previous config | Yes (Admin) |
+| `/api/config/export` | POST | Export configuration (JSON/YAML) | Yes |
+| `/api/config/import` | POST | Import and validate configuration | Yes (Admin) |
+| `/api/audit` | GET | Query audit log with filters | Yes |
+| `/api/audit/:id` | GET | Get specific audit entry | Yes |
+| `/api/audit/export` | POST | Export audit log for compliance | Yes (Admin) |
+
+### Role-Based Access Control
+
+The admin API supports three permission levels:
+
+- **Viewer**: Read-only access to view configuration and status
+- **Operator**: Can modify non-security settings (timeouts, log levels, buffer sizes)
+- **Admin**: Full access including security-affecting settings
+
+### Security Warnings and Safeguards
+
+Security-affecting configuration changes trigger explicit warnings:
+
+```json
+{
+  "security_warnings": [
+    {
+      "level": "Critical",
+      "message": "Enabling classical TLS fallback reduces security to pre-PQC levels",
+      "affected_setting": "allow_classical_fallback"
+    }
+  ]
+}
+```
+
+The following settings trigger security warnings:
+- Enabling classical TLS fallback
+- Disabling crypto mode classification
+- Weakening certificate validation (`allow_invalid_certificates`)
+- Disabling client authentication (`client_cert_mode: none`)
+- Enabling passthrough mode
+
+All security warnings require explicit administrator acknowledgment before applying.
+
+### Hot-Reload vs. Restart-Required Settings
+
+Settings are classified based on whether they can be applied without restarting:
+
+**Hot-Reloadable** (Applied immediately):
+- `log_level`: Change logging verbosity
+- `buffer_size`: Adjust TCP buffer sizes for new connections
+- `connection_timeout`: Modify connection timeout
+- `client_cert_mode`: Update client certificate requirements
+- `certificates`: Reload certificate files
+
+**Restart-Required** (Require proxy restart):
+- `listen`: Binding address for incoming connections
+- `target`: Backend service address
+
+The API indicates which category each setting belongs to and prevents auto-restart.
+
+### Audit Logging
+
+All configuration changes are logged to an append-only audit log with tamper evidence:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "timestamp": "2025-12-30T10:30:00Z",
+  "operator": "admin-user",
+  "role": "Admin",
+  "action": "ConfigChange",
+  "changes": [
+    {
+      "name": "log_level",
+      "before": "info",
+      "after": "debug"
+    }
+  ],
+  "applied": true,
+  "warnings_shown": [],
+  "confirmation": null,
+  "prev_hash": "abc123...",
+  "hash": "def456..."
+}
+```
+
+The audit log uses SHA256 hash chaining to provide tamper evidence and maintains 90-day retention by default.
+
+### Configuration Export/Import
+
+Export current configuration for backup or infrastructure-as-code workflows:
+
+```bash
+# Via API
+curl -X POST http://127.0.0.1:8443/api/config/export \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"format": "json"}' > backup-config.json
+
+# Import and preview changes
+curl -X POST http://127.0.0.1:8443/api/config/import \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d @backup-config.json
+```
+
+**Note**: Exported configurations have sensitive secrets redacted (API keys, private keys) for security.
+
+### Example: Updating Log Level via API
+
+```bash
+curl -X PATCH http://127.0.0.1:8443/api/config \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "changes": [
+      {
+        "name": "log_level",
+        "value": "debug"
+      }
+    ]
+  }'
+```
+
+Response:
+
+```json
+{
+  "applied": true,
+  "requires_restart": false,
+  "changes": [
+    {
+      "name": "log_level",
+      "before": "info",
+      "after": "debug"
+    }
+  ],
+  "security_warnings": [],
+  "timestamp": "2025-12-30T10:45:00Z"
+}
+```
+
+### Generating API Keys
+
+API keys should be securely generated random tokens:
+
+```bash
+# Generate a secure API key
+openssl rand -base64 32
+```
+
+Store API keys securely and never commit them to version control.
+
+### Security Best Practices
+
+1. **Bind to localhost only**: The admin API should only be accessible from the local machine or via secure tunnel
+2. **Use HTTPS**: For production deployments, place admin API behind a reverse proxy with TLS
+3. **Rotate API keys regularly**: Generate new API keys periodically
+4. **Audit log monitoring**: Regularly review audit logs for suspicious activity
+5. **Principle of least privilege**: Use Viewer/Operator roles when Admin is not needed
+
+## 14. Future Roadmap
 
 - Auto-certificate rotation via REST API
 - Hybrid client metrics and handshake logs
@@ -810,19 +1013,20 @@ This will display detailed information about your OpenSSL installation, includin
 - Configurable connection rejection policies
 - Detailed metrics for rejected connections
 
-## 14. Documentation
+## 15. Documentation
 
 Detailed documentation is available in the `docs/` directory:
 
 - [Comprehensive Guide](docs/guide.md): Complete guide covering installation, certificates, cryptography, security features, utility scripts, and troubleshooting
 - [Security Features](docs/guide.md#security-considerations): Details on TLS configuration and non-TLS connection protection
+- [Admin API Trust Boundaries](docs/admin-api-trust-boundaries.md): Security documentation for admin API deployment
 
 See [docs/README.md](docs/README.md) for additional resources and information.
 
-## 15. Contributing
+## 16. Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
 
-## 16. License
+## 17. License
 
 This project is licensed under the [MIT License](LICENSE).

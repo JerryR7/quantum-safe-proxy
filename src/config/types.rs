@@ -68,6 +68,8 @@ pub enum ValueSource {
     Environment,
     /// From command line argument
     CommandLine,
+    /// From Admin API
+    AdminApi,
 }
 
 impl std::fmt::Display for ValueSource {
@@ -77,6 +79,7 @@ impl std::fmt::Display for ValueSource {
             ValueSource::File => write!(f, "file"),
             ValueSource::Environment => write!(f, "environment"),
             ValueSource::CommandLine => write!(f, "command line"),
+            ValueSource::AdminApi => write!(f, "admin api"),
         }
     }
 }
@@ -400,6 +403,7 @@ impl ProxyConfig {
                 ValueSource::File => "file",
                 ValueSource::Environment => "environment",
                 ValueSource::CommandLine => "command line",
+                ValueSource::AdminApi => "admin api",
             },
             None => "unknown",
         }

@@ -14,6 +14,7 @@ use tokio_openssl::SslStream;
 
 use crate::config::{ProxyConfig, ClientCertMode, get_connection_timeout};
 use crate::protocol::{ProtocolDetector, TlsDetector, DetectionResult};
+use crate::admin::CryptoMode;
 
 use crate::common::{ProxyError, Result};
 use super::forwarder::proxy_data;
@@ -72,6 +73,55 @@ fn send_tcp_rst(stream: &TcpStream) -> Result<()> {
         })
 }
 
+/// Classify TLS connection crypto mode based on cipher suite
+///
+/// Implements Constitution Principle IV: Cryptographic Mode Classification
+///
+/// # Classification Logic
+///
+/// - **Hybrid**: Cipher contains both PQC (MLKEM/KYBER) and classical (X25519/P256) components
+/// - **PQC**: Cipher contains only PQC components (future support)
+/// - **Classical**: Standard ECDHE, RSA, or other non-PQC ciphers
+///
+/// # Parameters
+///
+/// * `ssl` - OpenSSL connection reference after successful handshake
+///
+/// # Returns
+///
+/// Returns the classified cryptographic mode
+fn classify_crypto_mode(ssl: &openssl::ssl::SslRef) -> CryptoMode {
+    let cipher_name = ssl.current_cipher()
+        .map(|c| c.name())
+        .unwrap_or("UNKNOWN");
+
+    debug!("Classifying cipher: {}", cipher_name);
+
+    // Check for PQC algorithms (MLKEM, KYBER)
+    let has_pqc = cipher_name.contains("MLKEM") || cipher_name.contains("KYBER");
+
+    // Check for classical key exchange (X25519, P256, ECDHE)
+    let has_classical = cipher_name.contains("X25519")
+        || cipher_name.contains("P256")
+        || cipher_name.contains("P384")
+        || cipher_name.contains("P521")
+        || cipher_name.contains("ECDHE");
+
+    if has_pqc {
+        if has_classical {
+            // Hybrid: Contains both PQC and classical components
+            // Example: TLS_AES_256_GCM_SHA384 with X25519MLKEM768
+            CryptoMode::Hybrid
+        } else {
+            // Pure PQC (if ever supported by crypto stack)
+            CryptoMode::Pqc
+        }
+    } else {
+        // Classical TLS only (ECDHE, RSA, DHE, etc.)
+        CryptoMode::Classical
+    }
+}
+
 pub async fn handle_connection(
     client_stream: TcpStream,
     target_addr: SocketAddr,
@@ -102,17 +152,33 @@ pub async fn handle_connection(
             // Extract OpenSSL error code if present
             e.to_string().strip_prefix("error:").and_then(|s| s.find(':'))
                 .map(|code_end| error!("OpenSSL error code: {}", &e.to_string()[6..6+code_end]));
+
+            // Emit structured telemetry for handshake failure
+            error!("security.handshake.result=failure security.handshake.error={}", e);
         }
         return Err(ProxyError::TlsHandshake(e.to_string()));
     }
 
     debug!("TLS handshake successful");
-    info!("Established secure connection");
 
-    // Log TLS details and client certificate when appropriate
-    if let (true, ssl) = (log::log_enabled!(log::Level::Debug), stream.as_ref().get_ref().ssl()) {
-        debug!("TLS version: {}", ssl.version_str());
-        debug!("TLS cipher: {}", ssl.current_cipher().map_or("None", |c| c.name()));
+    // Classify cryptographic mode (Constitution Principle IV - MANDATORY)
+    let ssl = stream.as_ref().get_ref().ssl();
+    let crypto_mode = classify_crypto_mode(ssl);
+    let tls_version = ssl.version_str();
+    let cipher_name = ssl.current_cipher().map_or("UNKNOWN", |c| c.name());
+
+    // Emit telemetry for security observability (Principle VI)
+    info!(
+        "Established secure connection | crypto_mode={:?} tls_version={} cipher={}",
+        crypto_mode, tls_version, cipher_name
+    );
+
+    // Structured logging for metrics collection
+    if log::log_enabled!(log::Level::Debug) {
+        debug!(
+            "security.crypto_mode={:?} security.tls.version={} security.cipher={} security.handshake.result=success",
+            crypto_mode, tls_version, cipher_name
+        );
         debug!("TLS SNI: {}", ssl.servername(openssl::ssl::NameType::HOST_NAME).unwrap_or("None"));
 
         // Log client certificate if present and info logging is enabled

@@ -20,10 +20,10 @@
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
 //!     let config = ProxyConfig::auto_load()?;
-//!     
+//!
 //!     // Strategy is auto-detected based on config
 //!     let strategy = CertStrategy::from(&config);
-//!     
+//!
 //!     let tls_acceptor = create_tls_acceptor(
 //!         config.client_ca_cert(),
 //!         &config.client_cert_mode(),
@@ -48,6 +48,7 @@ pub mod crypto;
 pub mod tls;
 pub mod protocol;
 pub mod proxy;
+pub mod admin;
 
 // Re-exports for convenience
 pub use common::{Result, ProxyError};

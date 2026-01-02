@@ -54,13 +54,13 @@ where
 pub async fn proxy_data<S>(
     tls_stream: S,
     target_stream: TcpStream,
-    _config: &ProxyConfig, // Unused but kept for future use
+    config: &ProxyConfig,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    // Setup TCP keepalive with default timeout of 30 seconds
-    let timeout = 30; // Default timeout
+    // Setup TCP keepalive using connection timeout from config
+    let timeout = config.connection_timeout();
     set_tcp_keepalive(&target_stream, timeout)
         .map(|_| debug!("TCP keepalive enabled: timeout={}s, interval={}s, retries={}",
                       timeout, KEEPALIVE_INTERVAL, KEEPALIVE_RETRIES))

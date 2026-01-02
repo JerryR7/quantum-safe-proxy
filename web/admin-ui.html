@@ -1,0 +1,1003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quantum Safe Proxy - Admin UI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: #2c3e50;
+            color: white;
+            padding: 1.5rem 0;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        header h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-top: 0.5rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 2rem;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 1rem;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            background: white;
+            color: #666;
+            font-size: 1rem;
+            transition: all 0.3s;
+            border-bottom: 3px solid transparent;
+        }
+
+        .tab:hover {
+            background: #f8f9fa;
+        }
+
+        .tab.active {
+            color: #2c3e50;
+            border-bottom-color: #3498db;
+            font-weight: 600;
+        }
+
+        .tab-content {
+            display: none;
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 1.5rem;
+        }
+
+        .card h2 {
+            font-size: 1.3rem;
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .status-item {
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #3498db;
+        }
+
+        .status-label {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 0.5rem;
+        }
+
+        .status-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .setting-row {
+            display: grid;
+            grid-template-columns: 2fr 2fr 1fr 1fr;
+            gap: 1rem;
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+            align-items: center;
+        }
+
+        .setting-row:hover {
+            background: #f8f9fa;
+        }
+
+        .setting-name {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .setting-value {
+            font-family: 'Courier New', monospace;
+            color: #666;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .badge.hot-reload {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge.restart {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge.security {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .btn {
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #7f8c8d;
+        }
+
+        .alert {
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-left: 4px solid #17a2b8;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left: 4px solid #ffc107;
+        }
+
+        .alert-danger {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+
+        #loading {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: 0.75rem;
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+            border-bottom: 2px solid #dee2e6;
+        }
+
+        td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #eee;
+        }
+
+        .audit-timestamp {
+            font-size: 0.85rem;
+            color: #666;
+        }
+
+        .audit-operator {
+            font-weight: 600;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal h3 {
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 0.6rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .form-group textarea {
+            min-height: 100px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+            margin-top: 1.5rem;
+        }
+
+        .setting-input {
+            width: 100%;
+            padding: 0.4rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .setting-description {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 0.25rem;
+        }
+
+        .filter-bar {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            align-items: center;
+        }
+
+        .filter-bar input,
+        .filter-bar select {
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Quantum Safe Proxy</h1>
+            <div class="subtitle">Web-Based Settings Management</div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="tabs">
+            <button class="tab active" data-tab="status">Status</button>
+            <button class="tab" data-tab="config">Configuration</button>
+            <button class="tab" data-tab="audit">Audit Log</button>
+        </div>
+
+        <div id="status" class="tab-content active">
+            <div class="card">
+                <h2>Operational Status</h2>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <div class="status-label">Uptime</div>
+                        <div class="status-value" id="uptime">Loading...</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Total Connections</div>
+                        <div class="status-value" id="total-connections">Loading...</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Active Connections</div>
+                        <div class="status-value" id="active-connections">Loading...</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Success Rate</div>
+                        <div class="status-value" id="success-rate">Loading...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>TLS Mode Classification</h2>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <div class="status-label">Classical TLS</div>
+                        <div class="status-value" id="classical-count">0</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">Hybrid TLS</div>
+                        <div class="status-value" id="hybrid-count">0</div>
+                    </div>
+                    <div class="status-item">
+                        <div class="status-label">PQC TLS</div>
+                        <div class="status-value" id="pqc-count">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="config" class="tab-content">
+            <div id="config-alerts"></div>
+
+            <div class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h2>Configuration Settings</h2>
+                    <div>
+                        <button class="btn btn-secondary" onclick="UI.exportConfig()">Export</button>
+                        <button class="btn btn-secondary" onclick="UI.showImportDialog()">Import</button>
+                        <button class="btn btn-primary" onclick="UI.saveConfig()">Save Changes</button>
+                    </div>
+                </div>
+                <div id="config-settings">
+                    <div id="loading">Loading configuration...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Service Control</h2>
+                <div class="alert alert-warning">
+                    <strong>⚠️ Restart Required:</strong> TLS certificates, client authentication, and network settings require a restart to take effect.
+                    Hot-reloadable settings (log_level, buffer_size, connection_timeout) apply to new connections immediately.
+                </div>
+                <div style="margin-top: 1rem;">
+                    <button class="btn btn-secondary" onclick="UI.restartService()" style="background: #e74c3c;">
+                        🔄 Restart Service
+                    </button>
+                    <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem;">
+                        Restart will apply pending configuration changes. Active connections will be closed and the proxy will be back online in a few seconds.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div id="audit" class="tab-content">
+            <div class="card">
+                <h2>Audit Trail</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Operator</th>
+                            <th>Action</th>
+                            <th>Setting</th>
+                            <th>Applied</th>
+                        </tr>
+                    </thead>
+                    <tbody id="audit-entries">
+                        <tr>
+                            <td colspan="5" style="text-align: center; color: #666;">
+                                Loading audit log...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Modal -->
+    <div id="import-modal" class="modal">
+        <div class="modal-content">
+            <h3>Import Configuration</h3>
+            <div class="form-group">
+                <label>Configuration File (JSON/YAML)</label>
+                <textarea id="import-text" placeholder="Paste configuration here..."></textarea>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="UI.closeModal('import-modal')">Cancel</button>
+                <button class="btn btn-primary" onclick="UI.previewImport()">Preview</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Security Warning Modal -->
+    <div id="warning-modal" class="modal">
+        <div class="modal-content">
+            <h3>⚠️ Security Warning</h3>
+            <div id="warning-content"></div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="UI.closeModal('warning-modal')">Cancel</button>
+                <button class="btn btn-primary" onclick="UI.confirmSecurityChange()">I Understand, Proceed</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API client
+        const API = {
+            baseURL: '/api',
+            token: localStorage.getItem('api_token') || '',
+
+            async request(endpoint, options = {}) {
+                const url = `${this.baseURL}${endpoint}`;
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.token}`,
+                    ...options.headers,
+                };
+
+                try {
+                    const response = await fetch(url, {
+                        ...options,
+                        headers,
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json().catch(() => ({}));
+                        throw new Error(error.message || `API error: ${response.status}`);
+                    }
+
+                    return response.json();
+                } catch (error) {
+                    console.error('API request failed:', error);
+                    throw error;
+                }
+            },
+
+            getStatus() {
+                return this.request('/status');
+            },
+
+            getConfig() {
+                return this.request('/config');
+            },
+
+            patchConfig(changes, confirmation = null) {
+                return this.request('/config', {
+                    method: 'PATCH',
+                    body: JSON.stringify({ changes, confirmation }),
+                });
+            },
+
+            rollbackConfig() {
+                return this.request('/config/rollback', {
+                    method: 'POST',
+                });
+            },
+
+            exportConfig(format = 'json') {
+                return this.request('/config/export', {
+                    method: 'POST',
+                    body: JSON.stringify({ format }),
+                });
+            },
+
+            importConfig(config, dry_run = true) {
+                return this.request('/config/import', {
+                    method: 'POST',
+                    body: JSON.stringify({ config, dry_run }),
+                });
+            },
+
+            getAuditLog(params = {}) {
+                const query = new URLSearchParams(params).toString();
+                return this.request(`/audit${query ? '?' + query : ''}`);
+            },
+
+            exportAuditLog(params = {}) {
+                return this.request('/audit/export', {
+                    method: 'POST',
+                    body: JSON.stringify(params),
+                });
+            },
+
+            restartService() {
+                return this.request('/restart', {
+                    method: 'POST',
+                    body: JSON.stringify({}),
+                });
+            },
+        };
+
+        // UI Controller
+        const UI = {
+            currentConfig: null,
+            pendingChanges: {},
+            securityWarnings: null,
+
+            init() {
+                this.setupTabs();
+                this.setupAuth();
+                this.loadStatus();
+                this.setupAutoRefresh();
+            },
+
+            setupAuth() {
+                // Check if token exists, otherwise prompt
+                if (!API.token) {
+                    const token = prompt('Enter API Token:');
+                    if (token) {
+                        API.token = token;
+                        localStorage.setItem('api_token', token);
+                    }
+                }
+            },
+
+            setupTabs() {
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        const tabName = tab.dataset.tab;
+                        this.switchTab(tabName);
+                    });
+                });
+            },
+
+            switchTab(tabName) {
+                // Update tab buttons
+                document.querySelectorAll('.tab').forEach(t => {
+                    t.classList.remove('active');
+                });
+                document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+
+                // Update tab content
+                document.querySelectorAll('.tab-content').forEach(c => {
+                    c.classList.remove('active');
+                });
+                document.getElementById(tabName).classList.add('active');
+
+                // Load data for the tab
+                if (tabName === 'status') {
+                    this.loadStatus();
+                } else if (tabName === 'config') {
+                    this.loadConfig();
+                } else if (tabName === 'audit') {
+                    this.loadAuditLog();
+                }
+            },
+
+            async loadStatus() {
+                try {
+                    const status = await API.getStatus();
+                    this.updateStatus(status);
+                } catch (error) {
+                    this.showError('Failed to load status: ' + error.message);
+                }
+            },
+
+            updateStatus(status) {
+                // Update operational metrics
+                document.getElementById('uptime').textContent =
+                    this.formatUptime(status.uptime_seconds);
+                document.getElementById('total-connections').textContent =
+                    status.total_connections.toLocaleString();
+                document.getElementById('active-connections').textContent =
+                    status.active_connections.toLocaleString();
+                document.getElementById('success-rate').textContent =
+                    (status.handshake_stats.success_rate * 100).toFixed(1) + '%';
+
+                // Update TLS mode stats
+                document.getElementById('classical-count').textContent =
+                    status.tls_mode_stats.classical_count.toLocaleString();
+                document.getElementById('hybrid-count').textContent =
+                    status.tls_mode_stats.hybrid_count.toLocaleString();
+                document.getElementById('pqc-count').textContent =
+                    status.tls_mode_stats.pqc_count.toLocaleString();
+            },
+
+            formatUptime(seconds) {
+                const days = Math.floor(seconds / 86400);
+                const hours = Math.floor((seconds % 86400) / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+
+                if (days > 0) {
+                    return `${days}d ${hours}h`;
+                } else if (hours > 0) {
+                    return `${hours}h ${minutes}m`;
+                } else {
+                    return `${minutes}m`;
+                }
+            },
+
+            async loadConfig() {
+                try {
+                    const config = await API.getConfig();
+                    this.currentConfig = config;
+                    this.pendingChanges = {};
+                    this.updateConfig(config);
+                } catch (error) {
+                    this.showError('Failed to load config: ' + error.message);
+                }
+            },
+
+            updateConfig(config) {
+                const container = document.getElementById('config-settings');
+
+                if (!config.settings || config.settings.length === 0) {
+                    container.innerHTML = '<p>No configuration settings available.</p>';
+                    return;
+                }
+
+                // Group settings by category
+                const grouped = {};
+                config.settings.forEach(setting => {
+                    const category = setting.category || 'General';
+                    if (!grouped[category]) {
+                        grouped[category] = [];
+                    }
+                    grouped[category].push(setting);
+                });
+
+                // Render settings by category
+                container.innerHTML = Object.entries(grouped).map(([category, settings]) => `
+                    <div class="card" style="margin-bottom: 1rem;">
+                        <h3>${category}</h3>
+                        ${settings.map(setting => this.renderSetting(setting)).join('')}
+                    </div>
+                `).join('');
+            },
+
+            renderSetting(setting) {
+                const value = this.pendingChanges[setting.name] !== undefined
+                    ? this.pendingChanges[setting.name]
+                    : JSON.stringify(setting.value);
+
+                const badges = [];
+                if (setting.hot_reloadable) {
+                    badges.push('<span class="badge hot-reload">Hot Reload</span>');
+                } else {
+                    badges.push('<span class="badge restart">Restart Required</span>');
+                }
+                if (setting.security_affecting) {
+                    badges.push('<span class="badge security">Security Affecting</span>');
+                }
+
+                return `
+                    <div class="setting-row">
+                        <div>
+                            <div class="setting-name">${setting.name}</div>
+                            <div class="setting-description">${setting.description || ''}</div>
+                            <div style="margin-top: 0.5rem;">
+                                ${badges.join(' ')}
+                                <span class="badge" style="background: #e9ecef; color: #495057;">
+                                    Source: ${setting.source}
+                                </span>
+                            </div>
+                        </div>
+                        <div>
+                            <input
+                                type="text"
+                                class="setting-input"
+                                data-setting="${setting.name}"
+                                value='${value}'
+                                onchange="UI.onSettingChange(this)"
+                            />
+                        </div>
+                    </div>
+                `;
+            },
+
+            onSettingChange(input) {
+                const name = input.dataset.setting;
+                const value = input.value;
+
+                try {
+                    // Try to parse as JSON
+                    const parsed = JSON.parse(value);
+                    this.pendingChanges[name] = parsed;
+                } catch {
+                    // If not valid JSON, store as string
+                    this.pendingChanges[name] = value;
+                }
+            },
+
+            async saveConfig() {
+                if (Object.keys(this.pendingChanges).length === 0) {
+                    this.showInfo('No changes to save.');
+                    return;
+                }
+
+                try {
+                    // Convert pending changes to API format
+                    const changes = Object.entries(this.pendingChanges).map(([name, value]) => ({
+                        name,
+                        value
+                    }));
+
+                    const result = await API.patchConfig(changes);
+
+                    // Check for security warnings
+                    if (result.security_warnings && result.security_warnings.length > 0) {
+                        this.securityWarnings = result;
+                        this.showSecurityWarning(result.security_warnings);
+                        return;
+                    }
+
+                    // Show result
+                    if (result.applied) {
+                        this.showSuccess('Configuration updated successfully!');
+                    } else if (result.requires_restart) {
+                        this.showWarning('Changes saved but require restart to take effect.');
+                    }
+
+                    // Reload configuration
+                    await this.loadConfig();
+
+                } catch (error) {
+                    this.showError('Failed to save config: ' + error.message);
+                }
+            },
+
+            showSecurityWarning(warnings) {
+                const content = document.getElementById('warning-content');
+                content.innerHTML = warnings.map(w => `
+                    <div class="alert alert-danger">
+                        <strong>${w.level}:</strong> ${w.message}
+                        <br><small>Affected setting: ${w.affected_setting}</small>
+                    </div>
+                `).join('');
+
+                this.openModal('warning-modal');
+            },
+
+            async confirmSecurityChange() {
+                this.closeModal('warning-modal');
+
+                try {
+                    const changes = Object.entries(this.pendingChanges).map(([name, value]) => ({
+                        name,
+                        value
+                    }));
+
+                    const result = await API.patchConfig(changes, 'User acknowledged security warnings');
+
+                    if (result.applied) {
+                        this.showSuccess('Configuration updated successfully!');
+                    } else {
+                        this.showWarning('Changes saved but require restart to take effect.');
+                    }
+
+                    await this.loadConfig();
+
+                } catch (error) {
+                    this.showError('Failed to apply changes: ' + error.message);
+                }
+            },
+
+            async exportConfig() {
+                try {
+                    const result = await API.exportConfig('json');
+
+                    // Download as file
+                    const blob = new Blob([JSON.stringify(result.config, null, 2)],
+                        { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `qsp-config-${new Date().toISOString()}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+
+                    this.showSuccess('Configuration exported successfully!');
+                } catch (error) {
+                    this.showError('Failed to export config: ' + error.message);
+                }
+            },
+
+            showImportDialog() {
+                this.openModal('import-modal');
+            },
+
+            async previewImport() {
+                const text = document.getElementById('import-text').value;
+                if (!text.trim()) {
+                    this.showError('Please paste configuration content');
+                    return;
+                }
+
+                try {
+                    const config = JSON.parse(text);
+                    const result = await API.importConfig(config, true);
+
+                    // Show preview
+                    this.showInfo(`Import preview: ${result.changes_count} settings will be changed`);
+
+                    if (confirm('Apply these changes?')) {
+                        const applied = await API.importConfig(config, false);
+                        this.showSuccess('Configuration imported successfully!');
+                        this.closeModal('import-modal');
+                        await this.loadConfig();
+                    }
+                } catch (error) {
+                    this.showError('Failed to import config: ' + error.message);
+                }
+            },
+
+            async loadAuditLog() {
+                try {
+                    const entries = await API.getAuditLog({ limit: 50 });
+                    this.updateAuditLog(entries);
+                } catch (error) {
+                    this.showError('Failed to load audit log: ' + error.message);
+                }
+            },
+
+            updateAuditLog(entries) {
+                const tbody = document.getElementById('audit-entries');
+                if (!entries || entries.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #666;">No audit entries found.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = entries.map(entry => `
+                    <tr>
+                        <td class="audit-timestamp">${new Date(entry.timestamp).toLocaleString()}</td>
+                        <td class="audit-operator">${entry.operator}</td>
+                        <td>${entry.action}</td>
+                        <td>${entry.changes ? entry.changes.map(c => c.name).join(', ') : '-'}</td>
+                        <td>${entry.applied ? '✓' : '✗'}</td>
+                    </tr>
+                `).join('');
+            },
+
+            setupAutoRefresh() {
+                // Refresh status every 10 seconds
+                setInterval(() => {
+                    if (document.querySelector('.tab.active').dataset.tab === 'status') {
+                        this.loadStatus();
+                    }
+                }, 10000);
+            },
+
+            openModal(modalId) {
+                document.getElementById(modalId).classList.add('active');
+            },
+
+            closeModal(modalId) {
+                document.getElementById(modalId).classList.remove('active');
+            },
+
+            async restartService() {
+                if (!confirm('⚠️ Are you sure you want to restart the service?\n\nThis will:\n• Close all active connections\n• Apply any pending configuration changes\n• Restart the proxy in a few seconds\n\nContinue?')) {
+                    return;
+                }
+
+                try {
+                    const result = await API.restartService();
+
+                    // Show success message
+                    alert('✅ Service restart initiated!\n\nThe proxy is restarting and will be back online in a few seconds.\n\nYou may need to refresh this page in about 5 seconds.');
+
+                    // Auto-reload the page after 8 seconds
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 8000);
+
+                } catch (error) {
+                    this.showError('Failed to restart service: ' + error.message);
+                }
+            },
+
+            showAlert(message, type) {
+                const alerts = document.getElementById('config-alerts');
+                const alert = document.createElement('div');
+                alert.className = `alert alert-${type}`;
+                alert.textContent = message;
+                alerts.appendChild(alert);
+
+                setTimeout(() => alert.remove(), 5000);
+            },
+
+            showInfo(message) {
+                this.showAlert(message, 'info');
+            },
+
+            showSuccess(message) {
+                this.showAlert(message, 'info');
+            },
+
+            showWarning(message) {
+                this.showAlert(message, 'warning');
+            },
+
+            showError(message) {
+                this.showAlert(message, 'danger');
+            },
+        };
+
+        // Initialize UI when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            UI.init();
+        });
+    </script>
+</body>
+</html>
