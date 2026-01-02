@@ -203,8 +203,7 @@ pub fn is_security_affecting(setting_name: &str) -> bool {
 pub fn is_hot_reloadable(setting_name: &str) -> bool {
     matches!(
         setting_name,
-        "log_level" | "buffer_size" | "connection_timeout" | "client_cert_mode" |
-        "cert" | "key" | "fallback_cert" | "fallback_key" | "client_ca_cert"
+        "log_level" | "buffer_size" | "connection_timeout"
     )
 }
 

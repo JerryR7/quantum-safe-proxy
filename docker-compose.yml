@@ -22,7 +22,7 @@ services:
       - AUTO_GENERATE_CERTS=true
 
       # Admin API 設定 (新增)
-      - ADMIN_API_ENABLED=1
+      - ADMIN_API_ENABLED=0
       - ADMIN_API_ADDR=0.0.0.0:9443
       - ADMIN_AUDIT_LOG=/var/log/quantum-safe-proxy/admin-audit.jsonl
       # ⚠️ 重要: API Keys 已自動生成並設定（詳見 .api-keys.txt）

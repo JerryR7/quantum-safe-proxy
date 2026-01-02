@@ -72,7 +72,16 @@ async fn main() -> Result<()> {
     let proxy_handle = proxy_service.start()?;
 
     // 8. Start admin server (if enabled via environment variable)
-    let admin_server_handle = if std::env::var("ADMIN_API_ENABLED").is_ok() {
+    let admin_api_enabled = std::env::var("ADMIN_API_ENABLED")
+        .unwrap_or_else(|_| "0".to_string())
+        .trim()
+        .eq_ignore_ascii_case("1") ||
+        std::env::var("ADMIN_API_ENABLED")
+        .unwrap_or_else(|_| "0".to_string())
+        .trim()
+        .eq_ignore_ascii_case("true");
+
+    let admin_server_handle = if admin_api_enabled {
         info!("Admin API is enabled");
 
         // Get admin server configuration from environment
