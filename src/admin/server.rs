@@ -60,39 +60,44 @@ pub async fn start_admin_server(config: AdminServerConfig) -> AdminResult<()> {
 
 /// Build the application router with all routes
 fn build_router(auth_state: AuthState) -> Router {
-    Router::new()
-        // Public health check (no auth required)
-        .route("/health", get(handlers::health_check))
-
+    // Create protected API router (requires authentication)
+    let api_router = Router::new()
         // Configuration endpoints
-        .route("/api/config", get(handlers::get_config))
-        .route("/api/config", patch(handlers::patch_config))
-        .route("/api/config/rollback", post(handlers::rollback_config))
-        .route("/api/config/export", post(handlers::export_config))
-        .route("/api/config/import", post(handlers::import_config))
+        .route("/config", get(handlers::get_config))
+        .route("/config", patch(handlers::patch_config))
+        .route("/config/rollback", post(handlers::rollback_config))
+        .route("/config/export", post(handlers::export_config))
+        .route("/config/import", post(handlers::import_config))
 
         // Status endpoint
-        .route("/api/status", get(handlers::get_status))
+        .route("/status", get(handlers::get_status))
+
+        // Service control endpoints
+        .route("/restart", post(handlers::restart_service))
 
         // Audit endpoints
-        .route("/api/audit", get(handlers::get_audit_log))
-        .route("/api/audit/:id", get(handlers::get_audit_entry))
-        .route("/api/audit/export", post(handlers::export_audit_log))
+        .route("/audit", get(handlers::get_audit_log))
+        .route("/audit/:id", get(handlers::get_audit_entry))
+        .route("/audit/export", post(handlers::export_audit_log))
 
-        // UI endpoint
-        .route("/", get(handlers::serve_ui))
-
-        // Add authentication middleware to all /api routes
+        // Add authentication middleware to all API routes
         .layer(middleware::from_fn_with_state(
             auth_state.clone(),
             auth_middleware,
         ))
+        .with_state(auth_state.clone());
 
-        // Add tracing
+    // Combine public and protected routes
+    Router::new()
+        // Public routes (no authentication required)
+        .route("/health", get(handlers::health_check))
+        .route("/", get(handlers::serve_ui))
+
+        // Protected API routes
+        .nest("/api", api_router)
+
+        // Add tracing to all routes
         .layer(TraceLayer::new_for_http())
-
-        // Add state
-        .with_state(auth_state)
 }
 
 #[cfg(test)]

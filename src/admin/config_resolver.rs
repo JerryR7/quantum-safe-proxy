@@ -77,7 +77,7 @@ pub fn resolve_config(config: Arc<ProxyConfig>) -> AdminResult<ResolvedConfig> {
         name: "client_cert_mode".to_string(),
         value: json!(config.client_cert_mode().to_string()),
         source: map_value_source(config.source("client_cert_mode")),
-        hot_reloadable: true, // Can be changed via ConfigManager
+        hot_reloadable: false, // TLS acceptor created at startup, requires restart
         category: SettingCategory::Authentication,
         description: Some("Client certificate verification mode (required, optional, none)".to_string()),
         security_affecting: true, // Affects client authentication
@@ -88,7 +88,7 @@ pub fn resolve_config(config: Arc<ProxyConfig>) -> AdminResult<ResolvedConfig> {
         name: "cert".to_string(),
         value: json!(config.cert().display().to_string()),
         source: map_value_source(config.source("cert")),
-        hot_reloadable: true, // Can reload certificates
+        hot_reloadable: false, // TLS acceptor created at startup, requires restart
         category: SettingCategory::Security,
         description: Some("Path to primary (PQC/hybrid) TLS certificate".to_string()),
         security_affecting: true,
@@ -98,7 +98,7 @@ pub fn resolve_config(config: Arc<ProxyConfig>) -> AdminResult<ResolvedConfig> {
         name: "key".to_string(),
         value: json!(config.key().display().to_string()),
         source: map_value_source(config.source("key")),
-        hot_reloadable: true, // Can reload certificates
+        hot_reloadable: false, // TLS acceptor created at startup, requires restart
         category: SettingCategory::Security,
         description: Some("Path to primary private key".to_string()),
         security_affecting: true,
@@ -109,7 +109,7 @@ pub fn resolve_config(config: Arc<ProxyConfig>) -> AdminResult<ResolvedConfig> {
             name: "fallback_cert".to_string(),
             value: json!(fallback_cert.display().to_string()),
             source: map_value_source(config.source("fallback_cert")),
-            hot_reloadable: true,
+            hot_reloadable: false, // TLS acceptor created at startup, requires restart
             category: SettingCategory::Security,
             description: Some("Path to fallback (classical) TLS certificate for non-PQC clients".to_string()),
             security_affecting: true,
@@ -121,7 +121,7 @@ pub fn resolve_config(config: Arc<ProxyConfig>) -> AdminResult<ResolvedConfig> {
             name: "fallback_key".to_string(),
             value: json!(fallback_key.display().to_string()),
             source: map_value_source(config.source("fallback_key")),
-            hot_reloadable: true,
+            hot_reloadable: false, // TLS acceptor created at startup, requires restart
             category: SettingCategory::Security,
             description: Some("Path to fallback private key".to_string()),
             security_affecting: true,
@@ -132,7 +132,7 @@ pub fn resolve_config(config: Arc<ProxyConfig>) -> AdminResult<ResolvedConfig> {
         name: "client_ca_cert".to_string(),
         value: json!(config.client_ca_cert().display().to_string()),
         source: map_value_source(config.source("client_ca_cert")),
-        hot_reloadable: true,
+        hot_reloadable: false, // TLS acceptor created at startup, requires restart
         category: SettingCategory::Authentication,
         description: Some("Path to CA certificate for client certificate validation".to_string()),
         security_affecting: true,
@@ -237,11 +237,20 @@ mod tests {
 
     #[test]
     fn test_is_hot_reloadable() {
+        // Performance settings - hot reloadable
         assert!(is_hot_reloadable("log_level"));
         assert!(is_hot_reloadable("buffer_size"));
-        assert!(is_hot_reloadable("client_cert_mode"));
+        assert!(is_hot_reloadable("connection_timeout"));
+
+        // Network settings - NOT hot reloadable (require restart)
         assert!(!is_hot_reloadable("listen"));
         assert!(!is_hot_reloadable("target"));
+
+        // TLS/Auth settings - NOT hot reloadable (TLS acceptor created at startup)
+        assert!(!is_hot_reloadable("client_cert_mode"));
+        assert!(!is_hot_reloadable("cert"));
+        assert!(!is_hot_reloadable("key"));
+        assert!(!is_hot_reloadable("client_ca_cert"));
     }
 
     #[test]

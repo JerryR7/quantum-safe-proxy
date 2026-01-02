@@ -263,3 +263,26 @@ pub fn get_buffer_size() -> usize {
 pub fn get_connection_timeout() -> u64 {
     CONFIG_MANAGER.get_connection_timeout()
 }
+
+/// Save the current configuration to a file
+///
+/// This function saves the current configuration to the specified file path.
+/// This is useful for persisting configuration changes made via Admin API.
+pub fn save_config<P: AsRef<Path>>(path: P) -> Result<()> {
+    use std::fs::File;
+    use std::io::Write;
+
+    let config = CONFIG_MANAGER.get_config();
+    let path = path.as_ref();
+
+    // Serialize configuration to JSON
+    let json = serde_json::to_string_pretty(&config.values)?;
+
+    // Write to file
+    let mut file = File::create(path)?;
+    file.write_all(json.as_bytes())?;
+
+    log::info!("Configuration saved to {}", path.display());
+
+    Ok(())
+}

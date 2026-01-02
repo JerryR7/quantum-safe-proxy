@@ -36,7 +36,7 @@ pub use types::{ProxyConfig, ClientCertMode, parse_socket_addr};
 pub use manager::{
     initialize, get_config, update_config, reload_config, add_listener,
     ConfigChangeEvent, get_buffer_size, get_connection_timeout,
-    is_client_cert_required, is_dynamic_cert_enabled
+    is_client_cert_required, is_dynamic_cert_enabled, save_config
 };
 pub use builder::ConfigBuilder;
 pub use error::{ConfigError, Result};

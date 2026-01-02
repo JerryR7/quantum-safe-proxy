@@ -432,6 +432,22 @@
                     <div id="loading">Loading configuration...</div>
                 </div>
             </div>
+
+            <div class="card">
+                <h2>Service Control</h2>
+                <div class="alert alert-warning">
+                    <strong>⚠️ Restart Required:</strong> TLS certificates, client authentication, and network settings require a restart to take effect.
+                    Hot-reloadable settings (log_level, buffer_size, connection_timeout) apply to new connections immediately.
+                </div>
+                <div style="margin-top: 1rem;">
+                    <button class="btn btn-secondary" onclick="UI.restartService()" style="background: #e74c3c;">
+                        🔄 Restart Service
+                    </button>
+                    <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem;">
+                        Restart will apply pending configuration changes. Active connections will be closed and the proxy will be back online in a few seconds.
+                    </p>
+                </div>
+            </div>
         </div>
 
         <div id="audit" class="tab-content">
@@ -562,6 +578,13 @@
                 return this.request('/audit/export', {
                     method: 'POST',
                     body: JSON.stringify(params),
+                });
+            },
+
+            restartService() {
+                return this.request('/restart', {
+                    method: 'POST',
+                    body: JSON.stringify({}),
                 });
             },
         };
@@ -921,6 +944,27 @@
 
             closeModal(modalId) {
                 document.getElementById(modalId).classList.remove('active');
+            },
+
+            async restartService() {
+                if (!confirm('⚠️ Are you sure you want to restart the service?\n\nThis will:\n• Close all active connections\n• Apply any pending configuration changes\n• Restart the proxy in a few seconds\n\nContinue?')) {
+                    return;
+                }
+
+                try {
+                    const result = await API.restartService();
+
+                    // Show success message
+                    alert('✅ Service restart initiated!\n\nThe proxy is restarting and will be back online in a few seconds.\n\nYou may need to refresh this page in about 5 seconds.');
+
+                    // Auto-reload the page after 8 seconds
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 8000);
+
+                } catch (error) {
+                    this.showError('Failed to restart service: ' + error.message);
+                }
             },
 
             showAlert(message, type) {

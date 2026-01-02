@@ -173,11 +173,17 @@ pub async fn patch_config(
         return Ok(Json(change));
     }
 
-    // Apply changes
-    // TODO: Actually apply the configuration changes via ConfigManager
-    // For now, just log and return success
-
+    // Apply changes to configuration
     let change_id = Uuid::new_v4();
+
+    // Actually apply the configuration changes
+    if let Err(e) = apply_config_changes(&changes) {
+        log::error!("Failed to apply configuration changes: {}", e);
+        return Err(AdminError::Internal(format!(
+            "Failed to apply configuration: {}",
+            e
+        )));
+    }
 
     log::info!(
         "Configuration change {} applied by {} (role: {:?}): {} setting(s) modified",
@@ -507,6 +513,48 @@ pub async fn serve_ui() -> Html<&'static str> {
     Html(crate::admin::html::ui_html())
 }
 
+/// Restart the proxy service (Phase 10: Production hardening)
+pub async fn restart_service(
+    Extension(user): Extension<AuthUser>,
+) -> AdminResult<Json<serde_json::Value>> {
+    use serde_json::json;
+
+    // Require Admin role for restart
+    require_role(&user, Role::Admin)?;
+
+    log::warn!(
+        "Service restart initiated by {} (role: {:?})",
+        user.name,
+        user.role
+    );
+
+    // Log to audit trail
+    log_to_audit(
+        &user,
+        AuditAction::ConfigChange,
+        &[],
+        true,
+        &[],
+        Some("Service restart initiated".to_string()),
+    )?;
+
+    // Return success response first
+    let response = Json(json!({
+        "status": "restarting",
+        "message": "Service restart initiated. The proxy will be back online in a few seconds.",
+        "initiated_by": user.name,
+    }));
+
+    // Spawn a task to exit after a short delay (to allow response to be sent)
+    tokio::spawn(async {
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        log::info!("Exiting process for restart...");
+        std::process::exit(0);
+    });
+
+    Ok(response)
+}
+
 // Helper functions
 
 /// Get current value of a setting
@@ -583,6 +631,133 @@ fn validate_setting_value(setting_name: &str, value: &serde_json::Value) -> Admi
             // Allow other settings for now
         }
     }
+
+    Ok(())
+}
+
+/// Apply configuration changes to the global configuration
+fn apply_config_changes(changes: &[SettingChange]) -> AdminResult<()> {
+    use std::path::PathBuf;
+    use std::net::SocketAddr;
+    use std::str::FromStr;
+    use crate::config::types::{ClientCertMode, ValueSource};
+
+    // Get current config
+    let current_config = config::get_config();
+
+    // Clone the config to modify it
+    let mut new_config = current_config.as_ref().clone();
+
+    // Apply each change
+    for change in changes {
+        let value = &change.after;
+
+        match change.name.as_str() {
+            "listen" => {
+                let addr = value.as_str()
+                    .ok_or_else(|| AdminError::Validation("listen must be a string".to_string()))?;
+                let socket_addr = SocketAddr::from_str(addr)
+                    .map_err(|e| AdminError::Validation(format!("Invalid listen address: {}", e)))?;
+                new_config.values.listen = Some(socket_addr);
+                new_config.sources.insert("listen".to_string(), ValueSource::AdminApi);
+            }
+            "target" => {
+                let addr = value.as_str()
+                    .ok_or_else(|| AdminError::Validation("target must be a string".to_string()))?;
+                let socket_addr = SocketAddr::from_str(addr)
+                    .map_err(|e| AdminError::Validation(format!("Invalid target address: {}", e)))?;
+                new_config.values.target = Some(socket_addr);
+                new_config.sources.insert("target".to_string(), ValueSource::AdminApi);
+            }
+            "log_level" => {
+                let level = value.as_str()
+                    .ok_or_else(|| AdminError::Validation("log_level must be a string".to_string()))?;
+                new_config.values.log_level = Some(level.to_string());
+                new_config.sources.insert("log_level".to_string(), ValueSource::AdminApi);
+            }
+            "buffer_size" => {
+                let size = value.as_u64()
+                    .ok_or_else(|| AdminError::Validation("buffer_size must be a number".to_string()))? as usize;
+                new_config.values.buffer_size = Some(size);
+                new_config.sources.insert("buffer_size".to_string(), ValueSource::AdminApi);
+            }
+            "connection_timeout" => {
+                let timeout = value.as_u64()
+                    .ok_or_else(|| AdminError::Validation("connection_timeout must be a number".to_string()))?;
+                new_config.values.connection_timeout = Some(timeout);
+                new_config.sources.insert("connection_timeout".to_string(), ValueSource::AdminApi);
+            }
+            "client_cert_mode" => {
+                let mode_str = value.as_str()
+                    .ok_or_else(|| AdminError::Validation("client_cert_mode must be a string".to_string()))?;
+                let mode = ClientCertMode::from_str(mode_str)
+                    .map_err(|e| AdminError::Validation(format!("Invalid client_cert_mode: {}", e)))?;
+                new_config.values.client_cert_mode = Some(mode);
+                new_config.sources.insert("client_cert_mode".to_string(), ValueSource::AdminApi);
+            }
+            "cert" => {
+                let path = value.as_str()
+                    .ok_or_else(|| AdminError::Validation("cert must be a string".to_string()))?;
+                new_config.values.cert = Some(PathBuf::from(path));
+                new_config.sources.insert("cert".to_string(), ValueSource::AdminApi);
+            }
+            "key" => {
+                let path = value.as_str()
+                    .ok_or_else(|| AdminError::Validation("key must be a string".to_string()))?;
+                new_config.values.key = Some(PathBuf::from(path));
+                new_config.sources.insert("key".to_string(), ValueSource::AdminApi);
+            }
+            "fallback_cert" => {
+                if value.is_null() {
+                    new_config.values.fallback_cert = None;
+                } else {
+                    let path = value.as_str()
+                        .ok_or_else(|| AdminError::Validation("fallback_cert must be a string or null".to_string()))?;
+                    new_config.values.fallback_cert = Some(PathBuf::from(path));
+                }
+                new_config.sources.insert("fallback_cert".to_string(), ValueSource::AdminApi);
+            }
+            "fallback_key" => {
+                if value.is_null() {
+                    new_config.values.fallback_key = None;
+                } else {
+                    let path = value.as_str()
+                        .ok_or_else(|| AdminError::Validation("fallback_key must be a string or null".to_string()))?;
+                    new_config.values.fallback_key = Some(PathBuf::from(path));
+                }
+                new_config.sources.insert("fallback_key".to_string(), ValueSource::AdminApi);
+            }
+            "client_ca_cert" => {
+                let path = value.as_str()
+                    .ok_or_else(|| AdminError::Validation("client_ca_cert must be a string".to_string()))?;
+                new_config.values.client_ca_cert = Some(PathBuf::from(path));
+                new_config.sources.insert("client_ca_cert".to_string(), ValueSource::AdminApi);
+            }
+            _ => {
+                log::warn!("Ignoring unknown setting: {}", change.name);
+            }
+        }
+    }
+
+    // Update the global configuration
+    config::update_config(new_config.clone())
+        .map_err(|e| AdminError::Internal(format!("Failed to update config: {}", e)))?;
+
+    // Persist configuration to file for restart persistence
+    if let Some(config_file) = &new_config.config_file {
+        if let Err(e) = config::save_config(config_file) {
+            log::warn!("Failed to save config to file: {}", e);
+            // Don't fail the operation, just log the warning
+        }
+    } else {
+        // Default config file path
+        let default_path = std::path::PathBuf::from("/app/config.json");
+        if let Err(e) = config::save_config(&default_path) {
+            log::warn!("Failed to save config to {}: {}", default_path.display(), e);
+        }
+    }
+
+    log::info!("Successfully applied {} configuration change(s)", changes.len());
 
     Ok(())
 }

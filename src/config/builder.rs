@@ -129,10 +129,14 @@ pub fn auto_load(args: Vec<String>) -> Result<ProxyConfig> {
     }
 
     // Get config file path from command line arguments or environment
+    eprintln!("DEBUG: Command line arguments: {:?}", args);
     let config_file = extract_config_file(&args)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_FILE));
+        .unwrap_or_else(|| {
+            eprintln!("DEBUG: extract_config_file returned None, using default: {}", DEFAULT_CONFIG_FILE);
+            PathBuf::from(DEFAULT_CONFIG_FILE)
+        });
 
-    log::info!("Configuration file path: {}", config_file.display());
+    eprintln!("DEBUG: Configuration file path: {}", config_file.display());
 
     if !config_file.exists() {
         log::warn!("Configuration file not found: {}", config_file.display());
@@ -155,7 +159,12 @@ pub fn auto_load(args: Vec<String>) -> Result<ProxyConfig> {
     builder = builder.with_env(ENV_PREFIX);
     builder = builder.with_cli(args);
 
-    let config = builder.build()?;
+    let mut config = builder.build()?;
+
+    // Set the config file path if a file was loaded
+    if config_file.exists() {
+        config.config_file = Some(config_file);
+    }
 
     debug!("Configuration loaded successfully");
     debug!("Listen address: {}", config.listen());
@@ -171,7 +180,8 @@ fn extract_config_file(args: &[String]) -> Option<PathBuf> {
     args_iter.next(); // Skip program name
 
     while let Some(arg) = args_iter.next() {
-        if arg == "--config-file" {
+        // Support both --config and --config-file
+        if arg == "--config-file" || arg == "--config" {
             if let Some(value) = args_iter.next() {
                 return Some(PathBuf::from(value));
             }
