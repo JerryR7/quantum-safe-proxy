@@ -113,4 +113,4 @@ EXPOSE 8443
 ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 
 # Default command
-CMD ["/usr/local/bin/quantum-safe-proxy", "--config", "/app/config/config.toml"]
+CMD ["/usr/local/bin/quantum-safe-proxy", "--config", "/app/config.json"]
